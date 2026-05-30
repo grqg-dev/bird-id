@@ -1,24 +1,65 @@
-# bird-id (prototype)
+# bird-id
 
-Record bird sounds and identify them with Cornell Lab's **BirdNET** model, run
-locally via [`birdnetlib`](https://github.com/joeweiss/birdnetlib). No API key,
-no network — the model runs on your machine.
+**Listen to your backyard and find out which birds are there.**
 
-> Note: There is no free, official Cornell *REST API* for bird-sound ID. BirdNET
-> is the actual Cornell model, and `birdnetlib` is the standard way to run it.
-> `identify()` is kept behind a clean function boundary so it could later be
-> swapped for a hosted HTTP API without touching the recorder or CLI.
+bird-id records audio from a microphone, runs it through Cornell Lab's
+**BirdNET** sound-ID model entirely on your own machine, and keeps a running log
+of every bird it hears — with timestamps, confidence scores, and the audio clip
+itself. Point it at a microphone and leave it running; come back to a database
+(and a web dashboard) of what visited and when.
+
+It does three things:
+
+1. **Identify** — give it any audio file (`.wav`, `.m4a`, …) and it tells you
+   which birds are in it, where in the recording, and how confident it is.
+2. **Monitor** — run it continuously: it records back-to-back segments, IDs each
+   one, and logs results to a local database, keeping the audio for any segment
+   where a bird was heard so you can play it back later.
+3. **Review** — browse the results as a daily digest in the terminal or a local
+   web dashboard with an activity chart, a species list, and playable clips +
+   spectrograms.
+
+Everything runs locally — **no API key, no internet, no cloud**. The BirdNET
+model and your recordings never leave the machine.
+
+> Why local, not "a Cornell API": there is no free, official Cornell *REST API*
+> for bird-sound ID. BirdNET is the actual Cornell model, and
+> [`birdnetlib`](https://github.com/joeweiss/birdnetlib) is the standard way to
+> run it. `identify()` is kept behind a clean function boundary so it could later
+> be swapped for a hosted HTTP API without touching the recorder or CLI.
+
+## What the output looks like
+
+Run on a 2-minute recording from a Santa Barbara backyard, bird-id found four
+species — and because it knows the location, it only considers birds plausible
+there at this time of year:
+
+![Species identified in a Santa Barbara backyard recording: Oak Titmouse, Pacific-slope Flycatcher, American Crow, Dark-eyed Junco](docs/species-detected.png)
+
+```
+Oak Titmouse (Baeolophus inornatus)             peak=0.942  x11 windows  [15-114s]
+Pacific-slope Flycatcher (Empidonax difficilis) peak=0.894  x9  windows  [18-102s]
+American Crow (Corvus brachyrhynchos)           peak=0.489  x8  windows  [12-117s]
+Dark-eyed Junco (Junco hyemalis)                peak=0.322  x4  windows  [0-93s]
+```
+
+Each row is one species: its peak confidence, how many 3-second windows it was
+heard in, and the time span across the recording.
 
 ## Layout
 
-| File            | Chunk                                                            |
-|-----------------|-----------------------------------------------------------------|
-| `recorder.py`   | Capture mic audio → wav (48 kHz mono). Knows nothing about ID.   |
-| `identifier.py` | `identify(wav_path)` → detections via BirdNET. Never uses mic.   |
-| `birdid.py`     | CLI gluing them: `record`, `identify`, `listen`.                 |
+| File            | Responsibility                                                       |
+|-----------------|---------------------------------------------------------------------|
+| `recorder.py`   | Capture mic audio → wav (48 kHz mono), with a silence guard. macOS.  |
+| `identifier.py` | `identify(wav)` → detections via BirdNET. Mic-free, cached model.    |
+| `storage.py`    | SQLite store (segments + detections) and the queries over it.       |
+| `config.py`     | Load `config.json`; resolve values flag → config → default.         |
+| `dashboard.py`  | Offline Flask web UI (charts, species table, clips, spectrograms).  |
+| `birdid.py`     | The CLI that wires it together.                                      |
 
-The two chunks are independent: `identify` takes a file in and gives detections
-out, so you can iterate on it with a fixed local file and never touch the mic.
+The pieces are deliberately decoupled: `identify` takes a file in and gives
+detections out, so you can iterate on it with a fixed local file and never touch
+the mic. See `AGENTS.md` for the design rules and contributor notes.
 
 ## Setup
 
@@ -95,8 +136,9 @@ gap between segments is fine, and the loop self-heals across laptop sleep.
 - Ctrl-C stops cleanly and prints a final tally.
 
 Tip: BirdNET's default model also has non-bird classes (Human, Dog, Gun, etc.)
-and will emit low-confidence false birds from ambient noise. Use a higher
-`-c/--min-conf` (~0.5) and `--lat/--lon` for trustworthy outdoor results.
+and will emit low-confidence false birds from ambient noise. The `config.json`
+location filter plus `min_conf` (currently 0.3) keep results trustworthy; raise
+the threshold if you still see junk.
 
 ## Configuration (set location once)
 
@@ -104,13 +146,15 @@ Copy `config.example.json` to `config.json` and set your location. Resolution
 order for any value is **CLI flag → config.json → built-in default**.
 
 ```json
-{ "lat": 34.4208, "lon": -119.6982, "min_conf": 0.5,
+{ "lat": 34.4208, "lon": -119.6982, "min_conf": 0.3,
   "db": "birdid.db", "recordings_dir": "recordings" }
 ```
 
 With `lat`/`lon` set, BirdNET restricts predictions to species plausible at your
 location and time of year — this is the biggest accuracy win (no more Whooper
-Swans in a California backyard). Current config is set to Santa Barbara, CA.
+Swans in a California backyard). The committed config is set to Santa Barbara, CA
+with `min_conf` 0.3, which keeps confirmed local residents (e.g. juncos, crows)
+while dropping noise-floor false positives.
 
 ## Daily digest
 
@@ -130,13 +174,14 @@ species are **new to your records**.
 
 Today's overview + hourly activity chart, all-time species table, and a feed of
 recent detections with a play button and an on-the-fly **spectrogram** per clip.
-Server-rendered (no internet/CDN needed) so it runs fine on a headless Pi —
+Server-rendered (no internet/CDN needed) so it runs fine on a headless machine —
 use `--host 0.0.0.0` to reach it from another device on your network.
 
 ## Useful options
 
-- `-c / --min-conf` — confidence threshold (0–1); default from config (0.5).
+- `-c / --min-conf` — confidence threshold (0–1); default from config (0.3).
 - `--lat` / `--lon` — override the configured location for one run.
+- `-d / --device` — mic device index (see `recorder.py --list-devices`).
 
 ## Status / next ideas
 
@@ -148,6 +193,7 @@ use `--host 0.0.0.0` to reach it from another device on your network.
 - [x] Location/season filter via `config.json` (set to Santa Barbara, CA)
 - [x] Daily `digest` (species, timing, new-to-you birds)
 - [x] Web `dashboard` (overview, hourly chart, clips + spectrograms)
-- [ ] Raspberry Pi deployment: ALSA capture path in `recorder.py` (currently macOS/AVFoundation only)
+- [ ] Always-on deployment on a Mac mini with a USB mic (`device` config field)
+- [ ] Dashboard seek-to-clip: jump playback to the detection's 3s window
 - [ ] Rare/new-species alerts (desktop or email)
 - [ ] Swap-in HTTP backend behind `identify()` if a hosted API is ever wanted
