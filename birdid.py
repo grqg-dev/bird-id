@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+"""bird-id prototype CLI.
+
+Two independent chunks wired together:
+  record   - capture audio from the mic to a wav file        (recorder.py)
+  identify - run BirdNET on a wav file                        (identifier.py)
+  listen   - record, then identify (the live end-to-end path)
+
+The identify path is mic-free, so the dev test loop is just:
+    python birdid.py identify ~/Desktop/bird.wav
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from datetime import datetime
+from pathlib import Path
+
+import config
+import recorder
+import identifier
+import storage
+
+
+def _print_detections(detections, summary: bool = False) -> None:
+    if not detections:
+        print("No birds detected above the confidence threshold.")
+        return
+    if summary:
+        rows = identifier.summarize(detections)
+        for s in rows:
+            print(
+                f"  {s.common_name} ({s.scientific_name})  "
+                f"peak={s.max_confidence:.3f}  x{s.count} windows  "
+                f"[{s.first_time:.0f}-{s.last_time:.0f}s]"
+            )
+        print(f"{len(rows)} species, {len(detections)} window detection(s).")
+        return
+    for d in detections:
+        print(
+            f"  {d.common_name} ({d.scientific_name})  "
+            f"conf={d.confidence:.3f}  [{d.start_time:.0f}-{d.end_time:.0f}s]"
+        )
+    print(f"{len(detections)} detection(s).")
+
+
+def cmd_record(args) -> int:
+    print(f"Recording {args.seconds}s from device {args.device} -> {args.out} ...")
+    result = recorder.record(args.seconds, args.out, device=args.device)
+    print(
+        f"Saved {result.path} ({result.seconds:.1f}s, "
+        f"mean {result.mean_volume_dbfs:.1f} dBFS, peak {result.max_volume_dbfs:.1f} dBFS)"
+    )
+    return 0
+
+
+def _resolve_id_params(args):
+    """Resolve min_conf/lat/lon from flags > config > defaults, and report filter."""
+    cfg = args.cfg
+    min_conf = config.resolve(args.min_conf, "min_conf", cfg)
+    lat = config.resolve(args.lat, "lat", cfg)
+    lon = config.resolve(args.lon, "lon", cfg)
+    loc = f", location filter @ ({lat}, {lon})" if (lat is not None and lon is not None) else ""
+    return min_conf, lat, lon, loc
+
+
+def cmd_identify(args) -> int:
+    min_conf, lat, lon, loc = _resolve_id_params(args)
+    print(f"Analyzing {args.wav} (min_conf={min_conf}{loc}) ...")
+    detections = identifier.identify(args.wav, min_conf=min_conf, lat=lat, lon=lon)
+    _print_detections(detections, summary=args.summary)
+    return 0
+
+
+def cmd_listen(args) -> int:
+    min_conf, lat, lon, loc = _resolve_id_params(args)
+    print(f"Recording {args.seconds}s from device {args.device} -> {args.out} ...")
+    result = recorder.record(args.seconds, args.out, device=args.device)
+    print(f"Saved {result.path} (peak {result.max_volume_dbfs:.1f} dBFS). Identifying{loc} ...")
+    detections = identifier.identify(result.path, min_conf=min_conf, lat=lat, lon=lon)
+    _print_detections(detections)
+    return 0
+
+
+def cmd_monitor(args) -> int:
+    """Continuous loop: every interval, record -> identify -> store to the DB.
+
+    Sequential by design (no threading): a few seconds of processing gap between
+    segments is fine, and a plain loop self-heals across laptop sleep. The cached
+    BirdNET model is reused across iterations because we stay in one process.
+    """
+    # Line-buffer stdout so per-segment progress shows immediately even when the
+    # monitor's output is redirected to a file (block-buffered by default).
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
+
+    min_conf, lat, lon, loc = _resolve_id_params(args)
+    db_path = config.resolve(args.db, "db", args.cfg)
+    rec_dir = Path(config.resolve(args.dir, "recordings_dir", args.cfg)).expanduser()
+    conn = storage.connect(db_path)
+    rec_dir.mkdir(parents=True, exist_ok=True)
+    interval_s = args.minutes * 60.0
+
+    print(
+        f"Monitoring: {args.minutes:g}-min segments -> {db_path} "
+        f"(min_conf={min_conf}{loc}). Ctrl-C to stop.\n"
+    )
+    segment_no = 0
+    try:
+        while True:
+            segment_no += 1
+            started_at = datetime.now()
+            wav_path = rec_dir / f"seg_{started_at:%Y%m%d_%H%M%S}.wav"
+            try:
+                rec = recorder.record(interval_s, wav_path, device=args.device)
+            except recorder.RecordingError as e:
+                print(f"[{started_at:%H:%M:%S}] recording failed: {e}", file=sys.stderr)
+                return 1  # a recording failure is persistent (mic/permission) — stop
+            ended_at = datetime.now()
+
+            detections = identifier.identify(rec.path, min_conf=min_conf,
+                                             lat=lat, lon=lon)
+
+            # Retention: keep audio only for segments that found something.
+            kept_path = str(rec.path)
+            if not detections:
+                rec.path.unlink(missing_ok=True)
+                kept_path = None
+
+            storage.record_segment(
+                conn,
+                started_at=started_at,
+                ended_at=ended_at,
+                duration=rec.seconds,
+                detections=detections,
+                wav_path=kept_path,
+                mean_dbfs=rec.mean_volume_dbfs,
+                max_dbfs=rec.max_volume_dbfs,
+            )
+
+            stamp = started_at.strftime("%H:%M:%S")
+            if detections:
+                species = sorted({d.common_name for d in detections})
+                print(f"[{stamp}] seg {segment_no}: {len(detections)} hit(s) — "
+                      f"{', '.join(species)}")
+            else:
+                print(f"[{stamp}] seg {segment_no}: nothing detected (audio discarded)")
+    except KeyboardInterrupt:
+        print("\nStopping. Final tally:")
+        cmd_stats(args, conn=conn)
+    finally:
+        conn.close()
+    return 0
+
+
+def cmd_stats(args, conn=None) -> int:
+    own = conn is None
+    db_path = config.resolve(args.db, "db", args.cfg)
+    if own:
+        conn = storage.connect(db_path)
+    try:
+        t = storage.totals(conn)
+        if not t["segments"]:
+            print(f"No data yet in {db_path}.")
+            return 0
+        print(f"\n{t['segments']} segments, {t['detections']} detections, "
+              f"{t['species']} species  ({t['first_segment']} → {t['last_segment']})")
+        for r in storage.species_summary(conn):
+            print(f"  {r['common_name']} ({r['scientific_name']})  "
+                  f"peak={r['peak_conf']:.3f}  x{r['windows']}  "
+                  f"[{r['first_heard']} → {r['last_heard']}]")
+    finally:
+        if own:
+            conn.close()
+    return 0
+
+
+def cmd_digest(args) -> int:
+    day = args.date or datetime.now().strftime("%Y-%m-%d")
+    db_path = config.resolve(args.db, "db", args.cfg)
+    conn = storage.connect(db_path)
+    try:
+        ov = storage.day_overview(conn, day)
+        print(f"\n🐦 Daily digest — {day}")
+        if not ov["detections"]:
+            print("  No detections recorded this day.")
+            return 0
+
+        first = ov["first_heard"][11:16] if ov["first_heard"] else "?"
+        last = ov["last_heard"][11:16] if ov["last_heard"] else "?"
+        hourly = storage.day_hourly(conn, day)
+        peak = max(hourly, key=lambda r: r["n"]) if hourly else None
+        peak_str = f"{peak['hour']}:00 ({peak['n']} detections)" if peak else "n/a"
+
+        print(f"  {ov['species']} species, {ov['detections']} detections")
+        print(f"  First bird {first}, last {last}, busiest hour {peak_str}")
+
+        new = storage.new_species_on(conn, day)
+        if new:
+            print(f"  ✨ New to your records: {', '.join(new)}")
+
+        print("\n  Species (by peak confidence):")
+        for r in storage.day_species(conn, day):
+            flag = "  ✨NEW" if r["common_name"] in new else ""
+            print(f"    {r['common_name']:<28} peak={r['peak_conf']:.3f}  "
+                  f"x{r['windows']:<3} first {r['first_heard'][11:16]}{flag}")
+    finally:
+        conn.close()
+    return 0
+
+
+def cmd_dashboard(args) -> int:
+    import dashboard  # imported here so other commands don't pay Flask's import cost
+    dashboard.main(host=args.host, port=args.port)
+    return 0
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="birdid", description="Record and identify bird sounds.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_rec = sub.add_parser("record", help="record audio from the mic to a wav file")
+    p_rec.add_argument("out", nargs="?", default="recordings/sample.wav")
+    p_rec.add_argument("-t", "--seconds", type=float, default=5.0)
+    p_rec.add_argument("-d", "--device", default="0")
+    p_rec.set_defaults(func=cmd_record)
+
+    p_id = sub.add_parser("identify", help="identify birds in an existing wav file")
+    p_id.add_argument("wav")
+    p_id.add_argument("-c", "--min-conf", type=float, help="min confidence (overrides config)")
+    p_id.add_argument("--lat", type=float)
+    p_id.add_argument("--lon", type=float)
+    p_id.add_argument(
+        "-s", "--summary", action="store_true",
+        help="roll per-window hits up into one row per species (use for big files)",
+    )
+    p_id.set_defaults(func=cmd_identify)
+
+    p_listen = sub.add_parser("listen", help="record from the mic, then identify")
+    p_listen.add_argument("out", nargs="?", default="recordings/listen.wav")
+    p_listen.add_argument("-t", "--seconds", type=float, default=5.0)
+    p_listen.add_argument("-d", "--device", default="0")
+    p_listen.add_argument("-c", "--min-conf", type=float, help="min confidence (overrides config)")
+    p_listen.add_argument("--lat", type=float)
+    p_listen.add_argument("--lon", type=float)
+    p_listen.set_defaults(func=cmd_listen)
+
+    p_mon = sub.add_parser("monitor", help="continuously record N-min segments and store results")
+    p_mon.add_argument("-m", "--minutes", type=float, default=5.0, help="segment length in minutes")
+    p_mon.add_argument("-d", "--device", default="0")
+    p_mon.add_argument("-c", "--min-conf", type=float, help="min confidence (overrides config)")
+    p_mon.add_argument("--db", help="SQLite database path (overrides config)")
+    p_mon.add_argument("--dir", help="where segment wavs are written (overrides config)")
+    p_mon.add_argument("--lat", type=float)
+    p_mon.add_argument("--lon", type=float)
+    p_mon.set_defaults(func=cmd_monitor)
+
+    p_stats = sub.add_parser("stats", help="show running results from the database")
+    p_stats.add_argument("--db", help="SQLite database path (overrides config)")
+    p_stats.set_defaults(func=cmd_stats)
+
+    p_dig = sub.add_parser("digest", help="daily summary: species, timing, new birds")
+    p_dig.add_argument("--date", help="day as YYYY-MM-DD (default: today)")
+    p_dig.add_argument("--db", help="SQLite database path (overrides config)")
+    p_dig.set_defaults(func=cmd_digest)
+
+    p_dash = sub.add_parser("dashboard", help="launch the local web dashboard")
+    p_dash.add_argument("--host", default="127.0.0.1")
+    p_dash.add_argument("--port", type=int, default=8080)
+    p_dash.set_defaults(func=cmd_dashboard)
+
+    args = parser.parse_args(argv)
+    args.cfg = config.load()
+    try:
+        return args.func(args)
+    except (recorder.RecordingError, FileNotFoundError) as e:
+        print(f"\nError: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

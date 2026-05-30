@@ -1,0 +1,11 @@
+.venv/
+recordings/
+__pycache__/
+*.pyc
+
+# runtime data — not source
+birdid.db
+birdid.db-wal
+birdid.db-shm
+*.wav
+*.m4a
