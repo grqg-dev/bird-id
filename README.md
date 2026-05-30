@@ -173,9 +173,11 @@ species are **new to your records**.
 ```
 
 Today's overview + hourly activity chart, all-time species table, and a feed of
-recent detections with a play button and an on-the-fly **spectrogram** per clip.
-Server-rendered (no internet/CDN needed) so it runs fine on a headless machine —
-use `--host 0.0.0.0` to reach it from another device on your network.
+recent detections. Each detection has a play button and an on-the-fly
+**spectrogram** that both **jump straight to that bird's 3-second window** (via an
+HTML media fragment + a windowed spectrogram render) — click a junco, hear the
+junco. Server-rendered (no internet/CDN needed) so it runs fine on a headless
+machine — use `--host 0.0.0.0` to reach it from another device on your network.
 
 ## Useful options
 
@@ -193,7 +195,7 @@ use `--host 0.0.0.0` to reach it from another device on your network.
 - [x] Location/season filter via `config.json` (set to Santa Barbara, CA)
 - [x] Daily `digest` (species, timing, new-to-you birds)
 - [x] Web `dashboard` (overview, hourly chart, clips + spectrograms)
+- [x] Dashboard seek-to-clip: playback + spectrogram jump to the detection's 3s window
 - [ ] Always-on deployment on a Mac mini with a USB mic (`device` config field)
-- [ ] Dashboard seek-to-clip: jump playback to the detection's 3s window
 - [ ] Rare/new-species alerts (desktop or email)
 - [ ] Swap-in HTTP backend behind `identify()` if a hosted API is ever wanted

@@ -23,7 +23,7 @@ import matplotlib
 matplotlib.use("Agg")  # headless / no display
 import matplotlib.pyplot as plt
 import numpy as np
-from flask import Flask, Response, abort, render_template_string, send_file
+from flask import Flask, Response, abort, render_template_string, request, send_file
 
 import config
 import storage
@@ -96,8 +96,10 @@ PAGE = """
       <tr><td class="num">{{ d.heard_at.replace("T"," ") }}</td>
       <td>{{ d.common_name }}</td>
       <td class="num">{{ "%.3f"|format(d.confidence) }}</td>
-      <td>{% if d.wav_path %}<audio controls preload="none" src="/audio/{{ d.segment_id }}"></audio>{% else %}<span class="muted">discarded</span>{% endif %}</td>
-      <td>{% if d.wav_path %}<a href="/spectrogram/{{ d.segment_id }}.png" target="_blank"><img class="spec" src="/spectrogram/{{ d.segment_id }}.png"></a>{% endif %}</td></tr>
+      {% set frag = "#t=%.1f,%.1f"|format(d.start_time, d.end_time) %}
+      {% set qs = "?start=%.1f&end=%.1f"|format(d.start_time, d.end_time) %}
+      <td>{% if d.wav_path %}<audio controls preload="none" src="/audio/{{ d.segment_id }}{{ frag }}"></audio>{% else %}<span class="muted">discarded</span>{% endif %}</td>
+      <td>{% if d.wav_path %}<a href="/spectrogram/{{ d.segment_id }}.png{{ qs }}" target="_blank"><img class="spec" src="/spectrogram/{{ d.segment_id }}.png{{ qs }}"></a>{% endif %}</td></tr>
     {% else %}<tr><td colspan=5 class="muted">No detections yet — run <code>birdid.py monitor</code>.</td></tr>{% endfor %}
     </table>
   </div>
@@ -162,7 +164,15 @@ def spectrogram(segment_id: int):
     import librosa  # imported lazily so the rest of the app starts fast
     import librosa.display
 
-    y, sr = librosa.load(seg["wav_path"], sr=None)
+    # Optional window: render just the detection's slice instead of the whole segment.
+    start = request.args.get("start", type=float)
+    end = request.args.get("end", type=float)
+    offset = start if start is not None else 0.0
+    duration = (end - start) if (start is not None and end is not None and end > start) else None
+
+    y, sr = librosa.load(seg["wav_path"], sr=None, offset=offset, duration=duration)
+    if y.size == 0:  # window outside the audio — fall back to the whole segment
+        y, sr = librosa.load(seg["wav_path"], sr=None)
     S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=sr // 2)
     S_db = librosa.power_to_db(S, ref=np.max)
 
