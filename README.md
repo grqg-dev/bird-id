@@ -25,6 +25,18 @@ with *your* birds.
 It uses Cornell Lab's BirdNET model, running entirely on your own computer. Your
 recordings never leave the machine.
 
+## Bird illustrations
+
+The Bird-Dex cards show a realistic illustration for each common local species
+(when we have one). We made them with **Google Gemini**: paste a prompt, get back
+a grid of field-guide-style birds on a white background, then slice the sheet
+into individual images in `realistic-sprites/`.
+
+Gemini doesn't always paint the right bird in every cell, so some illustrations
+were pulled from a second supplement sheet or generated one bird at a time. The
+full Gemini prompts, species list, and chopping notes are in
+[`docs/realistic-sprites-prompt.md`](docs/realistic-sprites-prompt.md).
+
 ## How it works
 
 1. **Listen** — bird-id records audio from a microphone in short chunks.
