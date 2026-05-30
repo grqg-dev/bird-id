@@ -192,6 +192,8 @@ spectrograms or audio:
 Everything is server-rendered HTML/CSS (no CDN, no JS chart libraries) so it
 works on a headless Pi with no internet.
 
+> Abandoned 16-bit pixel sprite experiments live on branch `retro-sprites` (gitignored locally as `sprites/`).
+
 ## Useful options
 
 - `-c / --min-conf` — confidence threshold (0–1); default from config (0.3).

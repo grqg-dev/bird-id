@@ -2,7 +2,7 @@
 
 Ranked by BirdNET's location/season meta-model for Santa Barbara, CA (lat 34.4208, lon -119.6982) in late May. `birdnet_score` is BirdNET's own likelihood for the area/time of year. Machine-readable copy: `birds.json`.
 
-`slug` is the intended sprite filename stem (`sprites/<slug>.png`) so the dashboard can map a detected species to its sprite.
+`slug` is the intended sprite filename stem (`realistic-sprites/<slug>.png`) so the dashboard can map a detected species to its sprite.
 
 | # | Common name | Scientific name | slug | score |
 |--:|---|---|---|--:|
