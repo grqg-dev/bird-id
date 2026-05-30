@@ -49,11 +49,14 @@ You can also point it at an existing recording file if you already have one.
 
 ## Get started
 
-Requires **Python 3.12** on macOS (Apple Silicon tested).
+Requires **Python 3.12** on macOS (Apple Silicon tested). **Intel Macs** (e.g. an
+older Mac mini) must use `requirements-intel-mac.txt` instead — pip only ships
+TensorFlow through 2.16.2 on x86_64.
 
 ```bash
 python3.12 -m venv .venv
-./.venv/bin/python -m pip install -r requirements.txt
+./.venv/bin/python -m pip install -r requirements.txt          # Apple Silicon
+./.venv/bin/python -m pip install -r requirements-intel-mac.txt  # Intel Mac
 ```
 
 Copy `config.example.json` to `config.json` and set your latitude/longitude so

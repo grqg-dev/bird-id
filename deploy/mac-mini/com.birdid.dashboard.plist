@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.birdid.dashboard</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/matt/bird-id/.venv/bin/python</string>
+		<string>/Users/matt/bird-id/birdid.py</string>
+		<string>dashboard</string>
+		<string>--host</string>
+		<string>0.0.0.0</string>
+		<string>--port</string>
+		<string>8080</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/matt/bird-id</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/Users/matt/bird-id/logs/dashboard.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/matt/bird-id/logs/dashboard.err</string>
+</dict>
+</plist>
