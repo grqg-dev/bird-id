@@ -13,8 +13,10 @@ The identify path is mic-free, so the dev test loop is just:
 from __future__ import annotations
 
 import argparse
+import shutil
+import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import config
@@ -65,11 +67,73 @@ def _resolve_id_params(args):
     return min_conf, lat, lon, loc
 
 
+def _audio_duration(path: Path) -> float:
+    import librosa
+
+    return float(librosa.get_duration(path=str(path)))
+
+
+def _import_to_wav(src: Path, dest_dir: Path, started_at: datetime) -> Path:
+    """Copy or convert source audio to a 48 kHz mono wav under dest_dir."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"import_{started_at:%Y%m%d_%H%M%S}.wav"
+    if src.suffix.lower() == ".wav":
+        shutil.copy2(src, dest)
+        return dest
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise FileNotFoundError("ffmpeg not found on PATH (needed to convert non-wav imports).")
+    proc = subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(src),
+         "-ac", "1", "-ar", "48000", "-y", str(dest)],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed to convert {src}:\n{proc.stderr.strip()}")
+    return dest
+
+
 def cmd_identify(args) -> int:
     min_conf, lat, lon, loc = _resolve_id_params(args)
     print(f"Analyzing {args.wav} (min_conf={min_conf}{loc}) ...")
     detections = identifier.identify(args.wav, min_conf=min_conf, lat=lat, lon=lon)
     _print_detections(detections, summary=args.summary)
+
+    if args.save:
+        src = Path(args.wav).expanduser()
+        duration = _audio_duration(src)
+        if args.when:
+            started_at = datetime.fromisoformat(args.when)
+        else:
+            ended_at = datetime.fromtimestamp(src.stat().st_mtime)
+            started_at = ended_at - timedelta(seconds=duration)
+        ended_at = started_at + timedelta(seconds=duration)
+
+        db_path = config.resolve(args.db, "db", args.cfg)
+        rec_dir = Path(config.resolve(args.dir, "recordings_dir", args.cfg)).expanduser()
+        kept_path = _import_to_wav(src, rec_dir, started_at) if detections else None
+
+        conn = storage.connect(db_path)
+        try:
+            seg_id = storage.record_segment(
+                conn,
+                started_at=started_at,
+                ended_at=ended_at,
+                duration=duration,
+                detections=detections,
+                wav_path=str(kept_path) if kept_path else None,
+            )
+        finally:
+            conn.close()
+
+        if detections:
+            print(f"Saved segment {seg_id} ({len(detections)} detections, "
+                  f"{duration:.0f}s) -> {db_path}")
+        else:
+            print(f"Saved empty segment {seg_id} -> {db_path} (no audio kept).")
+
     return 0
 
 
@@ -236,6 +300,13 @@ def main(argv=None) -> int:
     p_id.add_argument(
         "-s", "--summary", action="store_true",
         help="roll per-window hits up into one row per species (use for big files)",
+    )
+    p_id.add_argument("--save", action="store_true", help="write results to the database")
+    p_id.add_argument("--db", help="SQLite database path (overrides config)")
+    p_id.add_argument("--dir", help="where imported wavs are written (overrides config)")
+    p_id.add_argument(
+        "--when",
+        help="segment start as ISO datetime (default: file mtime minus duration)",
     )
     p_id.set_defaults(func=cmd_identify)
 
