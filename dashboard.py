@@ -15,8 +15,10 @@ Run:
 from __future__ import annotations
 
 import io
+import json
 import os
 from datetime import datetime
+from pathlib import Path
 
 import matplotlib
 
@@ -28,83 +30,159 @@ from flask import Flask, Response, abort, render_template_string, request, send_
 import config
 import storage
 
+_ROOT = Path(__file__).resolve().parent
+_SPRITES_DIR = _ROOT / "realistic-sprites"
+_BIRDS_JSON = _ROOT / "docs" / "birds.json"
+
 app = Flask(__name__)
 _CFG = config.load()
+
+
+def _slug_map() -> dict[str, str]:
+    with _BIRDS_JSON.open() as f:
+        return {b["common_name"]: b["slug"] for b in json.load(f)}
+
+
+def _sprite_slug(common_name: str, slugs: dict[str, str]) -> str | None:
+    slug = slugs.get(common_name)
+    if slug and (_SPRITES_DIR / f"{slug}.png").is_file():
+        return slug
+    return None
 
 
 def _db():
     return storage.connect(_CFG["db"])
 
 
+def _clip_wav_bytes(wav_path: str, start: float, end: float) -> bytes:
+    """Return a wav containing only [start, end) seconds of the source file."""
+    import soundfile as sf
+
+    info = sf.info(wav_path)
+    sr = info.samplerate
+    start_frame = max(0, int(start * sr))
+    end_frame = min(info.frames, int(end * sr))
+    if end_frame <= start_frame:
+        raise ValueError("empty clip window")
+
+    data, _ = sf.read(wav_path, start=start_frame, stop=end_frame, dtype="float32")
+    buf = io.BytesIO()
+    sf.write(buf, data, sr, format="WAV")
+    buf.seek(0)
+    return buf.read()
+
+
 PAGE = """
-<!doctype html><html><head><meta charset="utf-8"><title>bird-id</title>
+<!doctype html><html><head><meta charset="utf-8"><title>Bird-Dex</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#0f1419;color:#e6e6e6}
-  header{background:#1a8c5a;padding:16px 24px}
-  header h1{margin:0;font-size:20px}
-  .wrap{max-width:920px;margin:0 auto;padding:24px}
-  .card{background:#1b2027;border-radius:10px;padding:16px 20px;margin-bottom:20px}
-  h2{font-size:15px;color:#7fd1a8;margin:0 0 12px;text-transform:uppercase;letter-spacing:.5px}
-  table{width:100%;border-collapse:collapse;font-size:14px}
-  td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #2a313a}
-  th{color:#9aa7b3;font-weight:600}
-  .num{color:#9aa7b3;font-variant-numeric:tabular-nums}
-  .bars{display:flex;align-items:flex-end;gap:3px;height:90px}
-  .bar{flex:1;background:#1a8c5a;border-radius:2px 2px 0 0;min-height:2px}
-  .bar span{display:block;text-align:center;font-size:10px;color:#6b7785;margin-top:90px}
-  .hr{display:flex;gap:3px;margin-top:4px}.hr div{flex:1;text-align:center;font-size:9px;color:#6b7785}
-  .new{color:#ffd166;font-weight:600}
-  audio{height:28px;vertical-align:middle}
-  img.spec{height:48px;border-radius:4px;vertical-align:middle;background:#000}
-  .big{font-size:26px;font-weight:700}.muted{color:#9aa7b3;font-size:13px}
-  a{color:#7fd1a8}
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;--cream:#f3efe2;--ink:#21232a;
+        --gold:#ffcf3f;--grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8}
+  *{box-sizing:border-box}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);min-height:100vh;
+       background:#fff}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .lbl{font-size:11px;letter-spacing:1.5px;color:#8a857a}
+
+  .wrap{max-width:1280px;margin:0 auto;padding:28px 22px}
+  .when{margin-left:auto;text-align:right;color:#8a857a}
+  .when b{display:block;font-size:13px;letter-spacing:1.5px;color:var(--ink);font-weight:700}
+
+  /* summary strip */
+  .screen-bar{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 20px;margin-bottom:22px;
+              display:flex;gap:26px;align-items:center;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .screen-bar .count{font-size:28px;font-weight:800;color:var(--ink);letter-spacing:-.5px}
+  .screen-bar .lbl{color:#8a857a}
+  .screen-bar .seg{border-left:1px solid var(--border);padding-left:26px}
+
+  /* dex grid — ~3 cards per row on desktop */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:1100px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:680px){.grid{grid-template-columns:1fr}}
+  .entry{background:#fff;border-radius:12px;border:1px solid #e2e0d8;overflow:hidden;
+         box-shadow:0 1px 4px rgba(0,0,0,.08);display:flex;flex-direction:column}
+  .entry .top{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
+              background:#f7f6f2;border-bottom:1px solid #eceae3}
+  .no{font-weight:800;color:var(--ink);letter-spacing:1px}
+  .sprite{background:#fff;border-bottom:1px solid #eceae3}
+  .sprite img.art{display:block;width:100%;height:150px;object-fit:contain;padding:10px 14px 6px}
+  .spectro{background:#0d1b14}
+  .spectro img{display:block;width:100%;height:88px;object-fit:cover}
+  .play{background:#f7f6f2;padding:8px 10px;border-top:1px solid #eceae3}
+  .play audio{display:block;width:100%;height:32px}
+  .body{padding:10px 12px 12px}
+  .name{font-size:17px;font-weight:800;margin:0;letter-spacing:.3px}
+  .latin{font-style:italic;color:#7a766a;font-size:12px;margin:1px 0 9px}
+  .cp{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .cp .barbg{flex:1;height:8px;background:#dcd7c6;border-radius:5px;overflow:hidden}
+  .cp .barfill{height:100%;border-radius:5px}
+  .cp .val{font-weight:800;font-size:13px}
+  .meta{display:flex;justify-content:space-between;font-size:11px;color:#8a857a;letter-spacing:.5px}
+  .empty{background:#f7f6f2;border:1px solid #e2e0d8;border-radius:12px;padding:46px;text-align:center;color:#7a766a;font-size:15px}
+  .modes{display:flex;gap:8px;margin-bottom:14px}
+  .modes a{font-size:12px;letter-spacing:.5px;text-decoration:none;padding:6px 12px;border-radius:8px;
+           border:1px solid var(--border);color:#7a766a;background:#fff}
+  .modes a.on{background:var(--surface);border-color:#d7d2c0;color:var(--ink);font-weight:700}
+  .modes a:hover{border-color:#c8c4ba;color:var(--ink);background:var(--surface)}
+  .no-art{display:flex;align-items:center;justify-content:center;height:150px;padding:8px 12px;
+          color:#b0aca2;font-size:12px;letter-spacing:.5px;text-align:center}
+  .gallery .grid{grid-template-columns:repeat(3,1fr);gap:14px}
+  .gallery .sprite img.art{height:140px;padding:10px 12px 8px}
+  .gallery .sprite{border-bottom:none}
 </style></head><body>
-<header><h1>🐦 bird-id — {{ day }}</h1></header>
+
 <div class="wrap">
-
-  <div class="card">
-    <h2>Today</h2>
+  <div class="modes mono">
+    <a href="/" class="{{ 'on' if mode == 'dex' else '' }}">Full dex</a>
+    <a href="/?mode=gallery" class="{{ 'on' if mode == 'gallery' else '' }}">Gallery</a>
+  </div>
+  <div class="screen-bar">
+    <div><div class="count mono">Nº {{ "%03d"|format(total) }}</div><div class="lbl">Species discovered</div></div>
     {% if ov.detections %}
-    <span class="big">{{ ov.species }}</span> <span class="muted">species,
-    {{ ov.detections }} detections · first {{ first }} · last {{ last }} · busiest {{ peak }}</span>
-    {% if new %}<p class="new">✨ New to your records: {{ new|join(", ") }}</p>{% endif %}
-    <div class="bars">
-      {% for h in hours %}<div class="bar" style="height:{{ h.pct }}%" title="{{h.hour}}:00 — {{h.n}}"></div>{% endfor %}
+    <div class="seg"><div class="count mono">{{ ov.detections }}</div><div class="lbl">Detections today</div></div>
+    <div class="seg"><div class="count mono">{{ ov.species }}</div><div class="lbl">Seen today · busiest {{ peak }}</div></div>
+    {% else %}<div class="seg lbl">No sightings logged today yet</div>{% endif %}
+    <div class="when"><b>Bird-Dex</b>Santa Barbara · {{ day }}</div>
+  </div>
+
+  {% if dex %}
+  <div class="grid{{ ' gallery' if mode == 'gallery' else '' }}">
+    {% for e in dex %}
+    {% set qs = "?start=%.1f&end=%.1f"|format(e.start_time, e.end_time) %}
+    {% set pct = (e.peak_conf*100)|round|int %}
+    {% set col = "#46c66b" if e.peak_conf>=0.6 else ("#e0a92a" if e.peak_conf>=0.4 else "#d83a36") %}
+    <div class="entry">
+      <div class="top"><span class="no mono">Nº {{ "%03d"|format(loop.index) }}</span></div>
+      <div class="sprite">
+        {% if e.sprite_slug %}
+        <img class="art" loading="lazy" src="/sprite/{{ e.sprite_slug }}.png" alt="{{ e.common_name }}">
+        {% elif mode == 'gallery' %}
+        <div class="no-art lbl">NO ILLUSTRATION</div>
+        {% endif %}
+        {% if mode != 'gallery' and e.wav_path %}
+        <div class="spectro">
+          <img loading="lazy" src="/spectrogram/{{ e.segment_id }}.png{{ qs }}" alt="call spectrogram">
+        </div>
+        <div class="play"><audio controls preload="none" src="/audio/{{ e.segment_id }}{{ qs }}"></audio></div>
+        {% endif %}
+      </div>
+      <div class="body">
+        <p class="name">{{ e.common_name }}</p>
+        <p class="latin">{{ e.scientific_name }}</p>
+        <div class="cp"><span class="lbl mono">PEAK</span>
+          <span class="barbg"><span class="barfill" style="width:{{ pct }}%;background:{{ col }}"></span></span>
+          <span class="val mono">{{ pct }}%</span></div>
+        <div class="meta mono"><span>SEEN ×{{ e.windows }}</span>
+          <span>{{ e.first_heard[5:10] }} → {{ e.last_heard[5:10] }}</span></div>
+      </div>
     </div>
-    <div class="hr">{% for h in hours %}<div>{{ h.hour }}</div>{% endfor %}</div>
-    {% else %}<p class="muted">No detections recorded today.</p>{% endif %}
+    {% endfor %}
   </div>
-
-  <div class="card">
-    <h2>All-time species</h2>
-    <table><tr><th>Species</th><th>Peak</th><th>Windows</th><th>First heard</th><th>Last heard</th></tr>
-    {% for s in species %}
-      <tr><td>{{ s.common_name }} <span class="muted">{{ s.scientific_name }}</span></td>
-      <td class="num">{{ "%.3f"|format(s.peak_conf) }}</td>
-      <td class="num">{{ s.windows }}</td>
-      <td class="num">{{ s.first_heard.replace("T"," ") }}</td>
-      <td class="num">{{ s.last_heard.replace("T"," ") }}</td></tr>
-    {% else %}<tr><td colspan=5 class="muted">No data yet.</td></tr>{% endfor %}
-    </table>
-  </div>
-
-  <div class="card">
-    <h2>Recent detections</h2>
-    <table><tr><th>Time</th><th>Species</th><th>Conf</th><th>Clip</th><th>Spectrogram</th></tr>
-    {% for d in recent %}
-      <tr><td class="num">{{ d.heard_at.replace("T"," ") }}</td>
-      <td>{{ d.common_name }}</td>
-      <td class="num">{{ "%.3f"|format(d.confidence) }}</td>
-      {% set frag = "#t=%.1f,%.1f"|format(d.start_time, d.end_time) %}
-      {% set qs = "?start=%.1f&end=%.1f"|format(d.start_time, d.end_time) %}
-      <td>{% if d.wav_path %}<audio controls preload="none" src="/audio/{{ d.segment_id }}{{ frag }}"></audio>{% else %}<span class="muted">discarded</span>{% endif %}</td>
-      <td>{% if d.wav_path %}<a href="/spectrogram/{{ d.segment_id }}.png{{ qs }}" target="_blank"><img class="spec" src="/spectrogram/{{ d.segment_id }}.png{{ qs }}"></a>{% endif %}</td></tr>
-    {% else %}<tr><td colspan=5 class="muted">No detections yet — run <code>birdid.py monitor</code>.</td></tr>{% endfor %}
-    </table>
-  </div>
-
-</div></body></html>
+  {% else %}
+  <div class="empty">No species discovered yet — run <b>birdid.py monitor</b> to start filling the dex.</div>
+  {% endif %}
+</div>
+</body></html>
 """
 
 
@@ -116,27 +194,33 @@ def index():
         ov = storage.day_overview(conn, day)
         hourly = {r["hour"]: r["n"] for r in storage.day_hourly(conn, day)}
         peak_hour = max(hourly, key=hourly.get) if hourly else None
-        peak = f"{peak_hour}:00 ({hourly[peak_hour]})" if peak_hour else "n/a"
-        mx = max(hourly.values()) if hourly else 1
-        hours = [
-            {"hour": f"{h:02d}", "n": hourly.get(f"{h:02d}", 0),
-             "pct": int(100 * hourly.get(f"{h:02d}", 0) / mx) if mx else 0}
-            for h in range(24)
+        peak = f"{peak_hour}:00" if peak_hour else "n/a"
+        # Dex entries in discovery order (Nº001 = first species ever recorded).
+        slugs = _slug_map()
+        dex = [
+            dict(r, sprite_slug=_sprite_slug(r["common_name"], slugs))
+            for r in sorted(storage.species_dex(conn), key=lambda r: r["first_heard"])
         ]
+        mode = "gallery" if request.args.get("mode") == "gallery" else "dex"
         return render_template_string(
             PAGE,
             day=day,
             ov=ov,
-            first=ov["first_heard"][11:16] if ov["first_heard"] else "?",
-            last=ov["last_heard"][11:16] if ov["last_heard"] else "?",
             peak=peak,
-            hours=hours,
-            new=storage.new_species_on(conn, day),
-            species=storage.species_summary(conn),
-            recent=storage.recent_detections(conn, limit=60),
+            total=len(dex),
+            dex=dex,
+            mode=mode,
         )
     finally:
         conn.close()
+
+
+@app.route("/sprite/<slug>.png")
+def sprite(slug: str):
+    path = _SPRITES_DIR / f"{slug}.png"
+    if not path.is_file():
+        abort(404)
+    return send_file(path, mimetype="image/png")
 
 
 @app.route("/audio/<int:segment_id>")
@@ -148,6 +232,16 @@ def audio(segment_id: int):
         conn.close()
     if not seg or not seg["wav_path"] or not os.path.exists(seg["wav_path"]):
         abort(404)
+
+    start = request.args.get("start", type=float)
+    end = request.args.get("end", type=float)
+    if start is not None and end is not None and end > start:
+        try:
+            clip = _clip_wav_bytes(seg["wav_path"], start, end)
+        except ValueError:
+            abort(404)
+        return Response(clip, mimetype="audio/wav")
+
     return send_file(seg["wav_path"], mimetype="audio/wav")
 
 

@@ -1,0 +1,359 @@
+[
+  {
+    "rank": 1,
+    "common_name": "Mourning Dove",
+    "scientific_name": "Zenaida macroura",
+    "slug": "mourning_dove",
+    "birdnet_score": 0.851
+  },
+  {
+    "rank": 2,
+    "common_name": "House Finch",
+    "scientific_name": "Haemorhous mexicanus",
+    "slug": "house_finch",
+    "birdnet_score": 0.848
+  },
+  {
+    "rank": 3,
+    "common_name": "Anna's Hummingbird",
+    "scientific_name": "Calypte anna",
+    "slug": "annas_hummingbird",
+    "birdnet_score": 0.791
+  },
+  {
+    "rank": 4,
+    "common_name": "Turkey Vulture",
+    "scientific_name": "Cathartes aura",
+    "slug": "turkey_vulture",
+    "birdnet_score": 0.781
+  },
+  {
+    "rank": 5,
+    "common_name": "California Towhee",
+    "scientific_name": "Melozone crissalis",
+    "slug": "california_towhee",
+    "birdnet_score": 0.757
+  },
+  {
+    "rank": 6,
+    "common_name": "California Scrub-Jay",
+    "scientific_name": "Aphelocoma californica",
+    "slug": "california_scrub_jay",
+    "birdnet_score": 0.725
+  },
+  {
+    "rank": 7,
+    "common_name": "Common Raven",
+    "scientific_name": "Corvus corax",
+    "slug": "common_raven",
+    "birdnet_score": 0.725
+  },
+  {
+    "rank": 8,
+    "common_name": "Western Gull",
+    "scientific_name": "Larus occidentalis",
+    "slug": "western_gull",
+    "birdnet_score": 0.708
+  },
+  {
+    "rank": 9,
+    "common_name": "Black Phoebe",
+    "scientific_name": "Sayornis nigricans",
+    "slug": "black_phoebe",
+    "birdnet_score": 0.681
+  },
+  {
+    "rank": 10,
+    "common_name": "European Starling",
+    "scientific_name": "Sturnus vulgaris",
+    "slug": "european_starling",
+    "birdnet_score": 0.565
+  },
+  {
+    "rank": 11,
+    "common_name": "Cliff Swallow",
+    "scientific_name": "Petrochelidon pyrrhonota",
+    "slug": "cliff_swallow",
+    "birdnet_score": 0.542
+  },
+  {
+    "rank": 12,
+    "common_name": "Eurasian Collared-Dove",
+    "scientific_name": "Streptopelia decaocto",
+    "slug": "eurasian_collared_dove",
+    "birdnet_score": 0.539
+  },
+  {
+    "rank": 13,
+    "common_name": "Song Sparrow",
+    "scientific_name": "Melospiza melodia",
+    "slug": "song_sparrow",
+    "birdnet_score": 0.536
+  },
+  {
+    "rank": 14,
+    "common_name": "Mallard",
+    "scientific_name": "Anas platyrhynchos",
+    "slug": "mallard",
+    "birdnet_score": 0.518
+  },
+  {
+    "rank": 15,
+    "common_name": "California Quail",
+    "scientific_name": "Callipepla californica",
+    "slug": "california_quail",
+    "birdnet_score": 0.512
+  },
+  {
+    "rank": 16,
+    "common_name": "Wilson's Warbler",
+    "scientific_name": "Cardellina pusilla",
+    "slug": "wilsons_warbler",
+    "birdnet_score": 0.504
+  },
+  {
+    "rank": 17,
+    "common_name": "Red-tailed Hawk",
+    "scientific_name": "Buteo jamaicensis",
+    "slug": "red_tailed_hawk",
+    "birdnet_score": 0.496
+  },
+  {
+    "rank": 18,
+    "common_name": "Nuttall's Woodpecker",
+    "scientific_name": "Dryobates nuttallii",
+    "slug": "nuttalls_woodpecker",
+    "birdnet_score": 0.494
+  },
+  {
+    "rank": 19,
+    "common_name": "American Crow",
+    "scientific_name": "Corvus brachyrhynchos",
+    "slug": "american_crow",
+    "birdnet_score": 0.485
+  },
+  {
+    "rank": 20,
+    "common_name": "Wrentit",
+    "scientific_name": "Chamaea fasciata",
+    "slug": "wrentit",
+    "birdnet_score": 0.471
+  },
+  {
+    "rank": 21,
+    "common_name": "Bushtit",
+    "scientific_name": "Psaltriparus minimus",
+    "slug": "bushtit",
+    "birdnet_score": 0.468
+  },
+  {
+    "rank": 22,
+    "common_name": "Brown Pelican",
+    "scientific_name": "Pelecanus occidentalis",
+    "slug": "brown_pelican",
+    "birdnet_score": 0.465
+  },
+  {
+    "rank": 23,
+    "common_name": "Lesser Goldfinch",
+    "scientific_name": "Spinus psaltria",
+    "slug": "lesser_goldfinch",
+    "birdnet_score": 0.457
+  },
+  {
+    "rank": 24,
+    "common_name": "Northern Mockingbird",
+    "scientific_name": "Mimus polyglottos",
+    "slug": "northern_mockingbird",
+    "birdnet_score": 0.447
+  },
+  {
+    "rank": 25,
+    "common_name": "Spotted Towhee",
+    "scientific_name": "Pipilo maculatus",
+    "slug": "spotted_towhee",
+    "birdnet_score": 0.447
+  },
+  {
+    "rank": 26,
+    "common_name": "Brewer's Blackbird",
+    "scientific_name": "Euphagus cyanocephalus",
+    "slug": "brewers_blackbird",
+    "birdnet_score": 0.431
+  },
+  {
+    "rank": 27,
+    "common_name": "Pacific-slope Flycatcher",
+    "scientific_name": "Empidonax difficilis",
+    "slug": "pacific_slope_flycatcher",
+    "birdnet_score": 0.421
+  },
+  {
+    "rank": 28,
+    "common_name": "Double-crested Cormorant",
+    "scientific_name": "Nannopterum auritum",
+    "slug": "double_crested_cormorant",
+    "birdnet_score": 0.421
+  },
+  {
+    "rank": 29,
+    "common_name": "Red-winged Blackbird",
+    "scientific_name": "Agelaius phoeniceus",
+    "slug": "red_winged_blackbird",
+    "birdnet_score": 0.405
+  },
+  {
+    "rank": 30,
+    "common_name": "Bewick's Wren",
+    "scientific_name": "Thryomanes bewickii",
+    "slug": "bewicks_wren",
+    "birdnet_score": 0.393
+  },
+  {
+    "rank": 31,
+    "common_name": "Oak Titmouse",
+    "scientific_name": "Baeolophus inornatus",
+    "slug": "oak_titmouse",
+    "birdnet_score": 0.379
+  },
+  {
+    "rank": 32,
+    "common_name": "Brown-headed Cowbird",
+    "scientific_name": "Molothrus ater",
+    "slug": "brown_headed_cowbird",
+    "birdnet_score": 0.369
+  },
+  {
+    "rank": 33,
+    "common_name": "Acorn Woodpecker",
+    "scientific_name": "Melanerpes formicivorus",
+    "slug": "acorn_woodpecker",
+    "birdnet_score": 0.367
+  },
+  {
+    "rank": 34,
+    "common_name": "Killdeer",
+    "scientific_name": "Charadrius vociferus",
+    "slug": "killdeer",
+    "birdnet_score": 0.364
+  },
+  {
+    "rank": 35,
+    "common_name": "Black-headed Grosbeak",
+    "scientific_name": "Pheucticus melanocephalus",
+    "slug": "black_headed_grosbeak",
+    "birdnet_score": 0.342
+  },
+  {
+    "rank": 36,
+    "common_name": "House Sparrow",
+    "scientific_name": "Passer domesticus",
+    "slug": "house_sparrow",
+    "birdnet_score": 0.339
+  },
+  {
+    "rank": 37,
+    "common_name": "Barn Swallow",
+    "scientific_name": "Hirundo rustica",
+    "slug": "barn_swallow",
+    "birdnet_score": 0.338
+  },
+  {
+    "rank": 38,
+    "common_name": "Allen's Hummingbird",
+    "scientific_name": "Selasphorus sasin",
+    "slug": "allens_hummingbird",
+    "birdnet_score": 0.338
+  },
+  {
+    "rank": 39,
+    "common_name": "Ash-throated Flycatcher",
+    "scientific_name": "Myiarchus cinerascens",
+    "slug": "ash_throated_flycatcher",
+    "birdnet_score": 0.325
+  },
+  {
+    "rank": 40,
+    "common_name": "Orange-crowned Warbler",
+    "scientific_name": "Leiothlypis celata",
+    "slug": "orange_crowned_warbler",
+    "birdnet_score": 0.314
+  },
+  {
+    "rank": 41,
+    "common_name": "Bullock's Oriole",
+    "scientific_name": "Icterus bullockii",
+    "slug": "bullocks_oriole",
+    "birdnet_score": 0.294
+  },
+  {
+    "rank": 42,
+    "common_name": "American Coot",
+    "scientific_name": "Fulica americana",
+    "slug": "american_coot",
+    "birdnet_score": 0.289
+  },
+  {
+    "rank": 43,
+    "common_name": "Western Kingbird",
+    "scientific_name": "Tyrannus verticalis",
+    "slug": "western_kingbird",
+    "birdnet_score": 0.287
+  },
+  {
+    "rank": 44,
+    "common_name": "Western Bluebird",
+    "scientific_name": "Sialia mexicana",
+    "slug": "western_bluebird",
+    "birdnet_score": 0.286
+  },
+  {
+    "rank": 45,
+    "common_name": "Common Yellowthroat",
+    "scientific_name": "Geothlypis trichas",
+    "slug": "common_yellowthroat",
+    "birdnet_score": 0.282
+  },
+  {
+    "rank": 46,
+    "common_name": "Caspian Tern",
+    "scientific_name": "Hydroprogne caspia",
+    "slug": "caspian_tern",
+    "birdnet_score": 0.278
+  },
+  {
+    "rank": 47,
+    "common_name": "Great Egret",
+    "scientific_name": "Ardea alba",
+    "slug": "great_egret",
+    "birdnet_score": 0.276
+  },
+  {
+    "rank": 48,
+    "common_name": "Great Blue Heron",
+    "scientific_name": "Ardea herodias",
+    "slug": "great_blue_heron",
+    "birdnet_score": 0.275
+  },
+  {
+    "rank": 49,
+    "common_name": "Rock Pigeon",
+    "scientific_name": "Columba livia",
+    "slug": "rock_pigeon",
+    "birdnet_score": 0.267
+  },
+  {
+    "rank": 50,
+    "common_name": "California Gull",
+    "scientific_name": "Larus californicus",
+    "slug": "california_gull",
+    "birdnet_score": 0.266
+  },
+  {
+    "rank": 51,
+    "common_name": "Dark-eyed Junco",
+    "scientific_name": "Junco hyemalis",
+    "slug": "dark_eyed_junco",
+    "birdnet_score": 0.322
+  }
+]

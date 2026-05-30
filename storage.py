@@ -183,6 +183,33 @@ def new_species_on(conn: sqlite3.Connection, day: str) -> list[str]:
     return [r["common_name"] for r in rows]
 
 
+def species_dex(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """One row per species = its highest-confidence detection (the 'dex entry'),
+    plus how many windows it's been heard in and its first/last times.
+
+    The peak detection carries segment_id + start/end so the UI can show that
+    exact clip's spectrogram as the species' 'sprite' and play it.
+    """
+    return conn.execute(
+        """
+        SELECT common_name, scientific_name, confidence AS peak_conf,
+               segment_id, start_time, end_time, wav_path,
+               windows, first_heard, last_heard
+        FROM (
+            SELECT d.common_name, d.scientific_name, d.confidence,
+                   d.segment_id, d.start_time, d.end_time, s.wav_path,
+                   ROW_NUMBER() OVER (PARTITION BY d.common_name ORDER BY d.confidence DESC) AS rn,
+                   COUNT(*)      OVER (PARTITION BY d.common_name) AS windows,
+                   MIN(d.heard_at) OVER (PARTITION BY d.common_name) AS first_heard,
+                   MAX(d.heard_at) OVER (PARTITION BY d.common_name) AS last_heard
+            FROM detections d JOIN segments s ON s.id = d.segment_id
+        )
+        WHERE rn = 1
+        ORDER BY peak_conf DESC
+        """
+    ).fetchall()
+
+
 def recent_detections(conn: sqlite3.Connection, limit: int = 50) -> list[sqlite3.Row]:
     """Most recent detections joined to their segment (for the dashboard feed)."""
     return conn.execute(

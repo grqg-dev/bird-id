@@ -16,8 +16,8 @@ It does three things:
    one, and logs results to a local database, keeping the audio for any segment
    where a bird was heard so you can play it back later.
 3. **Review** — browse the results as a daily digest in the terminal or a local
-   web dashboard with an activity chart, a species list, and playable clips +
-   spectrograms.
+   **Bird-Dex** web dashboard: illustrated species cards, playable clips,
+   spectrograms, and discovery stats.
 
 Everything runs locally — **no API key, no internet, no cloud**. The BirdNET
 model and your recordings never leave the machine.
@@ -54,7 +54,7 @@ heard in, and the time span across the recording.
 | `identifier.py` | `identify(wav)` → detections via BirdNET. Mic-free, cached model.    |
 | `storage.py`    | SQLite store (segments + detections) and the queries over it.       |
 | `config.py`     | Load `config.json`; resolve values flag → config → default.         |
-| `dashboard.py`  | Offline Flask web UI (charts, species table, clips, spectrograms).  |
+| `dashboard.py`  | Offline Flask **Bird-Dex** UI (sprites, clips, spectrograms, gallery). |
 | `birdid.py`     | The CLI that wires it together.                                      |
 
 The pieces are deliberately decoupled: `identify` takes a file in and gives
@@ -166,18 +166,31 @@ while dropping noise-floor false positives.
 Shows species count, first-bird / last-bird times, busiest hour, and which
 species are **new to your records**.
 
-## Web dashboard
+## Web dashboard (Bird-Dex)
 
 ```bash
 ./.venv/bin/python birdid.py dashboard         # http://127.0.0.1:8080
+./.venv/bin/python birdid.py dashboard --host 0.0.0.0   # reachable on your LAN
 ```
 
-Today's overview + hourly activity chart, all-time species table, and a feed of
-recent detections. Each detection has a play button and an on-the-fly
-**spectrogram** that both **jump straight to that bird's 3-second window** (via an
-HTML media fragment + a windowed spectrogram render) — click a junco, hear the
-junco. Server-rendered (no internet/CDN needed) so it runs fine on a headless
-machine — use `--host 0.0.0.0` to reach it from another device on your network.
+After `monitor` has been running for a while, open the dashboard and you get a
+personal **Bird-Dex** of every species you've heard: discovery order, peak
+confidence, how many times each bird showed up, and the date range. Each card
+pairs a realistic bird illustration (for the top ~50 Santa Barbara species) with
+the actual audio clip and a **spectrogram of that detection's 3-second window**
+— play a card, hear that exact bird call.
+
+**Full dex** (default) — illustration, spectrogram, audio, and stats per species:
+
+![Bird-Dex full view: illustrated species cards with spectrograms, audio players, and detection stats](docs/bird-dex-full.png)
+
+**Gallery** (`/?mode=gallery`) — a lighter grid of illustrations and stats, no
+spectrograms or audio:
+
+![Bird-Dex gallery view: grid of bird illustrations with species stats](docs/bird-dex-gallery.png)
+
+Everything is server-rendered HTML/CSS (no CDN, no JS chart libraries) so it
+works on a headless Pi with no internet.
 
 ## Useful options
 
@@ -194,8 +207,10 @@ machine — use `--host 0.0.0.0` to reach it from another device on your network
 - [x] Continuous `monitor` mode → SQLite, with `stats` reporting
 - [x] Location/season filter via `config.json` (set to Santa Barbara, CA)
 - [x] Daily `digest` (species, timing, new-to-you birds)
-- [x] Web `dashboard` (overview, hourly chart, clips + spectrograms)
+- [x] Web **Bird-Dex** dashboard (illustrated species cards, clips + spectrograms)
 - [x] Dashboard seek-to-clip: playback + spectrogram jump to the detection's 3s window
+- [x] Realistic bird sprite illustrations for top Santa Barbara species
+- [x] Gallery mode (`/?mode=gallery`) — image grid without spectrograms/audio
 - [ ] Always-on deployment on a Mac mini with a USB mic (`device` config field)
 - [ ] Rare/new-species alerts (desktop or email)
 - [ ] Swap-in HTTP backend behind `identify()` if a hosted API is ever wanted
