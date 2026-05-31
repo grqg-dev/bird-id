@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bird-id · passive acoustic monitor</title>
+<style>
+  :root{
+    --bg:#0d0f0e; --panel:#13161a; --ink:#e9e7df; --dim:#7c8a86; --faint:#3a4540;
+    --amber:#ffb454; --amber-d:#7a5a28; --cyan:#3ad6c0; --cyan-d:#1f5a52;
+    --red:#e5564b; --grid:#1b2420; --rule:#222a28;
+  }
+  *{box-sizing:border-box}
+  html{background:#070808}
+  body{
+    margin:0 auto;max-width:880px;background:var(--bg);color:var(--ink);
+    font:13.5px/1.6 "SF Mono",ui-monospace,"JetBrains Mono","Berkeley Mono",monospace;
+    padding:0 0 90px;position:relative;-webkit-font-smoothing:antialiased;
+  }
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0 1px,transparent 1px 3px);opacity:.5;}
+  .wrap{padding:30px 40px 0;position:relative;z-index:1;}
+  .hdr{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--rule);padding-bottom:10px;}
+  .rec{color:var(--red);font-weight:700;letter-spacing:.05em;}
+  .rec .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red);margin-right:6px;vertical-align:middle;}
+  .stn{color:var(--dim);font-size:11px;letter-spacing:.08em;}
+  h1{font-size:23px;font-weight:700;letter-spacing:.02em;margin:20px 0 4px;color:var(--ink);}
+  h1 .c{color:var(--amber);}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 18px;max-width:70ch;}
+  .readout{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--rule);margin:0 0 6px;}
+  .cell{flex:1 1 0;min-width:96px;padding:9px 12px;border-right:1px solid var(--rule);}
+  .cell:last-child{border-right:0;}
+  .cell .k{color:var(--dim);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;}
+  .cell .v{color:var(--ink);font-size:19px;font-weight:700;line-height:1.2;}
+  .cell .v small{font-size:11px;color:var(--dim);font-weight:400;}
+  .wave{width:100%;height:54px;display:block;margin:0 0 26px;}
+  h2{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--cyan);margin:42px 0 3px;}
+  h2 .idx{color:var(--amber-d);}
+  .say{color:var(--dim);font-size:12px;margin:4px 0 16px;max-width:74ch;}
+  .say b{color:var(--ink);font-weight:700;} .say .a{color:var(--amber);} .say .y{color:var(--cyan);} .say .r{color:var(--red);}
+  table{border-collapse:collapse;width:100%;}
+  th{font-size:9px;font-weight:500;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);
+     text-align:right;padding:0 0 7px;vertical-align:bottom;border-bottom:1px solid var(--rule);}
+  th.l{text-align:left}
+  td{padding:6px 0;border-bottom:1px solid #161a18;vertical-align:middle;}
+  td.name{font-size:13px;color:var(--ink);font-weight:600;}
+  td.sci{color:var(--faint);font-size:10.5px;padding-left:8px;font-style:italic;}
+  td.num{text-align:right;font-size:12px;color:var(--ink);white-space:nowrap;}
+  td.num.dim{color:var(--dim);}
+  svg{display:block;overflow:visible;}
+  .notes{margin-top:52px;border-top:1px solid var(--rule);padding-top:16px;}
+  .notes .h{color:var(--cyan);font-size:11px;letter-spacing:.08em;margin-bottom:10px;}
+  .notes p{color:#5f6b67;font-size:11.5px;line-height:1.55;margin:0 0 7px;}
+  .notes p b{color:var(--amber);font-weight:600;}
+  .notes .c{color:var(--dim);}
+  .sign{margin-top:30px;color:var(--faint);font-size:11px;letter-spacing:.04em;}
+  .sign b{color:var(--dim);}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px 40px;align-items:start;}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr}.wrap{padding:22px 18px 0}.cell{min-width:80px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="hdr">
+  <span class="rec"><span class="dot"></span>● REC // SESSION CLOSED</span>
+  <span class="stn">STN GLENDESSARY-LN · 34.4208°N 119.6982°W · BirdNET-Analyzer</span>
+</div>
+
+<h1>passive acoustic monitor<span class="c"> — 2026.05.30</span></h1>
+<p class="sub">Four recording windows. The mic was open for 57.6 minutes total; everything below is what the classifier asserts it heard, with its own confidence shown rather than hidden. The header trace is this session's per-minute detection envelope — the day's activity, drawn as sound.</p>
+
+<div class="readout">
+  <div class="cell"><div class="k">detections</div><div class="v">373</div></div>
+  <div class="cell"><div class="k">species</div><div class="v">11</div></div>
+  <div class="cell"><div class="k">windows</div><div class="v">4</div></div>
+  <div class="cell"><div class="k">on-tape</div><div class="v">57.6<small> min</small></div></div>
+  <div class="cell"><div class="k">peak rate</div><div class="v">9.4<small> /min</small></div></div>
+  <div class="cell"><div class="k">conf floor</div><div class="v">0.30</div></div>
+</div>
+<svg class="wave" id="wave" viewBox="0 0 800 54" preserveAspectRatio="none"></svg>
+
+<!-- [01] -->
+<h2><span class="idx">[01]</span> &nbsp;SPECIES MANIFEST &mdash; signal & certainty</h2>
+<p class="say">Every detection plotted at its confidence (<b>0.30&rarr;1.00</b>), the bright marker its strongest hit. Read the texture: <span class="y">California Towhee</span> burns clean against the ceiling; <span class="r">Spotted Towhee</span> never lifts off the 0.30 floor — the machine logged it but never believed it.</p>
+<table id="roll">
+  <thead><tr>
+    <th class="l">species</th><th class="l">&nbsp;</th><th>n</th>
+    <th class="l" style="padding-left:14px">activity</th>
+    <th class="l" style="padding-left:14px">confidence 0.30&#9612;&rarr;1.00</th>
+    <th>peak</th><th>wins</th>
+  </tr></thead><tbody></tbody>
+</table>
+
+<!-- [02] -->
+<h2><span class="idx">[02]</span> &nbsp;DIEL CHANNEL &mdash; which window each signal landed in</h2>
+<p class="say"><span class="a">AM</span> block (3 windows / 18.6 min) vs <span class="y">PM</span> window (38.9 min). Since PM ran 2&times; longer, an even caller sits at the <b>32%</b> reference. Distance past it is the only real signal — <span class="y">California Towhee</span> all-PM, the <span class="a">dove</span> all-AM, the crow's genuine dawn lean.</p>
+<svg id="diel" width="100%" viewBox="0 0 760 300"></svg>
+
+<div class="grid2">
+<div>
+<!-- [03] -->
+<h2><span class="idx">[03]</span> &nbsp;THROUGHPUT</h2>
+<p class="say">Densest at dawn. The long <span class="y">PM</span> window logged the most yet ran slowest.</p>
+<svg id="rate" width="100%" viewBox="0 0 360 220"></svg>
+</div>
+<div>
+<!-- [04] -->
+<h2><span class="idx">[04]</span> &nbsp;PM TRACE · 14:11&ndash;14:50</h2>
+<p class="say">Detections per minute. Built to a peak of <span class="a">16</span> near minute 27.</p>
+<svg id="curve" width="100%" viewBox="0 0 360 220"></svg>
+</div>
+</div>
+
+<div class="notes">
+  <div class="h">// SYSTEM NOTES</div>
+  <p><span class="c">[0]</span> <b>Discontinuous capture.</b> 4 windows, 57.6 min on-tape; the 5h38m between the dawn block and the PM window is unmonitored, not silent. No trace is drawn across it.</p>
+  <p><span class="c">[1]</span> <b>Detections ≠ individuals.</b> 126 American Crow events can be one bird near the element, retriggering. Read as vocal activity, not a count of animals.</p>
+  <p><span class="c">[2]</span> <b>Confidence is a posterior, not truth.</b> Raw classifier score; left edge censored at min_conf 0.30 (config.json). The pileup at the floor is the threshold, not the bird.</p>
+  <p><span class="c">[3]</span> <b>Low-trust IDs flagged red.</b> Spotted Towhee peaks at 0.565 over 23 events; Anna's Hummingbird is a lone 0.388. Hold as unconfirmed.</p>
+  <p><span class="c">[4]</span> <b>n = 1 day, 1 site.</b> Window is confounded with time-of-day, location, and which individuals were near the mic. "AM/PM" means which recording.</p>
+</div>
+
+<p class="sign"><b>src</b> bird-id/birdid.db &nbsp;·&nbsp; <b>render</b> Claude — data left honest, glow kept on a leash</p>
+
+</div>
+
+<svg width="0" height="0"><defs>
+  <filter id="glowA" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs></svg>
+
+<script>
+const T={bg:"#0d0f0e",ink:"#e9e7df",dim:"#7c8a86",faint:"#3a4540",amber:"#ffb454",amberD:"#7a5a28",cyan:"#3ad6c0",cyanD:"#1f5a52",red:"#e5564b",grid:"#1b2420",rule:"#222a28"};
+const NS="http://www.w3.org/2000/svg";
+function el(t,a){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function txt(p,x,y,s,a){const t=el("text",Object.assign({x,y},a));t.textContent=s;p.appendChild(t);return t;}
+const FM='"SF Mono",ui-monospace,monospace';
+
+const SP=[
+ {n:"American Crow",sci:"Corvus brachyrhynchos",c:126,max:.978,am:90,pm:36,wins:[1,1,1,1],conf:[0.593,0.391,0.965,0.921,0.88,0.874,0.786,0.766,0.764,0.584,0.549,0.534,0.525,0.523,0.517,0.392,0.351,0.348,0.327,0.325,0.315,0.304,0.965,0.959,0.952,0.946,0.941,0.937,0.92,0.917,0.912,0.905,0.853,0.839,0.817,0.814,0.808,0.806,0.8,0.79,0.761,0.756,0.747,0.744,0.718,0.694,0.672,0.652,0.636,0.609,0.578,0.571,0.564,0.554,0.51,0.503,0.502,0.499,0.498,0.478,0.475,0.472,0.468,0.465,0.463,0.449,0.449,0.445,0.434,0.433,0.419,0.409,0.405,0.391,0.383,0.374,0.373,0.373,0.366,0.351,0.351,0.346,0.336,0.331,0.323,0.32,0.318,0.313,0.309,0.304,0.978,0.977,0.96,0.953,0.938,0.915,0.892,0.884,0.843,0.839,0.83,0.794,0.778,0.757,0.724,0.695,0.641,0.596,0.589,0.581,0.551,0.549,0.546,0.524,0.517,0.515,0.488,0.488,0.467,0.461,0.433,0.377,0.363,0.34,0.307,0.307]},
+ {n:"California Towhee",sci:"Melozone crissalis",c:78,max:.992,am:0,pm:78,wins:[0,0,0,1],conf:[0.992,0.989,0.981,0.98,0.979,0.976,0.976,0.976,0.974,0.972,0.969,0.967,0.965,0.962,0.959,0.958,0.954,0.953,0.95,0.948,0.937,0.931,0.925,0.911,0.908,0.905,0.889,0.885,0.885,0.883,0.878,0.873,0.864,0.855,0.853,0.83,0.824,0.805,0.785,0.764,0.763,0.763,0.76,0.759,0.755,0.753,0.75,0.749,0.743,0.727,0.701,0.697,0.692,0.684,0.683,0.681,0.677,0.665,0.637,0.628,0.617,0.613,0.603,0.603,0.602,0.602,0.591,0.558,0.551,0.522,0.519,0.508,0.471,0.416,0.411,0.404,0.392,0.372]},
+ {n:"Oak Titmouse",sci:"Baeolophus inornatus",c:56,max:.991,am:31,pm:25,wins:[1,1,1,1],conf:[0.934,0.844,0.749,0.726,0.613,0.566,0.558,0.417,0.312,0.991,0.984,0.979,0.976,0.971,0.953,0.932,0.924,0.863,0.849,0.832,0.731,0.707,0.666,0.604,0.561,0.523,0.521,0.376,0.374,0.308,0.486,0.972,0.912,0.899,0.885,0.855,0.836,0.834,0.827,0.807,0.793,0.706,0.625,0.619,0.619,0.604,0.588,0.525,0.487,0.47,0.452,0.372,0.359,0.357,0.343,0.326]},
+ {n:"Pacific-slope Flycatcher",sci:"Empidonax difficilis",c:38,max:.932,am:20,pm:18,wins:[1,1,1,1],conf:[0.901,0.584,0.508,0.499,0.441,0.364,0.925,0.9,0.893,0.815,0.72,0.719,0.697,0.606,0.599,0.494,0.404,0.33,0.406,0.359,0.932,0.831,0.826,0.802,0.7,0.665,0.636,0.619,0.584,0.519,0.513,0.475,0.471,0.391,0.374,0.314,0.311,0.31]},
+ {n:"Bewick's Wren",sci:"Thryomanes bewickii",c:26,max:.945,am:2,pm:24,wins:[0,1,0,1],conf:[0.495,0.494,0.945,0.872,0.841,0.837,0.823,0.775,0.751,0.727,0.707,0.692,0.658,0.656,0.637,0.616,0.593,0.568,0.518,0.469,0.457,0.426,0.41,0.374,0.346,0.321]},
+ {n:"Spotted Towhee",sci:"Pipilo maculatus",c:23,max:.565,am:1,pm:22,wins:[0,0,1,1],conf:[0.565,0.519,0.506,0.498,0.484,0.481,0.469,0.457,0.385,0.376,0.375,0.352,0.35,0.343,0.336,0.334,0.331,0.327,0.318,0.308,0.306,0.305,0.305]},
+ {n:"Dark-eyed Junco",sci:"Junco hyemalis",c:13,max:.822,am:10,pm:3,wins:[1,1,0,1],conf:[0.33,0.822,0.733,0.686,0.549,0.533,0.468,0.462,0.403,0.325,0.57,0.32,0.313]},
+ {n:"Lesser Goldfinch",sci:"Spinus psaltria",c:6,max:.679,am:0,pm:6,wins:[0,0,0,1],conf:[0.679,0.64,0.55,0.364,0.363,0.307]},
+ {n:"Eurasian Collared-Dove",sci:"Streptopelia decaocto",c:3,max:.781,am:3,pm:0,wins:[0,0,1,0],conf:[0.781,0.692,0.434]},
+ {n:"Nuttall's Woodpecker",sci:"Dryobates nuttallii",c:3,max:.997,am:1,pm:2,wins:[0,1,0,1],conf:[0.635,0.997,0.5]},
+ {n:"Anna's Hummingbird",sci:"Calypte anna",c:1,max:.388,am:0,pm:1,wins:[0,0,0,1],conf:[0.388]},
+];
+const WIN=[{id:1,clock:"07:30",min:2.08,det:18},{id:2,clock:"07:59",min:6.89,det:65},{id:3,clock:"08:23",min:9.67,det:75},{id:4,clock:"14:11",min:38.95,det:215}];
+const SEG4=[4,6,2,1,1,3,1,3,0,4,7,3,10,0,2,12,13,0,1,3,1,0,3,14,7,13,16,12,6,8,7,9,9,4,8,11,9,2];
+
+// HEADER WAVEFORM (session envelope as audio) — full day across 4 windows, gaps as flatline
+(function(){
+ const svg=document.getElementById("wave"),W=800,H=54,mid=H/2;
+ // build envelope: window1..3 then big gap then window4, proportional to real time-of-day
+ const env=[]; // {t:0..1, v:0..1}
+ const day0=7.5*60, day1=14.9*60; // minutes 07:30..14:54 span
+ const span=day1-day0;
+ // dawn windows: approximate per-window mean detection rate as amplitude blocks
+ const blocks=[{s:450,e:452.1,a:.55},{s:478.9,e:485.8,a:.62},{s:503.3,e:513,a:.5}]; // clock min, amp~rate
+ // PM trace from SEG4 (14:11=851 min)
+ const yMax=Math.max(...SEG4);
+ const pts=[];
+ for(let x=0;x<=W;x++){
+   const tmin=day0+x/W*span;
+   let v=0;
+   // PM minute trace
+   if(tmin>=851&&tmin<=851+37){const i=Math.round(tmin-851);v=SEG4[Math.min(i,SEG4.length-1)]/yMax*0.95;}
+   // dawn blocks
+   blocks.forEach(b=>{if(tmin>=b.s&&tmin<=b.e)v=Math.max(v,b.a*(0.7+0.3*Math.abs(Math.sin(x*0.7))));});
+   pts.push(v);
+ }
+ // draw mirrored bars
+ for(let x=0;x<=W;x+=2){
+   const v=pts[x],h=v*mid*0.92;
+   if(h<0.4){svg.appendChild(el("line",{x1:x,y1:mid,x2:x,y2:mid,stroke:T.faint,"stroke-width":1}));continue;}
+   const pm = (day0+x/W*span)>=851;
+   svg.appendChild(el("line",{x1:x,y1:mid-h,x2:x,y2:mid+h,stroke:pm?T.cyan:T.amber,"stroke-width":1.4,opacity:.92,filter:"url(#glowA)"}));
+ }
+ svg.appendChild(el("line",{x1:0,y1:mid,x2:W,y2:mid,stroke:T.rule,"stroke-width":.5}));
+ // gap label
+ txt(svg,W*((650-day0)/span),mid-3,"· · · unmonitored 08:33 → 14:11 · · ·",{"text-anchor":"middle","font-family":FM,"font-size":8,fill:T.faint});
+ txt(svg,2,H-3,"07:30",{"font-family":FM,"font-size":8,fill:T.dim});
+ txt(svg,W-2,H-3,"14:54",{"text-anchor":"end","font-family":FM,"font-size":8,fill:T.dim});
+})();
+
+// [01] manifest
+(function(){
+ const tb=document.querySelector("#roll tbody");
+ const CW=120,cMax=126,SW=258,lo=.30,hi=1,sx=c=>(c-lo)/(hi-lo)*SW;
+ SP.forEach(s=>{
+   const low=s.max<.6;
+   const tr=document.createElement("tr");
+   tr.innerHTML=`<td class="name"${low?' style="color:'+T.red+'"':''}>${s.n}</td><td class="sci">${s.sci}</td><td class="num">${s.c}</td>`;
+   const tdC=document.createElement("td");tdC.style.paddingLeft="14px";
+   const svgC=el("svg",{width:CW,height:12,viewBox:`0 0 ${CW} 12`});
+   svgC.appendChild(el("line",{x1:0,y1:6,x2:CW,y2:6,stroke:T.grid,"stroke-width":1}));
+   svgC.appendChild(el("line",{x1:1,y1:6,x2:Math.max(2,s.c/cMax*CW),y2:6,stroke:T.amber,"stroke-width":5,filter:"url(#glowA)"}));
+   tdC.appendChild(svgC);tr.appendChild(tdC);
+   const tdS=document.createElement("td");tdS.style.paddingLeft="14px";const H=16;
+   const svgS=el("svg",{width:SW+8,height:H,viewBox:`0 0 ${SW+8} ${H}`});
+   svgS.appendChild(el("line",{x1:0,y1:1,x2:0,y2:H-1,stroke:T.amberD,"stroke-width":1}));// floor
+   s.conf.forEach(c=>svgS.appendChild(el("line",{x1:sx(c),y1:2,x2:sx(c),y2:H-3,stroke:low?T.red:T.amber,"stroke-width":1,opacity:.4})));
+   svgS.appendChild(el("rect",{x:sx(s.max)-1.6,y:H/2-3.4,width:3.2,height:6.8,fill:low?T.red:T.cyan,filter:"url(#glowA)",transform:`rotate(45 ${sx(s.max)} ${H/2})`}));
+   tdS.appendChild(svgS);tr.appendChild(tdS);
+   const tdB=document.createElement("td");tdB.className="num";tdB.textContent=s.max.toFixed(3);
+   tdB.style.color=low?T.red:T.cyan;tr.appendChild(tdB);
+   const tdW=document.createElement("td");tdW.className="num dim";
+   const sw=el("svg",{width:34,height:10,viewBox:"0 0 34 10"});
+   s.wins.forEach((w,i)=>sw.appendChild(el("rect",{x:2+i*8,y:2,width:6,height:6,fill:w?T.cyan:"none",stroke:w?"none":T.faint,"stroke-width":1})));
+   tdW.appendChild(sw);tr.appendChild(tdW);
+   tb.appendChild(tr);
+ });
+})();
+
+// [02] diel
+(function(){
+ const svg=document.getElementById("diel");
+ const x0=190,x1=620,top=26,rh=23,baseAM=18.64/57.58,W=x1-x0;
+ const data=[...SP].sort((a,b)=>(b.am/(b.am+b.pm))-(a.am/(a.am+a.pm))||b.c-a.c);
+ const bx=x0+baseAM*W;
+ txt(svg,x0,top-13,"◀ AM",{"font-family":FM,"font-size":10,fill:T.amber});
+ txt(svg,x1,top-13,"PM ▶",{"font-family":FM,"font-size":10,fill:T.cyan,"text-anchor":"end"});
+ svg.appendChild(el("line",{x1:bx,y1:top-9,x2:bx,y2:top+data.length*rh+2,stroke:T.dim,"stroke-width":1,"stroke-dasharray":"2 3"}));
+ txt(svg,bx,top-13,"32% even",{"text-anchor":"middle","font-family":FM,"font-size":9,fill:T.dim});
+ data.forEach((s,i)=>{
+   const y=top+i*rh,amShare=s.am/(s.am+s.pm),split=x0+amShare*W;
+   svg.appendChild(el("rect",{x:x0,y:y+3,width:Math.max(0,split-x0),height:11,fill:T.amber,opacity:.9}));
+   svg.appendChild(el("rect",{x:split,y:y+3,width:Math.max(0,x1-split),height:11,fill:T.cyan,opacity:.78}));
+   txt(svg,x0-10,y+12,s.n,{"text-anchor":"end","font-family":FM,"font-size":11.5,fill:T.ink});
+   if(s.am)txt(svg,x0+4,y+12,s.am,{"font-family":FM,"font-size":9,fill:T.bg,"font-weight":700});
+   if(s.pm)txt(svg,x1-4,y+12,s.pm,{"font-family":FM,"font-size":9,fill:T.bg,"text-anchor":"end","font-weight":700});
+ });
+})();
+
+// [03] rate (VU meters)
+(function(){
+ const svg=document.getElementById("rate");
+ const x0=58,x1=300,top=16,rh=42,rMax=10,sx=v=>x0+v/rMax*(x1-x0);
+ [0,5,10].forEach(v=>{svg.appendChild(el("line",{x1:sx(v),y1:top-6,x2:sx(v),y2:top+WIN.length*rh-18,stroke:T.grid,"stroke-width":.5}));
+   txt(svg,sx(v),top-9,v,{"text-anchor":"middle","font-family":FM,"font-size":9,fill:T.dim});});
+ txt(svg,sx(5),top+WIN.length*rh-2,"detections / min",{"text-anchor":"middle","font-family":FM,"font-size":9,fill:T.dim});
+ WIN.forEach((w,i)=>{
+   const y=top+i*rh+6,r=w.det/w.min,col=i===3?T.cyan:T.amber;
+   svg.appendChild(el("rect",{x:x0,y:y-6,width:x1-x0,height:12,fill:T.grid}));
+   svg.appendChild(el("rect",{x:x0,y:y-6,width:Math.max(2,sx(r)-x0),height:12,fill:col,filter:"url(#glowA)"}));
+   txt(svg,x0-8,y+4,w.clock,{"text-anchor":"end","font-family":FM,"font-size":10,fill:T.ink});
+   txt(svg,sx(r)+9,y+4,r.toFixed(1),{"font-family":FM,"font-size":11,fill:col,"font-weight":700});
+   txt(svg,sx(r)+36,y+4,`${w.min.toFixed(0)}m · ${w.det}`,{"font-family":FM,"font-size":9,fill:T.dim});
+ });
+})();
+
+// [04] PM trace (oscilloscope)
+(function(){
+ const svg=document.getElementById("curve");
+ const x0=30,x1=345,y0=160,y1=18,n=SEG4.length,yMax=16,sx=i=>x0+i/(n-1)*(x1-x0),sy=v=>y0-v/yMax*(y0-y1);
+ [0,8,16].forEach(v=>{svg.appendChild(el("line",{x1:x0,y1:sy(v),x2:x1,y2:sy(v),stroke:T.grid,"stroke-width":.5}));
+   txt(svg,x0-7,sy(v)+3,v,{"text-anchor":"end","font-family":FM,"font-size":9,fill:T.dim});});
+ let d=`M ${x0} ${y0}`;SEG4.forEach((v,i)=>d+=` L ${sx(i)} ${sy(v)}`);d+=` L ${x1} ${y0} Z`;
+ svg.appendChild(el("path",{d,fill:T.cyanD,opacity:.22}));
+ let l="";SEG4.forEach((v,i)=>l+=(i?"L":"M")+` ${sx(i)} ${sy(v)} `);
+ svg.appendChild(el("path",{d:l,fill:"none",stroke:T.amber,"stroke-width":1.6,"stroke-linejoin":"round",filter:"url(#glowA)"}));
+ const pk=SEG4.indexOf(16);
+ svg.appendChild(el("circle",{cx:sx(pk),cy:sy(16),r:3.2,fill:T.amber,filter:"url(#glowA)"}));
+ txt(svg,sx(pk),sy(16)-8,"16",{"text-anchor":"middle","font-family":FM,"font-size":11,fill:T.amber,"font-weight":700});
+ txt(svg,x0,y0+15,"14:11",{"font-family":FM,"font-size":9,fill:T.dim});
+ txt(svg,x1,y0+15,"14:50",{"text-anchor":"end","font-family":FM,"font-size":9,fill:T.dim});
+})();
+</script>
+</body>
+</html>

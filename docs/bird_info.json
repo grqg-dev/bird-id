@@ -1,0 +1,376 @@
+{
+  "_meta": {
+    "description": "Per-species field notes for the bird-id dex drill-down card. Santa Barbara, CA soundscape. Keyed by the slug used in birds.json. Seeded from a Gemini-written local-birding blurb, then fact-checked and expanded. Sound, habitat, season, and behavior are written to be accurate for coastal Southern California; nothing here is invented.",
+    "fields": {
+      "group": "Which part of the local soundscape this bird belongs to.",
+      "season": "Residency status in the Santa Barbara area.",
+      "sound": "What you actually hear — song and/or calls.",
+      "habitat": "Where in the area you're most likely to hear it.",
+      "note": "A field note: behavior, ID tip, or context worth knowing."
+    }
+  },
+  "mourning_dove": {
+    "group": "Backyard regular",
+    "season": "Year-round resident",
+    "sound": "A soft, mournful coo-OO-oo-oo-oo that's often mistaken for an owl. Its wings produce a sharp whistling 'twitter' on takeoff and landing.",
+    "habitat": "Open yards, wires, fields, and woodland edges everywhere in town.",
+    "note": "One of the most abundant and widespread birds in North America. Pairs forage on the ground for seeds and raise multiple broods a year."
+  },
+  "house_finch": {
+    "group": "Backyard regular",
+    "season": "Year-round resident",
+    "sound": "A long, bright, rambling warble that typically ends in a buzzy downward-slurred 'wheer.' Calls are a sweet rising 'cheep.'",
+    "habitat": "Feeders, rooftops, and shrubs in every neighborhood.",
+    "note": "Males show red on the head and breast; the red comes from pigments in their diet, so color varies from pale yellow to deep red."
+  },
+  "annas_hummingbird": {
+    "group": "Backyard regular",
+    "season": "Year-round resident",
+    "sound": "A scratchy, buzzy, metallic song delivered from a high perch, plus an explosive 'pop' at the bottom of the male's J-shaped display dive — the pop is made by tail feathers, not the voice.",
+    "habitat": "Gardens, flowering shrubs, and feeders year-round.",
+    "note": "The only hummingbird that stays in the Santa Barbara area through winter in good numbers. Males flash a brilliant magenta head and throat."
+  },
+  "turkey_vulture": {
+    "group": "Open space & coast",
+    "season": "Year-round resident",
+    "sound": "Essentially silent — only low hisses and grunts at the roost or nest. Detections labeled as this species are usually other sounds.",
+    "habitat": "Soaring over foothills, fields, and the coast.",
+    "note": "Identified by flight, not voice: it soars on raised, V-shaped wings and rocks side to side. Finds carrion largely by smell, unusual among birds."
+  },
+  "california_towhee": {
+    "group": "Backyard regular",
+    "season": "Year-round resident",
+    "sound": "A sharp, metallic 'chink!' given from the ground or a low bush, often speeding into a rattling series. Pairs greet each other with a squealing duet.",
+    "habitat": "Chaparral, garden edges, and brushy yards.",
+    "note": "A plain warm-brown sparrow relative that scratches in leaf litter with a double-footed hop. Almost always seen on or near the ground."
+  },
+  "california_scrub_jay": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A loud, harsh, rising 'shreenk!' and dry rattling series. Bold and noisy.",
+    "habitat": "Oak woodland, chaparral, and suburban yards.",
+    "note": "Blue above and gray-backed with no crest. Caches thousands of acorns each fall and remembers where — an important oak disperser."
+  },
+  "common_raven": {
+    "group": "Backyard regular",
+    "season": "Year-round resident",
+    "sound": "A deep, throaty, resonant 'kronk' or croak — lower and more guttural than a crow's caw.",
+    "habitat": "Everywhere, from the coast to the backcountry; soars over ridgelines.",
+    "note": "Larger than a crow with a heavy bill, shaggy throat, and a wedge-shaped tail in flight. Among the most intelligent of all birds."
+  },
+  "western_gull": {
+    "group": "Open space & coast",
+    "season": "Year-round resident",
+    "sound": "A loud, laughing 'kyow-kyow' and a long bugling call, plus 'kak-kak-kak' alarm notes that echo from the harbor and rooftops downtown.",
+    "habitat": "Coastline, harbor, beaches, and State Street.",
+    "note": "A large gull with a dark slate back and pink legs. Breeds on the Channel Islands and is the default 'seagull' of the Santa Barbara coast."
+  },
+  "black_phoebe": {
+    "group": "Backyard regular",
+    "season": "Year-round resident",
+    "sound": "A sharp, rhythmic 'fi-bee, fi-bee' song and a sturdy 'tsip' call from a low perch.",
+    "habitat": "Near water — fountains, lawns, creeks, and pool edges.",
+    "note": "A crisp black flycatcher with a white belly that constantly pumps its tail. Sallies out to snap insects from the air and returns to its perch."
+  },
+  "european_starling": {
+    "group": "Mimic & songster",
+    "season": "Year-round resident (introduced)",
+    "sound": "A bizarre medley of clicks, rattles, wheezes, and clear whistles, woven with dead-on imitations of other birds and even mechanical sounds.",
+    "habitat": "Lawns, parking lots, and tree cavities throughout town.",
+    "note": "Introduced to North America in the 1890s. Glossy and iridescent up close; gathers in large flocks and competes with native cavity-nesters."
+  },
+  "cliff_swallow": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder",
+    "sound": "A squeaky, grating chatter and twittering, given around the colony.",
+    "habitat": "Over open ground and water; nests on bridges, overpasses, and building eaves.",
+    "note": "Builds enclosed gourd-shaped mud nests in dense colonies. Square tail and pale rump separate it from the fork-tailed Barn Swallow."
+  },
+  "eurasian_collared_dove": {
+    "group": "Backyard regular",
+    "season": "Year-round resident (introduced)",
+    "sound": "A three-note 'coo-COO-cup' with the stress in the middle — flatter and more mechanical than the Mourning Dove's mournful coo. In flight it gives a harsh nasal 'hwaa.'",
+    "habitat": "Towns, suburbs, and farmyards.",
+    "note": "Pale gray with a thin black half-collar on the nape. Spread across North America from the 1980s after escaping in the Caribbean."
+  },
+  "song_sparrow": {
+    "group": "Mimic & songster",
+    "season": "Year-round resident",
+    "sound": "A bright musical song that usually opens with two or three clear notes, then breaks into a jumble of trills and buzzes. Call is a nasal 'chimp.'",
+    "habitat": "Brushy edges, marshes, gardens, and creeksides.",
+    "note": "Heavily streaked brown with a dark central spot on the breast. Among the most variable songsters in North America — local birds learn regional song dialects."
+  },
+  "mallard": {
+    "group": "Water & shore",
+    "season": "Year-round resident",
+    "sound": "The classic loud, descending 'quack' is the female; the male gives a quieter, raspy 'rhab.'",
+    "habitat": "Ponds, lagoons, creeks, and park lakes.",
+    "note": "The familiar dabbling duck — green-headed male, mottled-brown female. Tips forward to feed on submerged plants and is the ancestor of most domestic ducks."
+  },
+  "california_quail": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A loud, rhythmic three-note assembly call that sounds like 'chi-CA-go!' Coveys also keep up soft contact clucks.",
+    "habitat": "Chaparral, brushy slopes, and garden edges near cover.",
+    "note": "California's state bird, with a forward-curling teardrop head plume. Travels in family coveys that sprint for cover rather than fly when alarmed."
+  },
+  "wilsons_warbler": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder; common migrant",
+    "sound": "A rapid, chattering trill that drops in pitch and speeds up toward the end ('chi-chi-chi-chet-chet').",
+    "habitat": "Willow and riparian thickets, shaded canyon undergrowth.",
+    "note": "A small, bright yellow warbler; the male wears a neat round black cap. Active and twitchy, often flicking its tail as it gleans insects."
+  },
+  "red_tailed_hawk": {
+    "group": "Raptor",
+    "season": "Year-round resident",
+    "sound": "A fierce, raspy, descending scream — 'keeeee-arr' — famous as the stock 'eagle' or 'hawk' sound dubbed into films.",
+    "habitat": "Soaring over open country, foothills, and freeways; perches on poles and snags.",
+    "note": "The default large soaring hawk of the region. Adults show a brick-red tail above. Hunts rodents and reptiles from a perch or while circling."
+  },
+  "red_shouldered_hawk": {
+    "group": "Raptor",
+    "season": "Year-round resident",
+    "sound": "A loud, clear, repeated screaming whistle — often written as 'kee-ah' or 'kee-yar' — delivered in a steady series, especially when defending a territory. One of the most vocal local raptors; often heard before it is seen.",
+    "habitat": "Riparian corridors, oak woodland, and neighborhoods with tall mature trees — especially near creeks and canyon bottoms.",
+    "note": "Coastal California birds are the western subspecies (B. l. elegans): rufous-barred breast, black-and-white banded tail, and in flight a pale crescent near each wingtip. Hunts from a perch — mice, frogs, snakes, and other small prey."
+  },
+  "nuttalls_woodpecker": {
+    "group": "Woodpecker",
+    "season": "Year-round resident",
+    "sound": "A rolling, descending rattle and a sharp 'pit' or 'pidik' call. Drums in short bursts on dead wood.",
+    "habitat": "Oak woodland and riparian trees.",
+    "note": "A small black-and-white 'ladder-backed' woodpecker nearly endemic to California. The male has a red crown patch."
+  },
+  "american_crow": {
+    "group": "Backyard regular",
+    "season": "Year-round resident",
+    "sound": "The familiar loud, harsh 'caw-caw.' Highly varied — also rattles, clicks, and a softer 'awk.'",
+    "habitat": "Neighborhoods, parks, fields, and trash everywhere.",
+    "note": "Smaller than a raven with a fan-shaped tail and even 'caw.' Very social and intelligent; family groups forage and roost together."
+  },
+  "wrentit": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "The 'voice of the chaparral' — a series of clear ringing 'pit' notes that accelerate into a trill like a bouncing ping-pong ball (the female's version stays even and doesn't speed up).",
+    "habitat": "Dense chaparral and coastal scrub.",
+    "note": "Far more often heard than seen. A small, drab, long-tailed skulker with a pale eye, famously sedentary — many spend their whole lives within a few acres."
+  },
+  "bushtit": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A constant, high-pitched, gossipy patter of tiny 'tsit-tsit' contact notes as a flock drifts through the foliage.",
+    "habitat": "Oaks, chaparral, and garden shrubs.",
+    "note": "A tiny, plain gray bird with a long tail that travels in restless flocks. Weaves a remarkable hanging, sock-shaped nest from spiderweb and lichen."
+  },
+  "brown_pelican": {
+    "group": "Water & shore",
+    "season": "Year-round resident",
+    "sound": "Adults are essentially silent away from the colony; nestlings are noisy. Detections of this species are usually other sounds.",
+    "habitat": "Coastline, harbor, and offshore.",
+    "note": "Identified by sight: it plunge-dives headfirst for fish. Recovered from near-extinction after the DDT era; breeds on the Channel Islands."
+  },
+  "lesser_goldfinch": {
+    "group": "Backyard regular",
+    "season": "Year-round resident",
+    "sound": "A sweet, wheezy, frantic jumble of whistles that often borrows phrases from other birds, plus a plaintive falling 'tee-yee.'",
+    "habitat": "Weedy fields, gardens, and feeders.",
+    "note": "A tiny finch — males are greenish-yellow with a black cap. An accomplished mimic that works snippets of other species into its song."
+  },
+  "northern_mockingbird": {
+    "group": "Mimic & songster",
+    "season": "Year-round resident",
+    "sound": "A tireless performer that strings together imitations of other birds, car alarms, and insects, repeating each phrase three or more times before moving on. Unmated males sing day and night in spring.",
+    "habitat": "Suburban yards, hedges, and parking lots.",
+    "note": "Gray with bold white wing patches that flash in flight and in its wing-flashing display. Fiercely defends its territory."
+  },
+  "spotted_towhee": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A buzzy, mechanical trill and a rising, cat-like 'mew' call from inside dense cover.",
+    "habitat": "Chaparral, brushy thickets, and woodland understory.",
+    "note": "A striking towhee with a black hood, rufous sides, and white-spotted back and red eyes. Noisily double-scratches in leaf litter."
+  },
+  "brewers_blackbird": {
+    "group": "Urban & open space",
+    "season": "Year-round resident",
+    "sound": "A harsh 'check' and a creaky, rising whistle.",
+    "habitat": "Lawns, parking lots, fields, and outdoor dining areas.",
+    "note": "Males are glossy black with a pale staring eye; females are plain gray-brown. Struts confidently on the ground around people."
+  },
+  "pacific_slope_flycatcher": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder",
+    "sound": "A sharp, rising, squeaky 'pseet?' or 'tseweep' from a shaded perch.",
+    "habitat": "Cool, shaded canyon bottoms and riparian woodland.",
+    "note": "A small olive flycatcher with a teardrop eyering, best told from look-alikes by voice. Sallies for insects in the understory."
+  },
+  "double_crested_cormorant": {
+    "group": "Water & shore",
+    "season": "Year-round resident",
+    "sound": "Mostly silent; gives low, pig-like grunts at colonies. Detections are usually other sounds.",
+    "habitat": "Harbor, lagoons, ocean, and pilings.",
+    "note": "Swims low in the water and dives to chase fish. Often perches with wings spread to dry, since its feathers aren't fully waterproof."
+  },
+  "red_winged_blackbird": {
+    "group": "Water & shore",
+    "season": "Year-round resident",
+    "sound": "The male's gurgling, liquid 'conk-la-ree!' delivered from a cattail, plus a sharp 'check' call.",
+    "habitat": "Freshwater marshes, lagoon edges, and reedbeds.",
+    "note": "Glossy black males flare scarlet-and-yellow shoulder patches to display; females are streaky brown and sparrow-like. Nests in loose marsh colonies."
+  },
+  "bewicks_wren": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A loud, remarkably varied song that opens with sharp notes and ends in a musical buzzy trill — repertoires differ bird to bird.",
+    "habitat": "Brushy thickets, chaparral, and garden tangles.",
+    "note": "A small brown wren with a bold white eyebrow and a long tail it flicks side to side. Inquisitive and vocal, it often scolds from cover."
+  },
+  "oak_titmouse": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A scratchy, scolding 'tsick-a-dee' and a clear, whistled 'peter-peter-peter.'",
+    "habitat": "Oak woodland and oak-shaded yards.",
+    "note": "A plain gray bird with a small pointed crest — 'a bird without a field mark.' Pairs hold territory year-round in the oaks they depend on."
+  },
+  "brown_headed_cowbird": {
+    "group": "Urban & open space",
+    "season": "Year-round; most vocal spring–summer",
+    "sound": "The male's liquid, bubbling 'glug-glug-gleee' followed by thin, high whistles.",
+    "habitat": "Open lawns, field edges, and feeders.",
+    "note": "A brood parasite: females lay eggs in other birds' nests and leave them to raise the young. Males are black with a brown head."
+  },
+  "acorn_woodpecker": {
+    "group": "Woodpecker",
+    "season": "Year-round resident",
+    "sound": "A loud, chaotic, laughing 'waka-waka-waka' that echoes through oak groves.",
+    "habitat": "Oak woodland and oak-lined neighborhoods.",
+    "note": "A clown-faced, social woodpecker that drills 'granary' trees with thousands of holes to store acorns. Lives in cooperative family groups."
+  },
+  "killdeer": {
+    "group": "Open space & coast",
+    "season": "Year-round resident",
+    "sound": "A loud, piercing, insistent 'kill-deer! kill-deer!' often given in flight or while running.",
+    "habitat": "Lawns, ballfields, gravel lots, and open ground — not just shorelines.",
+    "note": "A plover with two black breast bands. Famous for its broken-wing act, feigning injury to lure predators away from its ground nest."
+  },
+  "black_headed_grosbeak": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder",
+    "sound": "A rich, rolling, robin-like warble — sweeter and more fluid than an American Robin's. Call is a sharp 'eek' or 'spik.'",
+    "habitat": "Oak and riparian woodland, leafy neighborhoods.",
+    "note": "A chunky songbird with a heavy pale bill; the male is burnt-orange with a black head. Both sexes sing, and it's one of the few birds that can safely eat toxic monarch butterflies."
+  },
+  "house_sparrow": {
+    "group": "Urban & open space",
+    "season": "Year-round resident (introduced)",
+    "sound": "A monotonous, endless 'cheep' and 'chirrup' chorus from hedges and eaves.",
+    "habitat": "Buildings, outdoor dining, and strip malls.",
+    "note": "An Old World species introduced to North America in the 1850s. Tied closely to people; males have a black bib and gray cap."
+  },
+  "barn_swallow": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder",
+    "sound": "A liquid, twittering warble interspersed with a sharp 'vit' and a mechanical buzz.",
+    "habitat": "Over open fields, water, and around barns and buildings.",
+    "note": "The most widespread swallow in the world. Steely blue above and buff below with a deeply forked tail; builds an open mud cup on ledges and eaves."
+  },
+  "allens_hummingbird": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder (arrives very early)",
+    "sound": "Thin, buzzy chip notes; the male's wings produce a buzz, and his display dive ends with a metallic sputter.",
+    "habitat": "Coastal scrub, canyon edges, and gardens.",
+    "note": "Very similar to a tiny Rufous Hummingbird, with a green back and rufous flanks. The migratory form arrives early (winter) to breed along the coast and largely departs by late summer."
+  },
+  "ash_throated_flycatcher": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder",
+    "sound": "A rolling 'ka-brick' and a burry 'prrrt,' often given at dawn.",
+    "habitat": "Dry oak woodland, chaparral, and arid scrub.",
+    "note": "A slim flycatcher with a pale gray throat, lemon belly, and rusty tail. Nests in tree cavities and even fenceposts or pipes."
+  },
+  "orange_crowned_warbler": {
+    "group": "Migrant & seasonal",
+    "season": "Year-round along the coast; most vocal in spring",
+    "sound": "A soft, rapid trill that loses energy and drops in pitch at the very end.",
+    "habitat": "Chaparral, riparian thickets, and garden shrubs.",
+    "note": "A plain yellow-olive warbler with few marks; the orange crown is almost never visible. Coastal Southern California is one of the few places it can be found in winter."
+  },
+  "bullocks_oriole": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder",
+    "sound": "A series of bright, staccato whistles punctuated by harsh, chattering rattles.",
+    "habitat": "Riparian and oak woodland, tall shade trees.",
+    "note": "The male is flame-orange with a black cap, eyeline, and throat and a bold white wing patch. Weaves a hanging pouch nest near the tips of branches."
+  },
+  "american_coot": {
+    "group": "Water & shore",
+    "season": "Year-round resident; abundant in winter",
+    "sound": "A noisy assortment of clucks, grunts, croaks, and cackles.",
+    "habitat": "Ponds, lagoons, and park lakes.",
+    "note": "A slaty waterbird that looks duck-like but isn't — it has a white chicken-like bill and lobed (not webbed) toes. Patters across the water to take off."
+  },
+  "western_kingbird": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder",
+    "sound": "A sharp, squeaky, bickering chatter — 'kit-kit-keer' — often from a wire.",
+    "habitat": "Open country, field edges, and roadside wires.",
+    "note": "A bold gray-and-yellow flycatcher with a black tail edged in white. Aggressively chases hawks and ravens out of its territory."
+  },
+  "western_bluebird": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A soft, mellow 'few' or 'chew' call and a quiet, chuckling song.",
+    "habitat": "Open oak woodland, parks, and pasture edges.",
+    "note": "The male is deep blue with a rusty breast. Nests in tree cavities and readily uses nest boxes; hunts insects by dropping to the ground from a low perch."
+  },
+  "common_yellowthroat": {
+    "group": "Water & shore",
+    "season": "Year-round resident",
+    "sound": "A rolling, rhythmic 'witchety-witchety-witchety' song and a husky 'chuck' call from the reeds.",
+    "habitat": "Freshwater marshes, lagoon edges, and damp thickets.",
+    "note": "A small warbler; the male wears a black 'bandit' mask. Skulks low in dense marsh vegetation, popping up to sing."
+  },
+  "caspian_tern": {
+    "group": "Water & shore",
+    "season": "Spring–fall",
+    "sound": "A loud, harsh, grating 'kraaaa,' often given overhead.",
+    "habitat": "Coast, harbor, lagoons, and estuaries.",
+    "note": "The world's largest tern, with a heavy blood-red bill and black cap. Hovers and plunge-dives for fish."
+  },
+  "great_egret": {
+    "group": "Water & shore",
+    "season": "Year-round resident",
+    "sound": "A low, harsh croak, usually only when disturbed or at the colony.",
+    "habitat": "Marshes, lagoons, tidal flats, and pond edges.",
+    "note": "A tall, all-white heron with a yellow bill and black legs. Stalks slowly in the shallows, then spears fish with a quick thrust. Plume hunting nearly wiped it out a century ago."
+  },
+  "great_blue_heron": {
+    "group": "Water & shore",
+    "season": "Year-round resident",
+    "sound": "A deep, harsh, croaking 'frahnk' squawk when flushed.",
+    "habitat": "Lagoons, creeks, tidal flats, and even golf courses.",
+    "note": "The largest heron in North America — tall and blue-gray. Stands motionless in the shallows waiting to strike at fish, frogs, and gophers."
+  },
+  "rock_pigeon": {
+    "group": "Urban & open space",
+    "season": "Year-round resident (introduced)",
+    "sound": "A soft, throaty cooing 'coo-roo-coo'; wings clap on takeoff.",
+    "habitat": "Downtown ledges, bridges, plazas, and parking structures.",
+    "note": "The familiar city pigeon, descended from wild Rock Doves of Europe and brought over centuries ago. Plumage ranges widely from gray to white to rusty."
+  },
+  "california_gull": {
+    "group": "Water & shore",
+    "season": "Mostly fall–spring nonbreeding visitor",
+    "sound": "A laughing, bugling call and 'kak-kak' notes, similar to other gulls.",
+    "habitat": "Beaches, harbor, parking lots, and landfills.",
+    "note": "A medium gull with yellow-green legs and a red-and-black spot on the bill. Breeds at inland lakes to the north and east, then winters along the California coast."
+  },
+  "dark_eyed_junco": {
+    "group": "Backyard regular",
+    "season": "Year-round; more common in winter",
+    "sound": "A rapid, musical, ringing trill on one pitch, plus sharp 'tick' or 'tek' call notes.",
+    "habitat": "Suburban yards, woodland edges, and feeders.",
+    "note": "The local 'Oregon' form has a dark hood, brown back, and pinkish sides; white outer tail feathers flash as it flies up. Forages on the ground with a tidy hop."
+  }
+}

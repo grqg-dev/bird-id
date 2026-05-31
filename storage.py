@@ -183,15 +183,7 @@ def new_species_on(conn: sqlite3.Connection, day: str) -> list[str]:
     return [r["common_name"] for r in rows]
 
 
-def species_dex(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """One row per species = its highest-confidence detection (the 'dex entry'),
-    plus how many windows it's been heard in and its first/last times.
-
-    The peak detection carries segment_id + start/end so the UI can show that
-    exact clip's spectrogram as the species' 'sprite' and play it.
-    """
-    return conn.execute(
-        """
+_DEX_SELECT = """
         SELECT common_name, scientific_name, confidence AS peak_conf,
                segment_id, start_time, end_time, wav_path,
                windows, first_heard, last_heard
@@ -203,10 +195,28 @@ def species_dex(conn: sqlite3.Connection) -> list[sqlite3.Row]:
                    MIN(d.heard_at) OVER (PARTITION BY d.common_name) AS first_heard,
                    MAX(d.heard_at) OVER (PARTITION BY d.common_name) AS last_heard
             FROM detections d JOIN segments s ON s.id = d.segment_id
+            {where}
         )
         WHERE rn = 1
         ORDER BY peak_conf DESC
         """
+
+
+def species_dex(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """One row per species = its highest-confidence detection (the 'dex entry'),
+    plus how many windows it's been heard in and its first/last times.
+
+    The peak detection carries segment_id + start/end so the UI can show that
+    exact clip's spectrogram as the species' 'sprite' and play it.
+    """
+    return conn.execute(_DEX_SELECT.format(where="")).fetchall()
+
+
+def species_dex_day(conn: sqlite3.Connection, day: str) -> list[sqlite3.Row]:
+    """Same shape as species_dex, but only detections on `day` (YYYY-MM-DD)."""
+    return conn.execute(
+        _DEX_SELECT.format(where="WHERE date(d.heard_at) = ?"),
+        (day,),
     ).fetchall()
 
 
@@ -238,3 +248,377 @@ def totals(conn: sqlite3.Connection) -> sqlite3.Row:
                (SELECT MAX(ended_at) FROM segments)                  AS last_segment
         """
     ).fetchone()
+
+
+def _species_day_clause(day: str | None, show_all: bool) -> tuple[str, tuple]:
+    """SQL fragment + params for optional day filter on detections."""
+    if show_all or not day:
+        return "", ()
+    return " AND date(d.heard_at) = ?", (day,)
+
+
+def species_exists(conn: sqlite3.Connection, common_name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM detections WHERE common_name = ? LIMIT 1", (common_name,)
+    ).fetchone()
+    return row is not None
+
+
+def species_meta(conn: sqlite3.Connection, common_name: str) -> Optional[sqlite3.Row]:
+    """Scientific name and first-ever detection for a species."""
+    return conn.execute(
+        """
+        SELECT scientific_name,
+               MIN(heard_at) AS discovered_at,
+               COUNT(*)      AS all_time_windows
+        FROM detections WHERE common_name = ?
+        GROUP BY scientific_name
+        """,
+        (common_name,),
+    ).fetchone()
+
+
+def species_stats(
+    conn: sqlite3.Connection,
+    common_name: str,
+    *,
+    day: str | None = None,
+    show_all: bool = True,
+) -> Optional[sqlite3.Row]:
+    """Aggregate stats for one species, optionally scoped to a single day."""
+    extra, params = _species_day_clause(day, show_all)
+    return conn.execute(
+        f"""
+        SELECT COUNT(*)                    AS windows,
+               MAX(confidence)             AS peak_conf,
+               AVG(confidence)             AS avg_conf,
+               MIN(confidence)             AS min_conf,
+               MIN(heard_at)               AS first_heard,
+               MAX(heard_at)               AS last_heard,
+               COUNT(DISTINCT segment_id)  AS segments
+        FROM detections d
+        WHERE d.common_name = ?{extra}
+        """,
+        (common_name, *params),
+    ).fetchone()
+
+
+def species_detections(
+    conn: sqlite3.Connection,
+    common_name: str,
+    *,
+    day: str | None = None,
+    show_all: bool = True,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[sqlite3.Row]:
+    """All detection windows for a species, highest confidence first."""
+    extra, params = _species_day_clause(day, show_all)
+    return conn.execute(
+        f"""
+        SELECT d.id, d.confidence, d.heard_at, d.start_time, d.end_time,
+               d.segment_id, s.wav_path
+        FROM detections d JOIN segments s ON s.id = d.segment_id
+        WHERE d.common_name = ?{extra}
+        ORDER BY d.confidence DESC, d.heard_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        (common_name, *params, limit, offset),
+    ).fetchall()
+
+
+def species_detection_count(
+    conn: sqlite3.Connection,
+    common_name: str,
+    *,
+    day: str | None = None,
+    show_all: bool = True,
+) -> int:
+    extra, params = _species_day_clause(day, show_all)
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n FROM detections d WHERE d.common_name = ?{extra}",
+        (common_name, *params),
+    ).fetchone()
+    return row["n"]
+
+
+def species_heard_times(
+    conn: sqlite3.Connection,
+    common_name: str,
+    *,
+    day: str | None = None,
+    show_all: bool = True,
+) -> list[str]:
+    """All heard_at timestamps for streak / span calculations."""
+    extra, params = _species_day_clause(day, show_all)
+    rows = conn.execute(
+        f"SELECT heard_at FROM detections d WHERE d.common_name = ?{extra} ORDER BY heard_at",
+        (common_name, *params),
+    ).fetchall()
+    return [r["heard_at"] for r in rows]
+
+
+def species_hourly(
+    conn: sqlite3.Connection,
+    common_name: str,
+    *,
+    day: str | None = None,
+    show_all: bool = True,
+) -> list[sqlite3.Row]:
+    """Detection counts per hour (0–23). Single-day scope or all-time aggregate."""
+    if show_all or not day:
+        return conn.execute(
+            """
+            SELECT strftime('%H', heard_at) AS hour, COUNT(*) AS n
+            FROM detections WHERE common_name = ?
+            GROUP BY hour ORDER BY hour
+            """,
+            (common_name,),
+        ).fetchall()
+    return conn.execute(
+        """
+        SELECT strftime('%H', heard_at) AS hour, COUNT(*) AS n
+        FROM detections WHERE common_name = ? AND date(heard_at) = ?
+        GROUP BY hour ORDER BY hour
+        """,
+        (common_name, day),
+    ).fetchall()
+
+
+def species_daily(
+    conn: sqlite3.Connection, common_name: str
+) -> list[sqlite3.Row]:
+    """Per-day detection counts for one species (all-time drill-down)."""
+    return conn.execute(
+        """
+        SELECT date(heard_at) AS day, COUNT(*) AS n,
+               MAX(confidence) AS peak_conf
+        FROM detections WHERE common_name = ?
+        GROUP BY day ORDER BY day DESC
+        """,
+        (common_name,),
+    ).fetchall()
+
+
+def species_confidence_buckets(
+    conn: sqlite3.Connection,
+    common_name: str,
+    *,
+    day: str | None = None,
+    show_all: bool = True,
+) -> list[sqlite3.Row]:
+    """Histogram of confidence scores in fixed buckets."""
+    extra, params = _species_day_clause(day, show_all)
+    return conn.execute(
+        f"""
+        SELECT
+            CASE
+                WHEN confidence >= 0.9 THEN '0.90–1.00'
+                WHEN confidence >= 0.7 THEN '0.70–0.89'
+                WHEN confidence >= 0.5 THEN '0.50–0.69'
+                ELSE '0.30–0.49'
+            END AS bucket,
+            CASE
+                WHEN confidence >= 0.9 THEN 4
+                WHEN confidence >= 0.7 THEN 3
+                WHEN confidence >= 0.5 THEN 2
+                ELSE 1
+            END AS ord,
+            COUNT(*) AS n
+        FROM detections d
+        WHERE d.common_name = ?{extra}
+        GROUP BY bucket, ord
+        ORDER BY ord
+        """,
+        (common_name, *params),
+    ).fetchall()
+
+
+def segments_for_scope(
+    conn: sqlite3.Connection, *, day: str | None = None
+) -> list[sqlite3.Row]:
+    """Recording segments with live detection counts, ordered by start time."""
+    if day:
+        return conn.execute(
+            """
+            SELECT s.id, s.started_at, s.ended_at, s.duration,
+                   COUNT(d.id) AS detections,
+                   COUNT(DISTINCT d.common_name) AS species
+            FROM segments s
+            JOIN detections d ON d.segment_id = s.id
+            WHERE date(d.heard_at) = ?
+            GROUP BY s.id
+            ORDER BY s.started_at
+            """,
+            (day,),
+        ).fetchall()
+    return conn.execute(
+        """
+        SELECT s.id, s.started_at, s.ended_at, s.duration,
+               COUNT(d.id) AS detections,
+               COUNT(DISTINCT d.common_name) AS species
+        FROM segments s
+        JOIN detections d ON d.segment_id = s.id
+        GROUP BY s.id
+        ORDER BY s.started_at
+        """
+    ).fetchall()
+
+
+def report_species(
+    conn: sqlite3.Connection, *, day: str | None = None
+) -> list[sqlite3.Row]:
+    """Per-species rollup for the data report, sorted by detection count."""
+    if day:
+        return conn.execute(
+            """
+            SELECT common_name, scientific_name,
+                   COUNT(*)        AS windows,
+                   MAX(confidence) AS peak_conf
+            FROM detections WHERE date(heard_at) = ?
+            GROUP BY common_name, scientific_name
+            ORDER BY windows DESC
+            """,
+            (day,),
+        ).fetchall()
+    return conn.execute(
+        """
+        SELECT common_name, scientific_name,
+               COUNT(*)        AS windows,
+               MAX(confidence) AS peak_conf
+        FROM detections
+        GROUP BY common_name, scientific_name
+        ORDER BY windows DESC
+        """
+    ).fetchall()
+
+
+def report_confidences(
+    conn: sqlite3.Connection, *, day: str | None = None
+) -> list[sqlite3.Row]:
+    """All confidence scores grouped by species (for confidence strips)."""
+    if day:
+        return conn.execute(
+            """
+            SELECT common_name, confidence
+            FROM detections WHERE date(heard_at) = ?
+            ORDER BY common_name, confidence
+            """,
+            (day,),
+        ).fetchall()
+    return conn.execute(
+        """
+        SELECT common_name, confidence
+        FROM detections
+        ORDER BY common_name, confidence
+        """
+    ).fetchall()
+
+
+def report_species_segments(
+    conn: sqlite3.Connection, *, day: str | None = None
+) -> list[sqlite3.Row]:
+    """Distinct segment ids per species (for window-presence dots)."""
+    if day:
+        return conn.execute(
+            """
+            SELECT common_name, segment_id
+            FROM detections WHERE date(heard_at) = ?
+            GROUP BY common_name, segment_id
+            ORDER BY common_name, segment_id
+            """,
+            (day,),
+        ).fetchall()
+    return conn.execute(
+        """
+        SELECT common_name, segment_id
+        FROM detections
+        GROUP BY common_name, segment_id
+        ORDER BY common_name, segment_id
+        """
+    ).fetchall()
+
+
+def detections_for_segments(
+    conn: sqlite3.Connection,
+    segment_ids: list[int],
+    *,
+    day: str | None = None,
+) -> list[sqlite3.Row]:
+    """Detections limited to given segments (for AM/PM bucketing)."""
+    if not segment_ids:
+        return []
+    placeholders = ",".join("?" * len(segment_ids))
+    extra = " AND date(heard_at) = ?" if day else ""
+    params: tuple = (*segment_ids, day) if day else tuple(segment_ids)
+    return conn.execute(
+        f"""
+        SELECT heard_at, common_name, segment_id
+        FROM detections
+        WHERE segment_id IN ({placeholders}){extra}
+        """,
+        params,
+    ).fetchall()
+
+
+def minute_bins(conn: sqlite3.Connection, segment_id: int) -> list[sqlite3.Row]:
+    """Detection count per elapsed minute within one segment."""
+    return conn.execute(
+        """
+        SELECT CAST(
+                   (julianday(d.heard_at) - julianday(s.started_at)) * 86400 / 60
+               AS INTEGER) AS minute,
+               COUNT(*) AS n
+        FROM detections d
+        JOIN segments s ON s.id = d.segment_id
+        WHERE d.segment_id = ?
+        GROUP BY minute
+        ORDER BY minute
+        """,
+        (segment_id,),
+    ).fetchall()
+
+
+def daily_rates(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Per calendar day: detection count and total recorded minutes."""
+    return conn.execute(
+        """
+        SELECT date(d.heard_at) AS day,
+               COUNT(d.id)       AS detections,
+               COALESCE((
+                   SELECT SUM(s2.duration)
+                   FROM segments s2
+                   WHERE date(s2.started_at) = date(d.heard_at)
+               ), 0)             AS audio_sec
+        FROM detections d
+        GROUP BY day
+        ORDER BY day
+        """
+    ).fetchall()
+
+
+def hourly_aggregate(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Detection counts per hour (0–23) across all stored data."""
+    return conn.execute(
+        """
+        SELECT strftime('%H', heard_at) AS hour, COUNT(*) AS n
+        FROM detections
+        GROUP BY hour ORDER BY hour
+        """
+    ).fetchall()
+
+
+def longest_heard_streak(heard_times: list[str], *, max_gap_sec: float = 6.0) -> int:
+    """Longest run of detections with gaps no larger than max_gap_sec."""
+    if not heard_times:
+        return 0
+    times = sorted(datetime.fromisoformat(t) for t in heard_times)
+    best = cur = 1
+    for i in range(1, len(times)):
+        gap = (times[i] - times[i - 1]).total_seconds()
+        if gap <= max_gap_sec:
+            cur += 1
+            best = max(best, cur)
+        else:
+            cur = 1
+    return best

@@ -26,12 +26,7 @@ REMAP: dict[str, int] = {
 }
 
 # Still not on either sheet with usable art
-STILL_MISSING = (
-    "wilsons_warbler",
-    "lesser_goldfinch",
-    "black_headed_grosbeak",
-    "caspian_tern",
-)
+STILL_MISSING = ()
 
 
 def crop_cell(src: Image.Image, cell: int) -> Image.Image:

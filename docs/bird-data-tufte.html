@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bird-ID — Field Report, 30 May 2026</title>
+<style>
+  :root{
+    --ink:#1a1a1a; --paper:#fafaf7; --rule:#d8d4cc; --muted:#8a857c;
+    --accent:#b3261e; --gray-1:#efece4; --gray-2:#c8c2b5; --gray-3:#6b665d;
+  }
+  *{box-sizing:border-box}
+  html{background:var(--gray-1)}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font:15px/1.55 Charter,"Iowan Old Style",Georgia,serif;
+    max-width:860px; margin:0 auto; padding:56px 40px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:"SF Mono",ui-monospace,"Berkeley Mono",monospace;}
+  h1{font-size:30px; font-weight:600; letter-spacing:-.01em; margin:0 0 4px; line-height:1.1;}
+  .dek{font-size:17px; color:var(--gray-3); margin:0 0 22px; max-width:62ch; font-style:italic;}
+  .meta{
+    font-family:"SF Mono",ui-monospace,monospace; font-size:11px; color:var(--gray-3);
+    border-top:1px solid var(--ink); border-bottom:1px solid var(--rule);
+    padding:9px 0; margin:0 0 40px; display:flex; flex-wrap:wrap; gap:4px 18px;
+  }
+  .meta b{color:var(--ink); font-weight:600;}
+  h2{
+    font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.11em;
+    color:var(--ink); margin:52px 0 3px; font-family:"SF Mono",ui-monospace,monospace;
+  }
+  .sub{font-size:13px; color:var(--gray-3); margin:0 0 18px; max-width:64ch;}
+  .sub em{color:var(--accent); font-style:normal;}
+  table{border-collapse:collapse; width:100%;}
+  th{
+    font-family:"SF Mono",ui-monospace,monospace; font-size:9.5px; font-weight:500;
+    text-transform:uppercase; letter-spacing:.07em; color:var(--gray-3);
+    text-align:right; padding:0 0 6px; vertical-align:bottom; border-bottom:.5px solid var(--ink);
+  }
+  th.l{text-align:left}
+  td{padding:5px 0; border-bottom:.5px solid var(--gray-1); vertical-align:middle;}
+  td.name{font-size:14px;}
+  td.sci{font-style:italic; color:var(--muted); font-size:12px; padding-left:8px;}
+  td.num{font-family:"SF Mono",ui-monospace,monospace; text-align:right; font-size:12px; white-space:nowrap;}
+  td.num.dim{color:var(--gray-3)}
+  .val{font-weight:600}
+  svg{display:block; overflow:visible;}
+  .cap{font-size:11px; color:var(--gray-3); font-family:"SF Mono",ui-monospace,monospace;}
+  .foot{
+    margin-top:64px; padding-top:18px; border-top:1px solid var(--ink);
+    font-size:12.5px; line-height:1.5; color:var(--gray-3);
+  }
+  .foot ol{margin:0; padding-left:20px;} .foot li{margin:0 0 9px;}
+  .foot b{color:var(--ink); font-weight:600;}
+  .foot .mono{font-size:11px;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:20px 44px; align-items:start;}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr} body{padding:32px 18px 64px}}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<h1>One day at the feeder line</h1>
+<p class="dek">373 BirdNET detections, 11 species, recorded in four windows on 30 May 2026 — Glendessary Lane, Santa Barbara. What the microphone actually heard, with the model's own uncertainty left visible.</p>
+<div class="meta">
+  <span><b>2026-05-30</b></span>
+  <span>34.42°N 119.70°W</span>
+  <span><b>4</b> windows</span>
+  <span><b>57.6</b> min audio</span>
+  <span><b>373</b> detections</span>
+  <span><b>11</b> species</span>
+  <span>BirdNET · min_conf <b>0.30</b></span>
+</div>
+
+<!-- ============ PANEL 1: MASTER TABLE ============ -->
+<h2>The roll call</h2>
+<p class="sub">One row per species, sorted by detection count. The strip shows <em>every</em> detection placed at its confidence (0.30–1.00, shared scale); the red dot marks each species' best detection. Confidence is BirdNET's posterior — not truth. Note how California Towhee sits hard right (the model is sure) while Spotted Towhee bunches against the 0.30 cutoff (tentative).</p>
+<table id="roll">
+  <thead>
+    <tr>
+      <th class="l">Species</th>
+      <th class="l">&nbsp;</th>
+      <th>n</th>
+      <th class="l" style="padding-left:14px">count</th>
+      <th class="l" style="padding-left:14px">confidence&nbsp; 0.30&#8594;1.00</th>
+      <th>best</th>
+      <th>wins</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<!-- ============ PANEL 2: WINDOW SPLIT ============ -->
+<h2>Which window each species turned up in</h2>
+<p class="sub">Share of each species' detections from the morning block (3 windows, 18.6 min) versus the afternoon window (38.9 min). Because the afternoon ran 2&times; longer, a bird calling evenly all day would land near <em>68&#37; afternoon by recording time alone</em> — that's the dashed baseline, not zero. Only the distance <em>past</em> it is signal: California Towhee (all 78 in the afternoon), the dove (all 3 in the morning), and the crow's morning lean are the real departures.</p>
+<svg id="diel" width="100%" viewBox="0 0 760 300" font-family="Charter,Georgia,serif"></svg>
+
+<div class="grid2">
+<div>
+<!-- ============ PANEL 3: RATE BY WINDOW ============ -->
+<h2>Detections per minute</h2>
+<p class="sub">The afternoon window logged the most detections (215) but the <em>slowest</em> rate. Dawn was denser per minute of tape.</p>
+<svg id="rate" width="100%" viewBox="0 0 360 230" font-family="Charter,Georgia,serif"></svg>
+</div>
+
+<div>
+<!-- ============ PANEL 4: AFTERNOON CURVE ============ -->
+<h2>The afternoon window, minute by minute</h2>
+<p class="sub">Detections per minute across the 39-minute afternoon recording (14:11–14:50). Activity built steadily to a peak of <em>16</em> in the 27th minute.</p>
+<svg id="curve" width="100%" viewBox="0 0 360 230" font-family="Charter,Georgia,serif"></svg>
+</div>
+</div>
+
+<!-- ============ FOOTNOTES ============ -->
+<div class="foot">
+<ol>
+  <li><b>Recording is discontinuous.</b> Four windows totalling 57.6&nbsp;min: a dawn block of three (07:30–08:33) and one afternoon window (14:11–14:50). The <span class="mono">5&nbsp;h&nbsp;38&nbsp;min</span> between them is <b>unobserved, not silent</b> — no line is drawn across it on purpose.</li>
+  <li><b>Counts are detection-windows, not individuals.</b> 126 "American Crow" means 126 audio windows fired the crow class — one persistent crow near the mic inflates this freely. Read it as vocal activity, not a census.</li>
+  <li><b>Confidence is a posterior, not a probability of being right.</b> It's BirdNET's logistic output (0–1). The left edge of every strip is <b>censored at <span class="mono">min_conf&nbsp;0.30</span></b> (set in <span class="mono">config.json</span>) — the clustering near 0.30 is partly the cutoff, not the bird.</li>
+  <li><b>Two IDs are tentative.</b> Spotted Towhee never exceeds <span class="mono">0.565</span> across 23 detections, and Anna's Hummingbird is a single <span class="mono">0.388</span>. Treat both as unconfirmed.</li>
+  <li><b>One day, one yard.</b> Window is fully confounded with time-of-day, session, and which individuals happened to be near the microphone. "Morning vs afternoon" here means <b>which recording</b>, not diel behaviour — don't generalise from n&nbsp;=&nbsp;1 day.</li>
+</ol>
+</div>
+
+<script>
+const T={ink:"#1a1a1a",accent:"#b3261e",g1:"#efece4",g2:"#c8c2b5",g3:"#6b665d",muted:"#8a857c",rule:"#d8d4cc"};
+const NS="http://www.w3.org/2000/svg";
+function el(t,a){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function txt(p,x,y,s,a){const t=el("text",Object.assign({x,y},a));t.textContent=s;p.appendChild(t);return t;}
+
+// ---- DATA (from birdid.db, 2026-05-30) ----
+const SP=[
+ {n:"American Crow",         sci:"Corvus brachyrhynchos", c:126, max:.978, am:90, pm:36, wins:[1,1,1,1], conf:[0.593,0.391,0.965,0.921,0.88,0.874,0.786,0.766,0.764,0.584,0.549,0.534,0.525,0.523,0.517,0.392,0.351,0.348,0.327,0.325,0.315,0.304,0.965,0.959,0.952,0.946,0.941,0.937,0.92,0.917,0.912,0.905,0.853,0.839,0.817,0.814,0.808,0.806,0.8,0.79,0.761,0.756,0.747,0.744,0.718,0.694,0.672,0.652,0.636,0.609,0.578,0.571,0.564,0.554,0.51,0.503,0.502,0.499,0.498,0.478,0.475,0.472,0.468,0.465,0.463,0.449,0.449,0.445,0.434,0.433,0.419,0.409,0.405,0.391,0.383,0.374,0.373,0.373,0.366,0.351,0.351,0.346,0.336,0.331,0.323,0.32,0.318,0.313,0.309,0.304,0.978,0.977,0.96,0.953,0.938,0.915,0.892,0.884,0.843,0.839,0.83,0.794,0.778,0.757,0.724,0.695,0.641,0.596,0.589,0.581,0.551,0.549,0.546,0.524,0.517,0.515,0.488,0.488,0.467,0.461,0.433,0.377,0.363,0.34,0.307,0.307]},
+ {n:"California Towhee",     sci:"Melozone crissalis",    c:78,  max:.992, am:0,  pm:78, wins:[0,0,0,1], conf:[0.992,0.989,0.981,0.98,0.979,0.976,0.976,0.976,0.974,0.972,0.969,0.967,0.965,0.962,0.959,0.958,0.954,0.953,0.95,0.948,0.937,0.931,0.925,0.911,0.908,0.905,0.889,0.885,0.885,0.883,0.878,0.873,0.864,0.855,0.853,0.83,0.824,0.805,0.785,0.764,0.763,0.763,0.76,0.759,0.755,0.753,0.75,0.749,0.743,0.727,0.701,0.697,0.692,0.684,0.683,0.681,0.677,0.665,0.637,0.628,0.617,0.613,0.603,0.603,0.602,0.602,0.591,0.558,0.551,0.522,0.519,0.508,0.471,0.416,0.411,0.404,0.392,0.372]},
+ {n:"Oak Titmouse",         sci:"Baeolophus inornatus",  c:56,  max:.991, am:31, pm:25, wins:[1,1,1,1], conf:[0.934,0.844,0.749,0.726,0.613,0.566,0.558,0.417,0.312,0.991,0.984,0.979,0.976,0.971,0.953,0.932,0.924,0.863,0.849,0.832,0.731,0.707,0.666,0.604,0.561,0.523,0.521,0.376,0.374,0.308,0.486,0.972,0.912,0.899,0.885,0.855,0.836,0.834,0.827,0.807,0.793,0.706,0.625,0.619,0.619,0.604,0.588,0.525,0.487,0.47,0.452,0.372,0.359,0.357,0.343,0.326]},
+ {n:"Pacific-slope Flycatcher",sci:"Empidonax difficilis",c:38, max:.932, am:20, pm:18, wins:[1,1,1,1], conf:[0.901,0.584,0.508,0.499,0.441,0.364,0.925,0.9,0.893,0.815,0.72,0.719,0.697,0.606,0.599,0.494,0.404,0.33,0.406,0.359,0.932,0.831,0.826,0.802,0.7,0.665,0.636,0.619,0.584,0.519,0.513,0.475,0.471,0.391,0.374,0.314,0.311,0.31]},
+ {n:"Bewick's Wren",        sci:"Thryomanes bewickii",   c:26,  max:.945, am:2,  pm:24, wins:[0,1,0,1], conf:[0.495,0.494,0.945,0.872,0.841,0.837,0.823,0.775,0.751,0.727,0.707,0.692,0.658,0.656,0.637,0.616,0.593,0.568,0.518,0.469,0.457,0.426,0.41,0.374,0.346,0.321]},
+ {n:"Spotted Towhee",       sci:"Pipilo maculatus",      c:23,  max:.565, am:1,  pm:22, wins:[0,0,1,1], conf:[0.565,0.519,0.506,0.498,0.484,0.481,0.469,0.457,0.385,0.376,0.375,0.352,0.35,0.343,0.336,0.334,0.331,0.327,0.318,0.308,0.306,0.305,0.305]},
+ {n:"Dark-eyed Junco",      sci:"Junco hyemalis",        c:13,  max:.822, am:10, pm:3,  wins:[1,1,0,1], conf:[0.33,0.822,0.733,0.686,0.549,0.533,0.468,0.462,0.403,0.325,0.57,0.32,0.313]},
+ {n:"Lesser Goldfinch",     sci:"Spinus psaltria",       c:6,   max:.679, am:0,  pm:6,  wins:[0,0,0,1], conf:[0.679,0.64,0.55,0.364,0.363,0.307]},
+ {n:"Eurasian Collared-Dove",sci:"Streptopelia decaocto",c:3,   max:.781, am:3,  pm:0,  wins:[0,0,1,0], conf:[0.781,0.692,0.434]},
+ {n:"Nuttall's Woodpecker", sci:"Dryobates nuttallii",   c:3,   max:.997, am:1,  pm:2,  wins:[0,1,0,1], conf:[0.635,0.997,0.5]},
+ {n:"Anna's Hummingbird",   sci:"Calypte anna",          c:1,   max:.388, am:0,  pm:1,  wins:[0,0,0,1], conf:[0.388]},
+];
+const WIN=[
+ {id:1,clock:"07:30",min:2.08,det:18,sp:4},
+ {id:2,clock:"07:59",min:6.89,det:65,sp:6},
+ {id:3,clock:"08:23",min:9.67,det:75,sp:5},
+ {id:4,clock:"14:11",min:38.95,det:215,sp:10},
+];
+const SEG4=[4,6,2,1,1,3,1,3,0,4,7,3,10,0,2,12,13,0,1,3,1,0,3,14,7,13,16,12,6,8,7,9,9,4,8,11,9,2]; // det/min, min 0..37
+
+// ================= PANEL 1: roll-call table =================
+(function(){
+ const tb=document.querySelector("#roll tbody");
+ const CW=120, cMax=126;                 // count bar
+ const SW=260, lo=0.30, hi=1.00;         // confidence strip
+ const sx=c=>(c-lo)/(hi-lo)*SW;
+ SP.forEach(s=>{
+   const tr=document.createElement("tr");
+   // name + sci
+   tr.innerHTML=`<td class="name">${s.n}</td><td class="sci">${s.sci}</td>`+
+                `<td class="num val">${s.c}</td>`;
+   // count bar cell
+   const tdC=document.createElement("td"); tdC.style.paddingLeft="14px";
+   const svgC=el("svg",{width:CW,height:14,viewBox:`0 0 ${CW} 14`});
+   svgC.appendChild(el("line",{x1:0,y1:7,x2:s.c/cMax*CW,y2:7,stroke:T.ink,"stroke-width":6,opacity:.85}));
+   tdC.appendChild(svgC); tr.appendChild(tdC);
+   // confidence strip cell
+   const tdS=document.createElement("td"); tdS.style.paddingLeft="14px";
+   const H=16;
+   const svgS=el("svg",{width:SW+8,height:H,viewBox:`0 0 ${SW+8} ${H}`});
+   // baseline
+   svgS.appendChild(el("line",{x1:0,y1:H-2,x2:SW,y2:H-2,stroke:T.g2,"stroke-width":.5}));
+   // every detection as a faint tick
+   s.conf.forEach(c=>{
+     svgS.appendChild(el("line",{x1:sx(c),y1:2,x2:sx(c),y2:H-2,stroke:T.g3,"stroke-width":1,opacity:.32}));
+   });
+   // max dot
+   svgS.appendChild(el("circle",{cx:sx(s.max),cy:(H)/2,r:2.6,fill:T.accent}));
+   tdS.appendChild(svgS); tr.appendChild(tdS);
+   // best + wins
+   const tdB=document.createElement("td"); tdB.className="num"; tdB.textContent=s.max.toFixed(3);
+   if(s.max<0.6){tdB.style.color=T.accent;}
+   tr.appendChild(tdB);
+   const tdW=document.createElement("td"); tdW.className="num dim";
+   const sw=el("svg",{width:34,height:10,viewBox:"0 0 34 10"});
+   s.wins.forEach((w,i)=>sw.appendChild(el("circle",{cx:5+i*8,cy:5,r:2.4,fill:w?T.ink:"none",stroke:T.g2,"stroke-width":w?0:1})));
+   tdW.appendChild(sw); tr.appendChild(tdW);
+   tb.appendChild(tr);
+ });
+ // threshold caption under the confidence column
+})();
+
+// ================= PANEL 2: window split (diel) =================
+(function(){
+ const svg=document.getElementById("diel");
+ const x0=190, x1=620, top=24, rh=23, baseAM=18.64/57.58; // 0.324
+ const data=[...SP].sort((a,b)=> (b.am/(b.am+b.pm)) - (a.am/(a.am+a.pm)) || b.c-a.c);
+ const W=x1-x0;
+ // baseline (expected AM share by recording time)
+ const bx=x0+baseAM*W;
+ svg.appendChild(el("line",{x1:bx,y1:top-8,x2:bx,y2:top+data.length*rh+2,stroke:T.accent,"stroke-width":.8,"stroke-dasharray":"3 3"}));
+ txt(svg,bx,top-12,"32% — expected morning share by recording time",{"text-anchor":"middle","font-family":"SF Mono,monospace","font-size":9.5,fill:T.accent});
+ // column heads
+ txt(svg,x0,top-12,"morning",{"font-family":"SF Mono,monospace","font-size":9.5,fill:T.g3,"text-anchor":"start"});
+ txt(svg,x1,top-12,"afternoon",{"font-family":"SF Mono,monospace","font-size":9.5,fill:T.g3,"text-anchor":"end"});
+ data.forEach((s,i)=>{
+   const y=top+i*rh, amShare=s.am/(s.am+s.pm), split=x0+amShare*W;
+   // morning portion (gray) / afternoon portion (accent)
+   svg.appendChild(el("line",{x1:x0,y1:y+8,x2:split,y2:y+8,stroke:T.g2,"stroke-width":7}));
+   svg.appendChild(el("line",{x1:split,y1:y+8,x2:x1,y2:y+8,stroke:T.accent,"stroke-width":7,opacity:.88}));
+   // species label
+   txt(svg,x0-10,y+11,s.n,{"text-anchor":"end","font-size":12.5,fill:T.ink});
+   // counts at ends
+   if(s.am) txt(svg,x0+3,y+11,s.am,{"font-family":"SF Mono,monospace","font-size":9.5,fill:"#fff","text-anchor":"start"});
+   if(s.pm) txt(svg,x1-3,y+11,s.pm,{"font-family":"SF Mono,monospace","font-size":9.5,fill:"#fff","text-anchor":"end"});
+ });
+})();
+
+// ================= PANEL 3: rate per window =================
+(function(){
+ const svg=document.getElementById("rate");
+ const x0=64, x1=300, top=16, rh=34, rMax=10;
+ const sx=v=>x0+v/rMax*(x1-x0);
+ // axis ticks
+ [0,5,10].forEach(v=>{
+   svg.appendChild(el("line",{x1:sx(v),y1:top-6,x2:sx(v),y2:top+WIN.length*rh-12,stroke:T.g1,"stroke-width":.5}));
+   txt(svg,sx(v),top-9,v,{"text-anchor":"middle","font-family":"SF Mono,monospace","font-size":9,fill:T.g3});
+ });
+ txt(svg,sx(5),top+WIN.length*rh+2,"detections / min",{"text-anchor":"middle","font-family":"SF Mono,monospace","font-size":9,fill:T.g3});
+ WIN.forEach((w,i)=>{
+   const y=top+i*rh+8, r=w.det/w.min;
+   svg.appendChild(el("line",{x1:x0,y1:y,x2:sx(r),y2:y,stroke:T.g2,"stroke-width":.5}));
+   svg.appendChild(el("circle",{cx:sx(r),cy:y,r:4,fill:i===3?T.accent:T.ink}));
+   txt(svg,x0-8,y+3,w.clock,{"text-anchor":"end","font-family":"SF Mono,monospace","font-size":10,fill:T.ink});
+   txt(svg,sx(r)+9,y+3,r.toFixed(1),{"font-family":"SF Mono,monospace","font-size":10,fill:T.ink,"font-weight":600});
+   txt(svg,sx(r)+34,y+3,`${w.min.toFixed(0)} min · ${w.det}`,{"font-family":"SF Mono,monospace","font-size":9,fill:T.g3});
+ });
+})();
+
+// ================= PANEL 4: afternoon curve =================
+(function(){
+ const svg=document.getElementById("curve");
+ const x0=30,x1=345,y0=170,y1=20, n=SEG4.length, yMax=16;
+ const sx=i=>x0+i/(n-1)*(x1-x0), sy=v=>y0-v/yMax*(y0-y1);
+ // range frame y ticks
+ [0,8,16].forEach(v=>txt(svg,x0-7,sy(v)+3,v,{"text-anchor":"end","font-family":"SF Mono,monospace","font-size":9,fill:T.g3}));
+ svg.appendChild(el("line",{x1:x0,y1:y0,x2:x0,y2:sy(16),stroke:T.g3,"stroke-width":.5}));
+ // area
+ let d=`M ${x0} ${y0}`; SEG4.forEach((v,i)=>d+=` L ${sx(i)} ${sy(v)}`); d+=` L ${x1} ${y0} Z`;
+ svg.appendChild(el("path",{d,fill:T.g1}));
+ // line
+ let l=""; SEG4.forEach((v,i)=>l+=(i?"L":"M")+` ${sx(i)} ${sy(v)} `);
+ svg.appendChild(el("path",{d:l,fill:"none",stroke:T.ink,"stroke-width":1.4}));
+ // peak
+ const pk=SEG4.indexOf(16);
+ svg.appendChild(el("circle",{cx:sx(pk),cy:sy(16),r:3,fill:T.accent}));
+ txt(svg,sx(pk),sy(16)-7,"16",{"text-anchor":"middle","font-family":"SF Mono,monospace","font-size":10,fill:T.accent,"font-weight":600});
+ // x labels
+ txt(svg,x0,y0+14,"14:11",{"font-family":"SF Mono,monospace","font-size":9,fill:T.g3});
+ txt(svg,x1,y0+14,"14:50",{"text-anchor":"end","font-family":"SF Mono,monospace","font-size":9,fill:T.g3});
+})();
+</script>
+</body>
+</html>

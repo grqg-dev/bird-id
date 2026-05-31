@@ -13,3 +13,5 @@ birdid.db-shm
 # WIP retro pixel sprites — tracked on branch retro-sprites, not main
 sprites/
 docs/sprite-prompt.md
+
+.DS_Store
