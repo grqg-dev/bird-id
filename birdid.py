@@ -58,7 +58,6 @@ def cmd_record(args) -> int:
 
 
 def _resolve_id_params(args):
-    """Resolve min_conf/lat/lon from flags > config > defaults, and report filter."""
     cfg = args.cfg
     min_conf = config.resolve(args.min_conf, "min_conf", cfg)
     lat = config.resolve(args.lat, "lat", cfg)
@@ -71,6 +70,12 @@ def _audio_duration(path: Path) -> float:
     import librosa
 
     return float(librosa.get_duration(path=str(path)))
+
+
+def _db_paths(args) -> tuple[Path, Path]:
+    db_path = Path(config.resolve(args.db, "db", args.cfg)).expanduser()
+    rec_dir = Path(config.resolve(args.dir, "recordings_dir", args.cfg)).expanduser()
+    return db_path, rec_dir
 
 
 def _import_to_wav(src: Path, dest_dir: Path, started_at: datetime) -> Path:
@@ -86,7 +91,7 @@ def _import_to_wav(src: Path, dest_dir: Path, started_at: datetime) -> Path:
         raise FileNotFoundError("ffmpeg not found on PATH (needed to convert non-wav imports).")
     proc = subprocess.run(
         [ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(src),
-         "-ac", "1", "-ar", "48000", "-y", str(dest)],
+         "-ac", "1", "-ar", str(recorder.TARGET_SAMPLE_RATE), "-y", str(dest)],
         capture_output=True,
         text=True,
     )
@@ -111,8 +116,7 @@ def cmd_identify(args) -> int:
             started_at = ended_at - timedelta(seconds=duration)
         ended_at = started_at + timedelta(seconds=duration)
 
-        db_path = config.resolve(args.db, "db", args.cfg)
-        rec_dir = Path(config.resolve(args.dir, "recordings_dir", args.cfg)).expanduser()
+        db_path, rec_dir = _db_paths(args)
         kept_path = _import_to_wav(src, rec_dir, started_at) if detections else None
 
         conn = storage.connect(db_path)
@@ -162,8 +166,7 @@ def cmd_monitor(args) -> int:
         pass
 
     min_conf, lat, lon, loc = _resolve_id_params(args)
-    db_path = config.resolve(args.db, "db", args.cfg)
-    rec_dir = Path(config.resolve(args.dir, "recordings_dir", args.cfg)).expanduser()
+    db_path, rec_dir = _db_paths(args)
     conn = storage.connect(db_path)
     rec_dir.mkdir(parents=True, exist_ok=True)
     interval_s = args.minutes * 60.0
@@ -248,7 +251,7 @@ def cmd_digest(args) -> int:
     conn = storage.connect(db_path)
     try:
         ov = storage.day_overview(conn, day)
-        print(f"\n🐦 Daily digest — {day}")
+        print(f"\nDaily digest — {day}")
         if not ov["detections"]:
             print("  No detections recorded this day.")
             return 0
@@ -264,11 +267,11 @@ def cmd_digest(args) -> int:
 
         new = storage.new_species_on(conn, day)
         if new:
-            print(f"  ✨ New to your records: {', '.join(new)}")
+            print(f"  New to your records: {', '.join(new)}")
 
         print("\n  Species (by peak confidence):")
         for r in storage.day_species(conn, day):
-            flag = "  ✨NEW" if r["common_name"] in new else ""
+            flag = "  NEW" if r["common_name"] in new else ""
             print(f"    {r['common_name']:<28} peak={r['peak_conf']:.3f}  "
                   f"x{r['windows']:<3} first {r['first_heard'][11:16]}{flag}")
     finally:

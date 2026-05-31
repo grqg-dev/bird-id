@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 
@@ -19,7 +19,7 @@ CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 DEFAULTS: dict[str, Any] = {
     "lat": None,        # e.g. 37.77  -> enables BirdNET's location/season filter
     "lon": None,        # e.g. -122.42
-    "min_conf": 0.25,
+    "min_conf": 0.3,
     "db": "birdid.db",
     "recordings_dir": "recordings",
 }
@@ -40,9 +40,3 @@ def load(path: str | Path = CONFIG_PATH) -> dict[str, Any]:
 def resolve(flag_value: Any, key: str, cfg: dict[str, Any]) -> Any:
     """Pick the flag value if given (not None), else the config/default value."""
     return flag_value if flag_value is not None else cfg.get(key, DEFAULTS.get(key))
-
-
-def has_location(cfg: dict[str, Any], lat: Optional[float] = None, lon: Optional[float] = None) -> bool:
-    lat = resolve(lat, "lat", cfg)
-    lon = resolve(lon, "lon", cfg)
-    return lat is not None and lon is not None

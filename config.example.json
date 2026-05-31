@@ -1,7 +1,7 @@
 {
   "lat": 37.7749,
   "lon": -122.4194,
-  "min_conf": 0.5,
+  "min_conf": 0.3,
   "db": "birdid.db",
   "recordings_dir": "recordings"
 }

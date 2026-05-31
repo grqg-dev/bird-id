@@ -16,7 +16,7 @@ import os
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import date as date_cls
 from pathlib import Path
 from typing import Optional
@@ -43,30 +43,16 @@ class Detection:
     start_time: float
     end_time: float
 
-    def as_dict(self) -> dict:
-        return asdict(self)
-
 
 def identify(
     wav_path: str | Path,
     *,
-    min_conf: float = 0.25,
+    min_conf: float = 0.3,  # mirrors config.DEFAULTS["min_conf"]
     lat: Optional[float] = None,
     lon: Optional[float] = None,
     when: Optional[date_cls] = None,
 ) -> list[Detection]:
-    """Identify birds in a wav file using BirdNET.
-
-    Args:
-        wav_path: Path to an audio file (wav recommended).
-        min_conf: Minimum confidence to report (0-1).
-        lat, lon: Optional location. If both given, BirdNET restricts predictions
-            to species plausible at that location/time of year.
-        when: Optional date used with lat/lon for the seasonal species filter.
-
-    Returns:
-        Detections sorted by confidence, highest first.
-    """
+    """Identify birds in a wav file using BirdNET."""
     wav_path = Path(wav_path).expanduser()
     if not wav_path.exists():
         raise FileNotFoundError(f"Audio file not found: {wav_path}")
@@ -106,9 +92,6 @@ class SpeciesSummary:
     first_time: float     # earliest detection start (s)
     last_time: float      # latest detection end (s)
 
-    def as_dict(self) -> dict:
-        return asdict(self)
-
 
 def summarize(detections: list[Detection]) -> list[SpeciesSummary]:
     """Collapse per-window detections into one row per species.
@@ -144,7 +127,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Identify birds in a wav file with BirdNET.")
     parser.add_argument("wav", help="path to the audio file")
-    parser.add_argument("-c", "--min-conf", type=float, default=0.25, help="min confidence 0-1")
+    parser.add_argument("-c", "--min-conf", type=float, default=0.3, help="min confidence 0-1")
     parser.add_argument("--lat", type=float, help="latitude for seasonal species filter")
     parser.add_argument("--lon", type=float, help="longitude for seasonal species filter")
     args = parser.parse_args()

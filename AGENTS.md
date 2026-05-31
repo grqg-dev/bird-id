@@ -65,6 +65,18 @@ pkill -INT -f "birdid.py monitor"
 ./.venv/bin/python birdid.py dashboard      # http://127.0.0.1:8080
 ```
 
+## Automated tests
+
+Fast unit/route tests — no mic, BirdNET, or TensorFlow:
+
+```bash
+./.venv/bin/python -m pip install -r requirements-dev.txt
+./.venv/bin/python -m pytest -q
+```
+
+Run this after any change to `storage.py`, `config.py`, `dashboard.py`, or `birdid.py`.
+Manual smokes above still apply after touching `cmd_monitor`.
+
 **Lesson from history:** every time the monitor loop was changed, *running* it
 found a bug (stdout buffering) that reading the code did not. Re-run the monitor
 smoke test after touching `cmd_monitor`.
@@ -106,5 +118,4 @@ Per detection BirdNET returns exactly: `common_name`, `scientific_name`,
 
 - [ ] **Pi: ALSA capture path in `recorder.py`** (only non-portable module).
 - [ ] Rare/new-species alerts (desktop or email).
-- [ ] Optional `--save` flag so file `identify` writes into the DB too.
 - [ ] Optional HTTP backend behind `identify()`.

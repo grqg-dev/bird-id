@@ -220,19 +220,6 @@ def species_dex_day(conn: sqlite3.Connection, day: str) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def recent_detections(conn: sqlite3.Connection, limit: int = 50) -> list[sqlite3.Row]:
-    """Most recent detections joined to their segment (for the dashboard feed)."""
-    return conn.execute(
-        """
-        SELECT d.id, d.common_name, d.scientific_name, d.confidence, d.heard_at,
-               d.start_time, d.end_time, d.segment_id, s.wav_path
-        FROM detections d JOIN segments s ON s.id = d.segment_id
-        ORDER BY d.heard_at DESC LIMIT ?
-        """,
-        (limit,),
-    ).fetchall()
-
-
 def get_segment(conn: sqlite3.Connection, segment_id: int) -> Optional[sqlite3.Row]:
     return conn.execute("SELECT * FROM segments WHERE id = ?", (segment_id,)).fetchone()
 
@@ -536,28 +523,6 @@ def report_species_segments(
         GROUP BY common_name, segment_id
         ORDER BY common_name, segment_id
         """
-    ).fetchall()
-
-
-def detections_for_segments(
-    conn: sqlite3.Connection,
-    segment_ids: list[int],
-    *,
-    day: str | None = None,
-) -> list[sqlite3.Row]:
-    """Detections limited to given segments (for AM/PM bucketing)."""
-    if not segment_ids:
-        return []
-    placeholders = ",".join("?" * len(segment_ids))
-    extra = " AND date(heard_at) = ?" if day else ""
-    params: tuple = (*segment_ids, day) if day else tuple(segment_ids)
-    return conn.execute(
-        f"""
-        SELECT heard_at, common_name, segment_id
-        FROM detections
-        WHERE segment_id IN ({placeholders}){extra}
-        """,
-        params,
     ).fetchall()
 
 

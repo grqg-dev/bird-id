@@ -22,11 +22,6 @@ import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")  # headless / no display
-import matplotlib.pyplot as plt
-import numpy as np
 from flask import Flask, Response, abort, render_template_string, request, send_file
 
 import config
@@ -37,13 +32,27 @@ _SPRITES_DIR = _ROOT / "realistic-sprites"
 _BIRDS_JSON = _ROOT / "docs" / "birds.json"
 _BIRD_INFO_JSON = _ROOT / "docs" / "bird_info.json"
 
+_DEV_RELOAD_SCRIPT = """<script>
+(function(){var up=1;setInterval(function(){
+  fetch("/__dev/ping",{cache:"no-store"}).then(function(r){
+    if(!r.ok)up=0;else if(!up){up=1;location.reload()}
+  }).catch(function(){up=0})
+},800)})();
+</script>"""
+
 app = Flask(__name__)
 _CFG = config.load()
 
+_SLUG_MAP_CACHE: dict[str, str] | None = None
+_SLUG_TO_NAME_CACHE: dict[str, str] | None = None
+
 
 def _slug_map() -> dict[str, str]:
-    with _BIRDS_JSON.open() as f:
-        return {b["common_name"]: b["slug"] for b in json.load(f)}
+    global _SLUG_MAP_CACHE
+    if _SLUG_MAP_CACHE is None:
+        with _BIRDS_JSON.open() as f:
+            _SLUG_MAP_CACHE = {b["common_name"]: b["slug"] for b in json.load(f)}
+    return _SLUG_MAP_CACHE
 
 
 _BIRD_INFO_CACHE: dict[str, dict] | None = None
@@ -63,8 +72,11 @@ def _bird_info() -> dict[str, dict]:
 
 
 def _slug_to_name() -> dict[str, str]:
-    with _BIRDS_JSON.open() as f:
-        return {b["slug"]: b["common_name"] for b in json.load(f)}
+    global _SLUG_TO_NAME_CACHE
+    if _SLUG_TO_NAME_CACHE is None:
+        with _BIRDS_JSON.open() as f:
+            _SLUG_TO_NAME_CACHE = {b["slug"]: b["common_name"] for b in json.load(f)}
+    return _SLUG_TO_NAME_CACHE
 
 
 def _sprite_slug(common_name: str, slugs: dict[str, str]) -> str | None:
@@ -291,15 +303,7 @@ PAGE = """
   <div class="empty">{{ empty_msg }}</div>
   {% endif %}
 </div>
-{% if dev %}
-<script>
-(function(){var up=1;setInterval(function(){
-  fetch("/__dev/ping",{cache:"no-store"}).then(function(r){
-    if(!r.ok)up=0;else if(!up){up=1;location.reload()}
-  }).catch(function(){up=0})
-},800)})();
-</script>
-{% endif %}
+{% if dev %}{{ dev_script|safe }}{% endif %}
 </body></html>
 """
 
@@ -543,15 +547,7 @@ BIRD_PAGE = """
     {% endif %}
   </div>
 </div>
-{% if dev %}
-<script>
-(function(){var up=1;setInterval(function(){
-  fetch("/__dev/ping",{cache:"no-store"}).then(function(r){
-    if(!r.ok)up=0;else if(!up){up=1;location.reload()}
-  }).catch(function(){up=0})
-},800)})();
-</script>
-{% endif %}
+{% if dev %}{{ dev_script|safe }}{% endif %}
 </body></html>
 """
 
@@ -820,15 +816,7 @@ if(R.show_all){
 }
 </script>
 {% endif %}
-{% if dev %}
-<script>
-(function(){var up=1;setInterval(function(){
-  fetch("/__dev/ping",{cache:"no-store"}).then(function(r){
-    if(!r.ok)up=0;else if(!up){up=1;location.reload()}
-  }).catch(function(){up=0})
-},800)})();
-</script>
-{% endif %}
+{% if dev %}{{ dev_script|safe }}{% endif %}
 </body></html>
 """
 
@@ -845,7 +833,6 @@ def _today() -> str:
 
 
 def _parse_day_arg(raw: str | None) -> tuple[bool, str]:
-    """Return (show_all, selected_day). Default: today only (not all-time)."""
     if raw == "all":
         return True, _today()
     if raw:
@@ -857,46 +844,31 @@ def _parse_day_arg(raw: str | None) -> tuple[bool, str]:
     return False, _today()
 
 
-def _page_qs(
+def _qs(
     *,
     mode: str = "dex",
     sort: str = "discovered",
     day: str | None = None,
     show_all: bool = False,
-) -> str:
-    """Build a query string preserving mode, sort, and day selections."""
-    parts: list[str] = []
-    if show_all:
-        parts.append("day=all")
-    elif day and day != _today():
-        parts.append(f"day={day}")
-    if mode == "gallery":
-        parts.append("mode=gallery")
-    if sort != "discovered":
-        parts.append(f"sort={sort}")
-    return "?" + "&".join(parts) if parts else "/"
-
-
-def _bird_qs(
-    *,
-    show_all: bool = False,
-    day: str | None = None,
     page: int | None = None,
-    mode: str = "dex",
-    sort: str = "discovered",
+    include_mode_sort: bool = True,
+    empty: str = "",
 ) -> str:
     parts: list[str] = []
     if show_all:
         parts.append("day=all")
     elif day and day != _today():
         parts.append(f"day={day}")
-    if mode == "gallery":
-        parts.append("mode=gallery")
-    if sort != "discovered":
-        parts.append(f"sort={sort}")
+    if include_mode_sort:
+        if mode == "gallery":
+            parts.append("mode=gallery")
+        if sort != "discovered":
+            parts.append(f"sort={sort}")
     if page and page > 1:
         parts.append(f"page={page}")
-    return "?" + "&".join(parts) if parts else ""
+    if not parts:
+        return empty
+    return "?" + "&".join(parts)
 
 
 def _format_span(first: str, last: str) -> str:
@@ -919,20 +891,38 @@ def _qs_builder(mode: str, sort: str, show_all: bool, selected_day: str):
         m = kw.get("mode", mode)
         s = kw.get("sort", sort)
         if kw.get("day") == "all":
-            return _page_qs(mode=m, sort=s, show_all=True)
+            return _qs(mode=m, sort=s, show_all=True, empty="/")
         if "day" in kw:
-            return _page_qs(mode=m, sort=s, day=kw["day"], show_all=False)
-        return _page_qs(mode=m, sort=s, day=selected_day, show_all=show_all)
+            return _qs(mode=m, sort=s, day=kw["day"], show_all=False, empty="/")
+        return _qs(mode=m, sort=s, day=selected_day, show_all=show_all, empty="/")
 
     return qs
 
 
-def _day_scope_label(selected_day: str, show_all: bool) -> str:
+def _normalize_sort(raw: str | None) -> str:
+    sort = raw or "discovered"
+    if sort == "seen":
+        sort = "heard"
+    if sort not in _SORT_KEYS:
+        sort = "discovered"
+    return sort
+
+
+def _scope_label(selected_day: str, show_all: bool, *, style: str = "short") -> str:
+    today = _today()
     if show_all:
-        return ""
-    if selected_day == _today():
-        return "today"
-    return f"on {selected_day}"
+        return {"short": "", "header": "All time", "bird": "All-time · every detection window"}[style]
+    if selected_day == today:
+        return {
+            "short": "today",
+            "header": f"Today · {today}",
+            "bird": f"Today · {today}",
+        }[style]
+    return {
+        "short": f"on {selected_day}",
+        "header": selected_day,
+        "bird": f"Day · {selected_day}",
+    }[style]
 
 
 def _sorted_dex_birds(
@@ -1030,14 +1020,6 @@ def _fmt_audio_minutes(seconds: float) -> str:
     return f"{mins:.0f}"
 
 
-def _data_qs(*, day: str | None = None, show_all: bool = False) -> str:
-    if show_all:
-        return "?day=all"
-    if day and day != _today():
-        return f"?day={day}"
-    return ""
-
-
 def _build_data_report(
     conn,
     *,
@@ -1046,7 +1028,7 @@ def _build_data_report(
 ) -> dict:
     """Assemble JSON payload for the /data report page."""
     day_filter = None if show_all else selected_day
-    min_conf = float(_CFG.get("min_conf", 0.3))
+    min_conf = float(_CFG.get("min_conf", config.DEFAULTS["min_conf"]))
     segments = storage.segments_for_scope(conn, day=day_filter)
     species_rows = storage.report_species(conn, day=day_filter)
 
@@ -1165,45 +1147,36 @@ def _build_data_report(
             f"{total_det} bird detections across {total_species} species, all time"
         )
         lede = (
-            f"<b>Driving the news:</b> Passive microphones on Glendessary Lane have logged "
-            f"<b>{total_det} detections</b> across <b>{total_species} species</b> "
-            f"in {len(segments)} recording windows — led by {top['common_name']} "
-            f"at {top['windows']} calls ({top_share}% of everything)."
+            f"<b>Summary:</b> BirdNET logged <b>{total_det} detections</b> across "
+            f"<b>{total_species} species</b> in {len(segments)} recording windows — "
+            f"led by {top['common_name']} with {top['windows']} calls "
+            f"({top_share}% of total)."
         )
     else:
         headline = (
-            f"A Santa Barbara mic logged {total_det} bird calls "
+            f"{total_det} bird detections across {total_species} species "
             f"in {audio_min} minutes"
         )
-        day_label = selected_day
         lede = (
-            f"<b>Driving the news:</b> A passive microphone on Glendessary Lane ran "
-            f"for {len(segments)} windows on {day_label} and BirdNET tagged "
-            f"<b>{total_det} detections</b> across <b>{total_species} species</b> — "
-            f"from {top['common_name']} ({top['windows']} calls) "
-            f"{'down to a single tentative ID' if tentative else 'across the yard'}."
+            f"<b>Summary:</b> On {selected_day}, BirdNET tagged "
+            f"<b>{total_det} detections</b> across <b>{total_species} species</b> "
+            f"in {len(segments)} recording windows — top species "
+            f"{top['common_name']} ({top['windows']} calls)."
         )
 
     bullets = [
         {
             "text": (
-                "<b>Why it matters:</b> Cheap always-on audio + a free neural net turns "
-                "one backyard into a biodiversity sensor — no binoculars, no expert required."
-            ),
-            "orange": False,
-        },
-        {
-            "text": (
-                f"<b>By the numbers:</b> {audio_min} min of tape · {len(segments)} windows · "
+                f"<b>Recording time:</b> {audio_min} min · {len(segments)} windows · "
                 f"top species {top['common_name']} at {top['windows']} detections "
-                f"({top_share}% of everything)."
+                f"({top_share}% of total)."
             ),
             "orange": True,
         },
         {
             "text": (
-                '<b>The catch:</b> "Detections" aren\'t birds, and the model\'s confidence '
-                "is left fully visible below — including where it's clearly guessing."
+                "<b>Note:</b> Detections are model outputs per 3s window, not confirmed "
+                "individual birds. Confidence scores below include low scores."
             ),
             "orange": False,
         },
@@ -1212,8 +1185,8 @@ def _build_data_report(
         bullets.append(
             {
                 "text": (
-                    f"<b>Shaky IDs:</b> {', '.join(tentative)} — treat as unconfirmed "
-                    f"(peak conf below 0.60 or single low-confidence hit)."
+                    f"<b>Low-confidence IDs:</b> {', '.join(tentative)} — "
+                    f"peak confidence below 0.60 or a single low-confidence hit."
                 ),
                 "orange": True,
             }
@@ -1272,11 +1245,7 @@ def index():
         peak = f"{peak_hour}:00" if peak_hour else "n/a"
         all_totals = storage.totals(conn)
         slugs = _slug_map()
-        sort = request.args.get("sort", "discovered")
-        if sort == "seen":  # legacy URL alias
-            sort = "heard"
-        if sort not in _SORT_KEYS:
-            sort = "discovered"
+        sort = _normalize_sort(request.args.get("sort"))
         rows = storage.species_dex(conn) if show_all else storage.species_dex_day(conn, selected_day)
         dex = [
             dict(
@@ -1287,7 +1256,7 @@ def index():
             for r in sorted(rows, key=_SORT_KEYS[sort])
         ]
         mode = "gallery" if request.args.get("mode") == "gallery" else "dex"
-        day_scope = _day_scope_label(selected_day, show_all)
+        day_scope = _scope_label(selected_day, show_all, style="short")
         if show_all:
             species_lbl = "Species discovered (all time)"
             header_day = "All time"
@@ -1296,10 +1265,10 @@ def index():
             )
         else:
             species_lbl = f"Species {day_scope}".strip()
-            header_day = selected_day if selected_day != today else f"Today · {today}"
+            header_day = _scope_label(selected_day, show_all, style="header")
             empty_msg = (
                 f"No species detected {day_scope} — try another day or "
-                f'<a href="{_page_qs(show_all=True, mode=mode, sort=sort)}">show all</a>.'
+                f'<a href="{_qs(show_all=True, mode=mode, sort=sort, empty="/")}">show all</a>.'
             )
         sel = date.fromisoformat(selected_day)
         prev_day = (sel - timedelta(days=1)).isoformat()
@@ -1324,9 +1293,12 @@ def index():
             day_scope=day_scope,
             empty_msg=empty_msg,
             qs=_qs_builder(mode, sort, show_all, selected_day),
-            bird_qs=_bird_qs(show_all=show_all, day=selected_day, mode=mode, sort=sort),
-            data_qs=_data_qs(day=selected_day, show_all=show_all),
+            bird_qs=_qs(
+                show_all=show_all, day=selected_day, mode=mode, sort=sort
+            ),
+            data_qs=_qs(day=selected_day, show_all=show_all, include_mode_sort=False),
             dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
         )
     finally:
         conn.close()
@@ -1394,27 +1366,17 @@ def bird_detail(slug: str):
         streak = storage.longest_heard_streak(heard_times)
         per_seg = f"{stats['windows'] / stats['segments']:.1f}" if stats["segments"] else "0"
 
-        if show_all:
-            scope_label = "All-time · every detection window"
-        elif selected_day == today:
-            scope_label = f"Today · {today}"
-        else:
-            scope_label = f"Day · {selected_day}"
-
-        sort = request.args.get("sort", "discovered")
-        if sort == "seen":
-            sort = "heard"
-        if sort not in _SORT_KEYS:
-            sort = "discovered"
+        sort = _normalize_sort(request.args.get("sort"))
         mode = "gallery" if request.args.get("mode") == "gallery" else "dex"
+        scope_label = _scope_label(selected_day, show_all, style="bird")
 
         def page_qs(p: int) -> str:
-            return f"/bird/{slug}" + _bird_qs(
+            return f"/bird/{slug}" + _qs(
                 show_all=show_all, day=selected_day, page=p, mode=mode, sort=sort
             )
 
-        index_qs = _page_qs(mode=mode, sort=sort, day=selected_day, show_all=show_all)
-        back_href = "/" if index_qs == "/" else f"/{index_qs}"
+        index_qs = _qs(mode=mode, sort=sort, day=selected_day, show_all=show_all)
+        back_href = index_qs if index_qs else "/"
 
         dex_birds = _sorted_dex_birds(
             conn, show_all=show_all, selected_day=selected_day, sort=sort
@@ -1432,7 +1394,7 @@ def bird_detail(slug: str):
         )
 
         def bird_href(b_slug: str) -> str:
-            return f"/bird/{b_slug}" + _bird_qs(
+            return f"/bird/{b_slug}" + _qs(
                 show_all=show_all, day=selected_day, mode=mode, sort=sort
             )
 
@@ -1469,6 +1431,7 @@ def bird_detail(slug: str):
             dex_total=len(dex_birds),
             bird_href=bird_href,
             dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
         )
     finally:
         conn.close()
@@ -1484,14 +1447,9 @@ def data_view():
         sel = date.fromisoformat(selected_day)
         prev_day = (sel - timedelta(days=1)).isoformat()
         next_day = (sel + timedelta(days=1)).isoformat()
-        if show_all:
-            scope_label = "All time"
-        elif selected_day == today:
-            scope_label = f"Today · {today}"
-        else:
-            scope_label = selected_day
-        index_qs = _page_qs(day=selected_day, show_all=show_all)
-        back_href = "/" if index_qs == "/" else f"/{index_qs}"
+        scope_label = _scope_label(selected_day, show_all, style="header")
+        index_qs = _qs(day=selected_day, show_all=show_all, include_mode_sort=False)
+        back_href = index_qs if index_qs else "/"
         empty = report.get("empty", True)
         return render_template_string(
             DATA_VIEW,
@@ -1507,12 +1465,13 @@ def data_view():
             lede=report.get("lede", ""),
             bullets=report.get("bullets", []),
             meta=report.get("meta", {}),
-            min_conf=report.get("min_conf", _CFG.get("min_conf", 0.3)),
+            min_conf=report.get("min_conf", _CFG.get("min_conf", config.DEFAULTS["min_conf"])),
             lat=report.get("lat", _CFG.get("lat", 34.42)),
             lon=report.get("lon", _CFG.get("lon", -119.70)),
             tentative=report.get("tentative", []),
             report_json=json.dumps(report) if not empty else "{}",
             dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
         )
     finally:
         conn.close()
@@ -1560,6 +1519,11 @@ def spectrogram(segment_id: int):
 
     import librosa  # imported lazily so the rest of the app starts fast
     import librosa.display
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
 
     # Optional window: render just the detection's slice instead of the whole segment.
     start = request.args.get("start", type=float)
