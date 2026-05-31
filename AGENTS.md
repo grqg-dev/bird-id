@@ -40,10 +40,15 @@ Key invariants:
 
 ```bash
 python3.12 -m venv .venv
-./.venv/bin/python -m pip install -r requirements.txt
+./.venv/bin/python -m pip install -r requirements.txt          # Apple Silicon
+./.venv/bin/python -m pip install -r requirements-intel-mac.txt  # Intel Mac (TF ≤2.16)
 ```
 
 Always run via `./.venv/bin/python`, not the system Python.
+
+**Config:** `config.DEFAULTS` in `config.py` is the built-in fallback. Operational
+`min_conf` is **0.3** (`config.json`, dashboard, docs). `identifier.identify()` uses
+the same default as a literal (it does not import `config` — keep that boundary).
 
 ## How to test (do this before claiming a change works)
 
@@ -67,15 +72,29 @@ pkill -INT -f "birdid.py monitor"
 
 ## Automated tests
 
-Fast unit/route tests — no mic, BirdNET, or TensorFlow:
+Fast unit/route tests — no mic, BirdNET, or TensorFlow (`requirements-dev.txt` is
+pytest + Flask only; CI does not install `requirements.txt`):
 
 ```bash
 ./.venv/bin/python -m pip install -r requirements-dev.txt
 ./.venv/bin/python -m pytest -q
 ```
 
-Run this after any change to `storage.py`, `config.py`, `dashboard.py`, or `birdid.py`.
-Manual smokes above still apply after touching `cmd_monitor`.
+| Area | What is covered |
+|---|---|
+| `tests/test_storage.py` | Schema, `record_segment`, rollups, streaks |
+| `tests/test_config.py` | `load`, `resolve`, bad JSON |
+| `tests/test_identifier_summarize.py` | `summarize()`, default `min_conf` |
+| `tests/test_dashboard.py` | Helpers + `/`, `/bird/…`, `/data` via `test_client` |
+| `tests/test_birdid.py` | `cmd_stats`, `_resolve_id_params` |
+
+**Dashboard test seam:** every route uses `dashboard._db()`. Tests monkeypatch it to
+return a seeded SQLite connection (see `tests/conftest.py`). Heavy imports
+(`matplotlib`, `librosa`, `soundfile`) are lazy — only the spectrogram/audio routes
+need them.
+
+Run pytest after any change to `storage.py`, `config.py`, `dashboard.py`, or
+`birdid.py`. Manual smokes above still apply after touching `cmd_monitor`.
 
 **Lesson from history:** every time the monitor loop was changed, *running* it
 found a bug (stdout buffering) that reading the code did not. Re-run the monitor
@@ -109,10 +128,13 @@ Per detection BirdNET returns exactly: `common_name`, `scientific_name`,
 ## Conventions
 
 - Standard library first; add a dependency only when it earns its place. New
-  deps must have arm64 Linux (Pi) wheels.
+  runtime deps must have arm64 Linux (Pi) wheels; test-only deps go in
+  `requirements-dev.txt`.
 - Keep modules small and single-purpose. Match the existing comment density and
   docstring style.
-- After adding a dependency, regenerate `requirements.txt` via `pip freeze`.
+- After adding a runtime dependency, regenerate `requirements.txt` via `pip freeze`.
+- User-facing usage lives in `README.md`; architecture, testing, and gotchas live
+  here. Keep both in sync when commands or defaults change.
 
 ## Roadmap / open work
 

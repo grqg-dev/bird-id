@@ -8,8 +8,6 @@ the actual call. No app store, no subscription, no sending your audio to the clo
 
 ![Bird-Dex — your backyard bird collection: illustrations, call playback, and stats for every species you've heard](docs/bird-dex-full.png)
 
-![Birds identified from a Santa Barbara backyard recording — Oak Titmouse, Pacific-slope Flycatcher, American Crow, Dark-eyed Junco](docs/species-detected.png)
-
 ---
 
 ## What is this?
@@ -69,6 +67,12 @@ set for Santa Barbara, CA.
 ./.venv/bin/python birdid.py identify ~/Desktop/bird.wav
 ```
 
+**Import a file into the database** (same as identify, but writes a segment row):
+
+```bash
+./.venv/bin/python birdid.py identify ~/Desktop/bird.wav --save
+```
+
 **Run it continuously** (the main idea — leave it going):
 
 ```bash
@@ -76,7 +80,9 @@ set for Santa Barbara, CA.
 ./.venv/bin/python birdid.py dashboard    # → http://127.0.0.1:8080
 ```
 
-The dashboard works offline — no internet required once it's running.
+The dashboard works offline — no internet required once it's running. Browse by day
+or all-time, open a species for clips and spectrograms, or open **Data report**
+(`/data`) for detection counts and confidence charts.
 
 Gallery mode (`/?mode=gallery`) is a lighter grid of illustrations and stats — no
 spectrograms or audio:
@@ -102,7 +108,9 @@ A quick terminal summary: how many species today, busiest hour, and anything
 | Record + identify in one step | `./.venv/bin/python birdid.py listen -t 5` |
 | Running tally while monitoring | `./.venv/bin/python birdid.py stats` |
 | Long file, one row per species | `./.venv/bin/python birdid.py identify big.wav --summary` |
+| Import a recording into the DB | `./.venv/bin/python birdid.py identify file.wav --save` |
 | Dashboard on your home network | `./.venv/bin/python birdid.py dashboard --host 0.0.0.0` |
+| Dashboard auto-reload while hacking | `./.venv/bin/python birdid.py dashboard --dev` |
 
 **Useful flags:** `-c 0.5` raises the confidence threshold (fewer false positives).
 `-d 1` picks a specific mic — list devices with `./.venv/bin/python recorder.py --list-devices`.
@@ -122,9 +130,20 @@ If recording comes back silent, check macOS mic permission:
 Setting location is the single biggest accuracy win — it stops the model from
 suggesting birds that don't belong in your area or season.
 
+## Testing
+
+For contributors — fast tests with no mic or BirdNET (see `AGENTS.md` for manual smokes):
+
+```bash
+./.venv/bin/python -m pip install -r requirements-dev.txt
+./.venv/bin/python -m pytest -q
+```
+
+CI runs the same suite on push (`.github/workflows/test.yml`).
+
 ## Project layout
 
-For contributors and the curious — see `AGENTS.md` for design notes.
+For contributors and the curious — see `AGENTS.md` for design notes and invariants.
 
 | File | What it does |
 |---|---|
@@ -134,6 +153,7 @@ For contributors and the curious — see `AGENTS.md` for design notes.
 | `identifier.py` | Audio file → bird detections |
 | `storage.py` | SQLite database and queries |
 | `config.py` | Loads `config.json` |
+| `tests/` | Pytest suite (`storage`, `config`, dashboard routes, etc.) |
 
 ## Roadmap
 
@@ -141,5 +161,7 @@ For contributors and the curious — see `AGENTS.md` for design notes.
 - [x] Bird-Dex web dashboard with illustrations and call clips
 - [x] Daily digest and "new species" tracking
 - [x] Location/season filtering
+- [x] Import recordings into the DB (`identify --save`)
+- [x] Automated pytest suite (no TF in CI)
 - [ ] Always-on setup on a Mac mini or Raspberry Pi with a USB mic
 - [ ] Alerts when a rare or first-time species shows up
