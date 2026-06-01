@@ -20,6 +20,7 @@ DEFAULTS: dict[str, Any] = {
     "lat": None,        # e.g. 37.77  -> enables BirdNET's location/season filter
     "lon": None,        # e.g. -122.42
     "min_conf": 0.3,
+    "segment_minutes": 1.0,
     "db": "birdid.db",
     "recordings_dir": "recordings",
     "retention_days": 30,   # drop kept segment wavs after N days; 0 = keep forever

@@ -11,6 +11,7 @@ import config
 
 def test_defaults_include_min_conf():
     assert config.DEFAULTS["min_conf"] == 0.3
+    assert config.DEFAULTS["segment_minutes"] == 1.0
     assert config.DEFAULTS["retention_days"] == 30
 
 

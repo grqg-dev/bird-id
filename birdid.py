@@ -184,12 +184,13 @@ def cmd_monitor(args) -> int:
     db_path, rec_dir = _db_paths(args)
     conn = storage.connect(db_path)
     rec_dir.mkdir(parents=True, exist_ok=True)
-    interval_s = args.minutes * 60.0
+    minutes = float(config.resolve(args.minutes, "segment_minutes", args.cfg))
+    interval_s = minutes * 60.0
     retention = _retention_days(args)
     retention_note = f", audio retention {retention}d" if retention > 0 else ""
 
     print(
-        f"Monitoring: {args.minutes:g}-min segments -> {db_path} "
+        f"Monitoring: {minutes:g}-min segments -> {db_path} "
         f"(min_conf={min_conf}{loc}{retention_note}). Ctrl-C to stop.\n"
     )
     _run_audio_cleanup(conn, rec_dir, args)
@@ -353,7 +354,10 @@ def main(argv=None) -> int:
     p_listen.set_defaults(func=cmd_listen)
 
     p_mon = sub.add_parser("monitor", help="continuously record N-min segments and store results")
-    p_mon.add_argument("-m", "--minutes", type=float, default=5.0, help="segment length in minutes")
+    p_mon.add_argument(
+        "-m", "--minutes", type=float, default=None,
+        help="segment length in minutes (overrides config)",
+    )
     p_mon.add_argument("-d", "--device", default="0")
     p_mon.add_argument("-c", "--min-conf", type=float, help="min confidence (overrides config)")
     p_mon.add_argument("--db", help="SQLite database path (overrides config)")
