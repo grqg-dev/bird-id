@@ -106,6 +106,7 @@ def _resolve_bird_slug(slug: str, conn) -> str | None:
 _CLIPS_PER_PAGE = 50
 PEAK_CONF_FLOOR = 0.7  # Bird-Dex "hide low confidence" cutoff (peak conf per species)
 TIMELINE_CONF_FLOOR = 0.7  # Timeline only plots detections at/above this confidence
+TIMELINE_BINS = 96  # Per-lane histogram buckets across 24h (15-minute bars)
 
 
 def _db():
@@ -935,13 +936,11 @@ TIMELINE_PAGE = """
       #fbf1e2 var(--sr), #ffffff calc(var(--sr) + 5%),
       #ffffff calc(var(--ss) - 5%), #fbeee6 var(--ss),
       #f0f0f5 calc(var(--ss) + 6%), #edeef4 100%)}
-  .lane-span{position:absolute;top:50%;height:2px;transform:translateY(-50%);border-radius:2px;
-             background:linear-gradient(90deg,rgba(125,28,27,.05),rgba(125,28,27,.28),rgba(125,28,27,.05))}
-  .lane-mark{position:absolute;top:50%;transform:translate(-50%,-50%) scale(0);border-radius:50%;
-             border:1.5px solid rgba(255,255,255,.92);box-shadow:0 1px 2px rgba(0,0,0,.22);cursor:default;
-             animation:pop .45s cubic-bezier(.2,1.3,.4,1) forwards}
-  .lane-mark.peak{box-shadow:0 0 0 2px rgba(255,255,255,.9),0 0 9px 1px rgba(216,58,54,.6)}
-  @keyframes pop{to{transform:translate(-50%,-50%) scale(1)}}
+  .lane-base{position:absolute;left:0;right:0;bottom:0;height:1px;background:rgba(0,0,0,.06)}
+  .lane-bar{position:absolute;bottom:0;border-radius:2px 2px 0 0;min-height:2px;cursor:default;
+            transform:scaleY(0);transform-origin:bottom;box-shadow:0 0 0 .5px rgba(255,255,255,.35);
+            animation:grow .5s cubic-bezier(.2,.9,.3,1) forwards}
+  @keyframes grow{to{transform:scaleY(1)}}
   .now-line{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--grn);z-index:3;
             box-shadow:0 0 7px rgba(70,198,107,.8)}
   .now-line::after{content:"";position:absolute;top:-3px;left:-2px;width:6px;height:6px;border-radius:50%;background:var(--grn)}
@@ -949,7 +948,7 @@ TIMELINE_PAGE = """
   .axis span{position:absolute;transform:translateX(-50%);font-size:10px;color:#9a958a}
   .axis .sun-tick{color:var(--red-deep);font-weight:700}
   @media(prefers-reduced-motion:reduce){
-    .lane-mark{animation:none;transform:translate(-50%,-50%) scale(1)}
+    .lane-bar{animation:none;transform:scaleY(1)}
     .chorus .bar{transition:none}
     .lane:hover,.day-bar a:hover{transform:none}
   }
@@ -1005,7 +1004,7 @@ TIMELINE_PAGE = """
     {% if show_all %}
     <p>Occurrences grouped by day — click a date to see the hour-by-hour swimlanes.<span class="pill">confidence ≥ {{ "%.1f"|format(conf_floor) }}</span></p>
     {% else %}
-    <p>When each species sang {{ scope_label }}, mapped against the day's light. Dots are individual detections, sized &amp; warmed by confidence.<span class="pill">confidence ≥ {{ "%.1f"|format(conf_floor) }}</span></p>
+    <p>When each species sang {{ scope_label }}, mapped against the day's light. Bars are 15-minute counts — taller means busier, warmer means more confident.<span class="pill">confidence ≥ {{ "%.1f"|format(conf_floor) }}</span></p>
     {% endif %}
   </div>
 
@@ -1059,11 +1058,11 @@ TIMELINE_PAGE = """
         </span>
       </div>
       <div class="lane-track">
-        <div class="lane-span" style="left:{{ '%.2f'|format(lane.first_pct) }}%;width:{{ '%.2f'|format(lane.last_pct - lane.first_pct) }}%"></div>
-        {% for m in lane.marks %}
-        <span class="lane-mark{{ ' peak' if m.pct == lane.peak_pct else '' }}"
-              style="left:{{ '%.2f'|format(m.pct) }}%;width:{{ '%.1f'|format(m.radius * 2) }}px;height:{{ '%.1f'|format(m.radius * 2) }}px;background:{{ m.color }};animation-delay:{{ '%.0f'|format(loop.index0 * 6) }}ms"
-              title="{{ m.time }} · {{ '%.3f'|format(m.conf) }}"></span>
+        <div class="lane-base"></div>
+        {% for b in lane.bars %}
+        <span class="lane-bar"
+              style="left:{{ '%.3f'|format(b.left) }}%;width:{{ '%.3f'|format(b.width) }}%;height:{{ '%.1f'|format(b.h) }}%;background:{{ b.color }};animation-delay:{{ '%.0f'|format(loop.index0 * 12) }}ms"
+              title="{{ b.title }}"></span>
         {% endfor %}
       </div>
     </div>
@@ -1484,48 +1483,56 @@ def _build_timeline(conn, *, selected_day: str, show_all: bool) -> dict:
         return {"mode": "days", "days": days, "max_n": max_n, "total": sum(d["n"] for d in days)}
 
     rows = storage.timeline_occurrences(conn, selected_day, min_conf=floor)
+    bins = TIMELINE_BINS
+    bin_secs = 86400 / bins
     lanes_map: dict[str, dict] = {}
     hourly = [0] * 24
-    for i, r in enumerate(rows):
+    for r in rows:
         name = r["common_name"]
         conf = r["confidence"]
-        hourly[int(r["heard_at"][11:13])] += 1
+        secs = _heard_pct(r["heard_at"]) / 100 * 86400
+        hourly[min(23, int(secs // 3600))] += 1
         if name not in lanes_map:
             lanes_map[name] = {
                 "name": name,
                 "slug": slugs.get(name) or _common_to_slug(name),
                 "sprite": _sprite_slug(name, slugs),
-                "marks": [],
+                "bins": {},
+                "count": 0,
                 "peak_conf": 0.0,
-                "peak_pct": 0.0,
-                "peak_time": "",
+                "first_secs": secs,
+                "last_secs": secs,
             }
         lane = lanes_map[name]
-        pct = _heard_pct(r["heard_at"])
-        # Nudge overlapping dots so same-second hits stay visible.
-        pct = min(99.5, max(0.5, pct + (i % 5) * 0.15))
-        color, radius = _conf_style(conf)
-        lane["marks"].append(
-            {
-                "pct": pct,
-                "time": _format_heard_clock(r["heard_at"]),
-                "conf": conf,
-                "color": color,
-                "radius": radius,
-            }
-        )
-        if conf > lane["peak_conf"]:
-            lane["peak_conf"] = conf
-            lane["peak_pct"] = pct
-            lane["peak_time"] = _format_heard_clock(r["heard_at"])
+        idx = min(bins - 1, int(secs // bin_secs))
+        b = lane["bins"].setdefault(idx, {"count": 0, "conf": 0.0})
+        b["count"] += 1
+        b["conf"] = max(b["conf"], conf)
+        lane["count"] += 1
+        lane["peak_conf"] = max(lane["peak_conf"], conf)
+        lane["first_secs"] = min(lane["first_secs"], secs)
+        lane["last_secs"] = max(lane["last_secs"], secs)
 
+    bin_pct = 100 / bins
     for lane in lanes_map.values():
-        pcts = [m["pct"] for m in lane["marks"]]
-        lane["count"] = len(lane["marks"])
-        lane["first_pct"] = min(pcts) if pcts else 0.0
-        lane["last_pct"] = max(pcts) if pcts else 0.0
-        lane["first_label"] = lane["marks"][0]["time"] if lane["marks"] else ""
-        lane["last_label"] = lane["marks"][-1]["time"] if lane["marks"] else ""
+        lane_max = max((b["count"] for b in lane["bins"].values()), default=1)
+        lane["bar_max"] = lane_max
+        lane["bars"] = []
+        for idx, b in sorted(lane["bins"].items()):
+            color, _ = _conf_style(b["conf"])
+            start = _clock_label(idx * bin_secs / 3600)
+            lane["bars"].append(
+                {
+                    "left": idx * bin_pct + bin_pct * 0.1,
+                    "width": bin_pct * 0.8,
+                    "h": 14 + b["count"] / lane_max * 86,
+                    "count": b["count"],
+                    "color": color,
+                    "title": f"{start} · {b['count']}× · peak {b['conf']:.2f}",
+                }
+            )
+        lane["first_label"] = _clock_label(lane["first_secs"] / 3600)
+        lane["last_label"] = _clock_label(lane["last_secs"] / 3600)
 
     lanes = sorted(lanes_map.values(), key=lambda lane: (-lane["count"], lane["name"]))
 
