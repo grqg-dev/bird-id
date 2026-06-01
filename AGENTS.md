@@ -61,7 +61,7 @@ The fixed dev fixture is `~/Desktop/bird.wav` (a 3s clip → Bewick's Wren ~0.92
 ./.venv/bin/python birdid.py identify ~/Desktop/bird.wav -c 0.1
 
 # monitor smoke test (6s segments); confirm model loads once, seg lines appear,
-# rows land in the CONFIGURED db, retention discards empty segments
+# rows land in the CONFIGURED db (audio kept for all segments)
 rm -f birdid.db && rm -rf recordings
 (./.venv/bin/python birdid.py monitor -m 0.05 > /tmp/m.log 2>&1 &)
 until [ "$(grep -c 'seg ' /tmp/m.log)" -ge 2 ]; do sleep 1; done

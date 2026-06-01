@@ -199,7 +199,7 @@ def cmd_identify(args) -> int:
         ended_at = started_at + timedelta(seconds=duration)
 
         db_path, rec_dir = _db_paths(args)
-        kept_path = _import_to_wav(src, rec_dir, started_at) if detections else None
+        kept_path = _import_to_wav(src, rec_dir, started_at)
 
         conn = storage.connect(db_path)
         try:
@@ -209,7 +209,7 @@ def cmd_identify(args) -> int:
                 ended_at=ended_at,
                 duration=duration,
                 detections=detections,
-                wav_path=str(kept_path) if kept_path else None,
+                wav_path=str(kept_path),
             )
         finally:
             conn.close()
@@ -218,7 +218,8 @@ def cmd_identify(args) -> int:
             print(f"Saved segment {seg_id} ({len(detections)} detections, "
                   f"{duration:.0f}s) -> {db_path}")
         else:
-            print(f"Saved empty segment {seg_id} -> {db_path} (no audio kept).")
+            print(f"Saved segment {seg_id} (no detections, "
+                  f"{duration:.0f}s) -> {db_path}")
 
     return 0
 
@@ -299,19 +300,13 @@ def cmd_monitor(args) -> int:
             if progress.interactive:
                 spinner.join(timeout=1)
 
-            # Retention: keep audio only for segments that found something.
-            kept_path = str(rec.path)
-            if not detections:
-                rec.path.unlink(missing_ok=True)
-                kept_path = None
-
             storage.record_segment(
                 conn,
                 started_at=started_at,
                 ended_at=ended_at,
                 duration=rec.seconds,
                 detections=detections,
-                wav_path=kept_path,
+                wav_path=str(rec.path),
                 mean_dbfs=rec.mean_volume_dbfs,
                 max_dbfs=rec.max_volume_dbfs,
             )
@@ -323,7 +318,7 @@ def cmd_monitor(args) -> int:
                     f"{', '.join(species)}"
                 )
             else:
-                progress.finish(f"[{stamp}] seg {segment_no}: nothing detected (audio discarded)")
+                progress.finish(f"[{stamp}] seg {segment_no}: nothing detected")
             _run_audio_cleanup(conn, rec_dir, args)
     except KeyboardInterrupt:
         print("\nStopping. Final tally:")
