@@ -157,6 +157,29 @@ For contributors and the curious — see `AGENTS.md` for design notes and invari
 | `config.py` | Loads `config.json` |
 | `tests/` | Pytest suite (`storage`, `config`, dashboard routes, etc.) |
 
+## Mac mini database backup
+
+The always-on monitor runs on a Mac mini (`~/bird-id` as user `matt`). To copy a
+consistent snapshot to your dev machine (SSH host `mac-mini` in `~/.ssh/config`):
+
+```bash
+chmod +x scripts/pull_db_from_mini.sh   # once
+./scripts/pull_db_from_mini.sh
+./scripts/pull_db_from_mini.sh --activate   # also replace ./birdid.db for local dashboard
+```
+
+Writes `birdid.db.local-backup-YYYYMMDD-HHMMSS` in the repo root (gitignored).
+Uses SQLite `.backup` on the mini so it is safe while the monitor is writing.
+
+**Segment wavs for local testing** (identify replays, dashboard playback — not a full sync):
+
+```bash
+./scripts/pull_recordings_from_mini.sh              # 30 newest segments
+./scripts/pull_recordings_from_mini.sh --recent 50
+./scripts/pull_recordings_from_mini.sh --all        # every seg_*.wav on the mini
+./scripts/pull_recordings_from_mini.sh seg_20260601_131822.wav
+```
+
 ## Roadmap
 
 - [x] Continuous backyard monitoring with audio playback

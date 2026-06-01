@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Chop missing realistic sprites from the 2×4 Gemini supplement sheet (May 2026).
+"""Chop missing realistic sprites from Gemini supplement sheets.
 
-Legend (row-major, 1-based cells) — see user-provided Gemini description:
-  1  lesser_goldfinch (male)
-  2  lesser goldfinch female — skip
-  3  yellow warbler — wrong species, skip
-  4  black_headed_grosbeak
-  5  wilsons_warbler
-  6  red_shouldered_hawk
-  7  brown finch variant — skip
-  8  caspian_tern
+June 2026 — 3×3 grid (Gemini_Generated_Image_tijgtgtijgtgtijg.png):
+  1  barn_owl
+  2  brown_creeper
+  3  forsters_tern
+  4  great_horned_owl
+  5  green_winged_teal
+  6  western_grebe
+  7  whimbrel
+  8  white_breasted_nuthatch
+  9  white_crowned_sparrow
+
+May 2026 — 2×4 grid (Gemini_Generated_Image_a7njfza7njfza7nj.png) used cells
+1, 4, 5, 6, 8 for lesser_goldfinch, black_headed_grosbeak, wilsons_warbler,
+red_shouldered_hawk, caspian_tern (already in realistic-sprites/).
 """
 
 from __future__ import annotations
@@ -19,21 +24,25 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = Path("/Users/mattdennis/Downloads/Gemini_Generated_Image_a7njfza7njfza7nj.png")
+SOURCE = Path("/Users/mattdennis/Downloads/Gemini_Generated_Image_tijgtgtijgtgtijg.png")
 OUT_DIR = ROOT / "realistic-sprites"
 
-COLS = 4
-ROWS = 2
+COLS = 3
+ROWS = 3
 INSET = 2
 SPRITE_SIZE = 254
 
 # slug → 1-based cell
 REMAP: dict[str, int] = {
-    "lesser_goldfinch": 1,
-    "black_headed_grosbeak": 4,
-    "wilsons_warbler": 5,
-    "red_shouldered_hawk": 6,
-    "caspian_tern": 8,
+    "barn_owl": 1,
+    "brown_creeper": 2,
+    "forsters_tern": 3,
+    "great_horned_owl": 4,
+    "green_winged_teal": 5,
+    "western_grebe": 6,
+    "whimbrel": 7,
+    "white_breasted_nuthatch": 8,
+    "white_crowned_sparrow": 9,
 }
 
 

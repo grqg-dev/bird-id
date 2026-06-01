@@ -17,8 +17,11 @@ Species list and slugs: [`santa-barbara-top-birds.md`](santa-barbara-top-birds.m
 3. **Supplement sheet** — a second 12×6 Gemini sheet filled gaps and wrong cells;
    chopped with `scripts/chop_realistic_sprites_sheet2.py`
    (legend: [`realistic-sprites-gemini-legend-sheet2.md`](realistic-sprites-gemini-legend-sheet2.md)).
-4. **One-offs** — individual species (e.g. Dark-eyed Junco) regenerated with the
-   single-bird prompt below when no sheet cell was usable.
+4. **Missing-species sheet** — a small grid (2×3 or 2×4) for species still without
+   PNGs after the main and 12×6 passes; chopped with
+   `scripts/chop_realistic_sprites_sheet3.py` (update `REMAP` and `SOURCE` there).
+5. **One-offs** — individual species (e.g. Dark-eyed Junco) regenerated with the
+   single-bird prompt below when no sheet cell is usable.
 
 Grid layout reference: [`realistic-sprites-grid-legend.md`](realistic-sprites-grid-legend.md).
 
@@ -98,6 +101,154 @@ Same illustration style, pose, and framing in every cell.
 
 ---
 
+## Prompt — supplement grid (missing species)
+
+Use when a handful of slugs still have no PNG after the main 8×8 and 12×6
+sheets. Pick a grid that fits (e.g. **3×3** for nine birds, **2×3** for five
+birds + one empty cell). Square output, **1:1 aspect ratio**, 2048×2048. Same
+style as the main sheet.
+
+**Workflow:** list missing slugs → fill the prompt below → generate → ask Gemini
+for a row-by-row cell legend → update `REMAP` in
+`scripts/chop_realistic_sprites_sheet3.py` → run the chop script.
+
+Gemini may ignore the requested grid size (we asked for 2×3 and got **2×4**).
+That's fine — remap slugs to the cells that actually contain the right species
+and skip wrong or duplicate cells.
+
+### Template
+
+Replace `[ROWS]`, `[COLS]`, and the cell list. Add one empty cell if the grid
+has spare slots (helps Gemini keep even spacing).
+
+```
+A natural history field guide illustration sprite sheet: a [ROWS]×[COLS] grid of
+[N] equal square cells on a pure flat white background. Exactly one adult bird
+per filled cell — no duplicates, no multiple birds in a cell. Clean digital
+illustration style like a modern bird field guide: accurate plumage colors and
+proportions, soft shading, thin dark outlines, not photorealistic, not pixel art,
+not watercolor. Each bird is shown full-body in a characteristic side-profile
+pose perched on a simple bare twig or branch, facing right, centered in its cell
+with a small even margin. White gutter between cells, no visible grid lines, no
+text, no labels, no numbers.
+
+Filled cells (left to right, top to bottom):
+
+Cell 1: [COMMON NAME] ([SCIENTIFIC NAME]) — [key field marks for ID]
+Cell 2: ...
+Cell N: leave empty (pure white).
+
+Same illustration style, pose, and framing in every filled cell.
+```
+
+Use the [negative prompt](#negative-prompt-if-gemini-supports-it) below.
+
+### Current — June 2026 (nine detected, no sprite)
+
+All top-50 catalog slugs have PNGs. These nine appear in detections but have no
+`realistic-sprites/<slug>.png` yet (dashboard derives slugs automatically).
+
+| Slug | Common name |
+|------|-------------|
+| `barn_owl` | Barn Owl |
+| `brown_creeper` | Brown Creeper |
+| `forsters_tern` | Forster's Tern |
+| `great_horned_owl` | Great Horned Owl |
+| `green_winged_teal` | Green-winged Teal |
+| `western_grebe` | Western Grebe |
+| `whimbrel` | Whimbrel |
+| `white_breasted_nuthatch` | White-breasted Nuthatch |
+| `white_crowned_sparrow` | White-crowned Sparrow |
+
+Copy-paste into Gemini (**3×3** grid, 2048×2048):
+
+```
+A natural history field guide illustration sprite sheet: a 3×3 grid of 9 equal
+square cells on a pure flat white background. Exactly one adult bird per cell —
+no duplicates, no multiple birds in a cell. Clean digital illustration style
+like a modern bird field guide: accurate plumage colors and proportions, soft
+shading, thin dark outlines, not photorealistic, not pixel art, not watercolor.
+Each bird is shown full-body in a characteristic side-profile pose, facing
+right, centered in its cell with a small even margin. Land birds perch on a
+simple bare twig or branch; waterbirds stand on ground, mudflat, or low rocky
+perch as appropriate. White gutter between cells, no visible grid lines, no
+text, no labels, no numbers.
+
+Filled cells (left to right, top to bottom):
+
+Cell 1: Barn Owl (Tyto alba) — medium owl; heart-shaped white face, dark eyes,
+golden-buff upperparts, white underparts with fine gray spots, long rounded wings
+Cell 2: Brown Creeper (Certhia americana) — tiny brown songbird clinging to tree
+bark; mottled brown upperparts, white underparts, slender decurved bill, long
+stiff tail used as prop
+Cell 3: Forster's Tern (Sterna forsteri) — medium tern; breeding adult with
+black cap, pale gray wings, white body, orange bill with black tip, standing on
+ground or low perch
+Cell 4: Great Horned Owl (Bubo virginianus) — large owl; prominent ear tufts,
+barred brown and gray plumage, white throat bib, yellow eyes, perched on thick
+branch
+Cell 5: Green-winged Teal (Anas crecca) — small dabbling duck; male with
+chestnut head, green ear patch, gray flanks, buff stripe along side, yellow
+undertail coverts, standing on ground
+Cell 6: Western Grebe (Aechmophorus occidentalis) — elegant waterbird; black
+cap, red eye, black neck and upperparts, white underparts, long slender neck,
+shown floating on calm water in side profile
+Cell 7: Whimbrel (Numenius phaeopus) — large brown shorebird; long decurved
+bill, striped dark-and-light head, mottled brown upperparts, pale underparts,
+standing on ground
+Cell 8: White-breasted Nuthatch (Sitta carolinensis) — compact songbird;
+blue-gray back, white face and breast, black cap (male), rusty undertail
+coverts, perched on bare twig
+Cell 9: White-crowned Sparrow (Zonotrichia leucophrys) — sparrow with bold
+black-and-white striped crown, plain gray breast, pink bill, brown streaked back,
+perched on bare twig
+
+Same illustration style, pose, and framing in every cell.
+```
+
+After generation: ask Gemini for a cell legend, update `COLS`/`ROWS`, `SOURCE`,
+and `REMAP` in `scripts/chop_realistic_sprites_sheet3.py`, then run the chop
+script.
+
+### Previous run — May 2026 (five missing catalog / dex species)
+
+Species: Lesser Goldfinch, Red-shouldered Hawk, Wilson's Warbler, Black-headed
+Grosbeak, Caspian Tern. Gemini returned a **2×4** sheet; we kept cells 1, 4, 5,
+6, and 8 (see `chop_realistic_sprites_sheet3.py`).
+
+```
+A natural history field guide illustration sprite sheet: a 2×3 grid of 6 equal
+square cells on a pure flat white background. Exactly one adult bird per filled
+cell — no duplicates, no multiple birds in a cell. Clean digital illustration
+style like a modern bird field guide: accurate plumage colors and proportions,
+soft shading, thin dark outlines, not photorealistic, not pixel art, not
+watercolor. Each bird is shown full-body in a characteristic side-profile pose
+perched on a simple bare twig or branch, facing right, centered in its cell
+with a small even margin. White gutter between cells, no visible grid lines, no
+text, no labels, no numbers.
+
+Filled cells (left to right, top to bottom):
+
+Cell 1: Lesser Goldfinch (Spinus psaltria) — small finch; male with black cap,
+bright yellow underparts, greenish back, black wings with bold white wing bars
+Cell 2: Red-shouldered Hawk (Buteo lineatus) — medium buteo; rufous-orange
+breast, barred rufous belly, black-and-white checkered wings, black tail with
+narrow white bands, perched not flying
+Cell 3: Wilson's Warbler (Cardellina pusilla) — tiny warbler; male with neat
+round black cap, bright yellow face and underparts, olive-green back
+Cell 4: Black-headed Grosbeak (Pheucticus melanocephalus) — male with solid
+black head, rich orange breast, black and white wings, heavy pale bill
+Cell 5: Caspian Tern (Hydroprogne caspia) — large tern standing on ground or
+low perch; white body, pale gray wings, shaggy black cap, long thick red-orange
+bill with dark tip
+
+Cell 6: leave empty (pure white).
+
+Same illustration style, pose, and framing in every filled cell.
+```
+
+---
+
 ## Prompt — single bird (fixes & extras)
 
 Use when a sheet cell is wrong or the species isn't in the top 50. Square 1:1
@@ -143,6 +294,8 @@ or overlapping birds between cells
   BirdNET rank.
 - Re-run `./.venv/bin/python scripts/chop_realistic_sprites.py` after updating
   the `REMAP` table in that script.
+- For missing-species grids, update `SOURCE` and `REMAP` in
+  `scripts/chop_realistic_sprites_sheet3.py`, then run it.
 
 Abandoned **16-bit pixel art** experiments (different prompts) live on branch
 `retro-sprites` as `sprites/` — not used by the dashboard.

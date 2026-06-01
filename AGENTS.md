@@ -130,6 +130,17 @@ After pulling code that adds `tracks` / `clip_path`:
 New segments from the monitor get clips automatically; backfill is only for
 history.
 
+## Mac mini → local DB
+
+`scripts/pull_db_from_mini.sh` SSHes to `mac-mini`, runs `sqlite3 .backup` on
+`~/bird-id/birdid.db`, and saves a timestamped `birdid.db.local-backup-*` in the
+repo root. Pass `--activate` to copy into `./birdid.db` for local dashboard work.
+
+`scripts/pull_recordings_from_mini.sh` rsyncs segment wavs into `./recordings/`
+(default: 30 newest; `--all` for everything). Use for local identify / dashboard testing;
+DB paths on the mini are absolute, so dashboard playback still needs `--activate`
+plus matching filenames under `recordings/`.
+
 ## Gotchas (these cost real debugging time)
 
 - **Python 3.12, not 3.13** — TF/numba wheels.
