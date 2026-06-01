@@ -18,7 +18,7 @@ def test_connect_creates_schema(db_conn):
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
     }
-    assert tables >= {"segments", "detections"}
+    assert tables >= {"segments", "detections", "tracks"}
 
 
 def test_connect_uses_wal(db_conn):
@@ -323,6 +323,226 @@ def test_recent_feed_peak_clip_window(db_conn, tmp_path):
     assert rows[0]["peak_conf"] == pytest.approx(0.92)
     assert rows[0]["start_time"] == pytest.approx(6.0)
     assert rows[0]["end_time"] == pytest.approx(9.0)
+
+
+def test_record_segment_creates_tracks_and_track_ids(db_conn, tmp_path):
+    wav = str(tmp_path / "seg.wav")
+    Path(wav).write_bytes(b"x")
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    detections = [
+        identifier.Detection("A", "Sp a", 0.9, 0.0, 3.0),
+        identifier.Detection("B", "Sp b", 0.8, 0.0, 3.0),
+        identifier.Detection("C", "Sp c", 0.7, 6.0, 9.0),
+    ]
+    seg_id = storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=detections,
+        wav_path=wav,
+    )
+    tracks = storage.tracks_for_segment(db_conn, seg_id)
+    assert len(tracks) == 2
+    dets = db_conn.execute(
+        "SELECT track_id, start_time, end_time FROM detections WHERE segment_id = ?",
+        (seg_id,),
+    ).fetchall()
+    assert len(dets) == 3
+    assert all(r["track_id"] is not None for r in dets)
+    assert {r["track_id"] for r in dets if r["start_time"] == 0.0} == {
+        tracks[0]["id"]
+    }
+
+
+def test_record_segment_clip_paths(db_conn, tmp_path):
+    wav = str(tmp_path / "seg.wav")
+    clip = tmp_path / "clip_0_3000.wav"
+    clip.write_bytes(b"clip")
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[
+            identifier.Detection("A", "Sp a", 0.9, 0.0, 3.0),
+        ],
+        wav_path=wav,
+        clip_paths={(0.0, 3.0): str(clip)},
+    )
+    track = storage.get_track(db_conn, 1, 0.0, 3.0)
+    assert track["clip_path"] == str(clip)
+
+
+def test_expire_track_clips(db_conn, tmp_path):
+    clip_old = tmp_path / "old_clip.wav"
+    clip_new = tmp_path / "new_clip.wav"
+    clip_old.write_bytes(b"x" * 100)
+    clip_new.write_bytes(b"y" * 200)
+    old_start = datetime(2026, 1, 1, 8, 0, 0)
+    new_start = datetime(2026, 5, 30, 8, 0, 0)
+    for started, clip in ((old_start, clip_old), (new_start, clip_new)):
+        storage.record_segment(
+            db_conn,
+            started_at=started,
+            ended_at=started + timedelta(seconds=60),
+            duration=60.0,
+            detections=[
+                identifier.Detection("Bird", "Sp", 0.9, 0.0, 3.0),
+            ],
+            wav_path=str(tmp_path / f"seg_{started.day}.wav"),
+            clip_paths={(0.0, 3.0): str(clip)},
+        )
+
+    n, freed = storage.expire_track_clips(
+        db_conn, retention_days=30, now=datetime(2026, 5, 31, 12, 0, 0)
+    )
+    assert n == 1
+    assert freed == 100
+    assert not clip_old.exists()
+    assert clip_new.exists()
+    row = db_conn.execute(
+        "SELECT clip_path FROM tracks WHERE clip_path IS NOT NULL"
+    ).fetchone()
+    assert row["clip_path"] == str(clip_new)
+
+
+def test_expire_track_clips_disabled(db_conn, tmp_path):
+    clip = tmp_path / "keep_clip.wav"
+    clip.write_bytes(b"z" * 50)
+    started = datetime(2026, 1, 1, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[identifier.Detection("Bird", "Sp", 0.9, 0.0, 3.0)],
+        clip_paths={(0.0, 3.0): str(clip)},
+    )
+    n, freed = storage.expire_track_clips(
+        db_conn, retention_days=0, now=datetime(2026, 5, 31, 12, 0, 0)
+    )
+    assert n == 0
+    assert freed == 0
+    assert clip.exists()
+
+
+def test_purge_orphan_clips(db_conn, tmp_path):
+    import os
+    import time
+
+    clips_dir = tmp_path / "clips"
+    clips_dir.mkdir()
+    kept = clips_dir / "kept.wav"
+    orphan = clips_dir / "orphan.wav"
+    kept.write_bytes(b"a" * 100)
+    orphan.write_bytes(b"b" * 400)
+    old_mtime = time.time() - 3600
+    os.utime(orphan, (old_mtime, old_mtime))
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[identifier.Detection("Bird", "Sp", 0.9, 0.0, 3.0)],
+        clip_paths={(0.0, 3.0): str(kept)},
+    )
+    removed, freed = storage.purge_orphan_clips(db_conn, clips_dir)
+    assert removed == 1
+    assert freed == 400
+    assert kept.exists()
+    assert not orphan.exists()
+
+
+def test_tracks_without_clip(db_conn, tmp_path):
+    wav = str(tmp_path / "seg.wav")
+    Path(wav).write_bytes(b"x")
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[identifier.Detection("Bird", "Sp", 0.9, 0.0, 3.0)],
+        wav_path=wav,
+    )
+    rows = storage.tracks_without_clip(db_conn)
+    assert len(rows) == 1
+    assert rows[0]["wav_path"] == wav
+
+
+def test_set_track_clip_path(db_conn, tmp_path):
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"c")
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[identifier.Detection("Bird", "Sp", 0.9, 0.0, 3.0)],
+    )
+    track = storage.get_track(db_conn, 1, 0.0, 3.0)
+    storage.set_track_clip_path(db_conn, track["id"], str(clip))
+    db_conn.commit()
+    assert storage.get_track(db_conn, 1, 0.0, 3.0)["clip_path"] == str(clip)
+    assert storage.tracks_without_clip(db_conn) == []
+
+
+def test_migrate_backfills_tracks_and_track_id(tmp_path):
+    """Legacy DB without tracks gets upgraded on connect()."""
+    import sqlite3
+
+    path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE segments (
+            id INTEGER PRIMARY KEY,
+            started_at TEXT NOT NULL,
+            ended_at TEXT NOT NULL,
+            duration REAL NOT NULL,
+            wav_path TEXT,
+            mean_dbfs REAL,
+            max_dbfs REAL,
+            num_detections INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE detections (
+            id INTEGER PRIMARY KEY,
+            segment_id INTEGER NOT NULL,
+            common_name TEXT NOT NULL,
+            scientific_name TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            start_time REAL NOT NULL,
+            end_time REAL NOT NULL,
+            heard_at TEXT NOT NULL
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO segments (started_at, ended_at, duration, num_detections) "
+        "VALUES ('2026-05-30T08:00:00', '2026-05-30T08:01:00', 60, 1)"
+    )
+    conn.execute(
+        "INSERT INTO detections (segment_id, common_name, scientific_name, "
+        "confidence, start_time, end_time, heard_at) "
+        "VALUES (1, 'Legacy Bird', 'Sp', 0.9, 0, 3, '2026-05-30T08:00:00')"
+    )
+    conn.commit()
+    conn.close()
+
+    upgraded = storage.connect(path)
+    try:
+        track = upgraded.execute("SELECT COUNT(*) AS n FROM tracks").fetchone()
+        assert track["n"] == 1
+        det = upgraded.execute(
+            "SELECT track_id FROM detections WHERE id = 1"
+        ).fetchone()
+        assert det["track_id"] is not None
+    finally:
+        upgraded.close()
 
 
 def test_recent_feed_skips_no_audio(db_conn, tmp_path):

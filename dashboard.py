@@ -117,6 +117,21 @@ def _dev_mode() -> bool:
     return bool(app.config.get("DEV_MODE"))
 
 
+def _spec_cache_path(
+    segment_id: int,
+    start: float | None,
+    end: float | None,
+    base_dir: str | Path,
+) -> Path:
+    """Disk path for a cached spectrogram PNG (pure path logic for tests)."""
+    base = Path(base_dir).expanduser() / "cache" / "spectrograms"
+    if start is not None and end is not None and end > start:
+        name = f"spec_{segment_id}_{int(start * 1000)}_{int(end * 1000)}.png"
+    else:
+        name = f"spec_{segment_id}_full.png"
+    return base / name
+
+
 def _clip_wav_bytes(wav_path: str, start: float, end: float) -> bytes:
     """Return a wav containing only [start, end) seconds of the source file."""
     import soundfile as sf
@@ -2348,12 +2363,29 @@ def audio(segment_id: int):
 
 @app.route("/spectrogram/<int:segment_id>.png")
 def spectrogram(segment_id: int):
+    start = request.args.get("start", type=float)
+    end = request.args.get("end", type=float)
+    cache_path = _spec_cache_path(
+        segment_id, start, end, _CFG["recordings_dir"]
+    )
+    if cache_path.is_file():
+        return send_file(cache_path, mimetype="image/png")
+
     conn = _db()
     try:
         seg = storage.get_segment(conn, segment_id)
+        track = None
+        if start is not None and end is not None and end > start:
+            track = storage.get_track(conn, segment_id, start, end)
     finally:
         conn.close()
-    if not seg or not seg["wav_path"] or not os.path.exists(seg["wav_path"]):
+
+    audio_path = None
+    if track and track["clip_path"] and os.path.exists(track["clip_path"]):
+        audio_path = track["clip_path"]
+    elif seg and seg["wav_path"] and os.path.exists(seg["wav_path"]):
+        audio_path = seg["wav_path"]
+    if not audio_path:
         abort(404)
 
     import librosa  # imported lazily so the rest of the app starts fast
@@ -2364,27 +2396,36 @@ def spectrogram(segment_id: int):
     import matplotlib.pyplot as plt
     import numpy as np
 
-    # Optional window: render just the detection's slice instead of the whole segment.
-    start = request.args.get("start", type=float)
-    end = request.args.get("end", type=float)
-    offset = start if start is not None else 0.0
-    duration = (end - start) if (start is not None and end is not None and end > start) else None
+    has_window = start is not None and end is not None and end > start
+    if track and track["clip_path"] and audio_path == track["clip_path"]:
+        y, sr = librosa.load(audio_path, sr=None)
+    elif has_window:
+        offset = start
+        duration = end - start
+        y, sr = librosa.load(audio_path, sr=None, offset=offset, duration=duration)
+        if y.size == 0:
+            y, sr = librosa.load(audio_path, sr=None)
+    else:
+        y, sr = librosa.load(audio_path, sr=None)
 
-    y, sr = librosa.load(seg["wav_path"], sr=None, offset=offset, duration=duration)
-    if y.size == 0:  # window outside the audio — fall back to the whole segment
-        y, sr = librosa.load(seg["wav_path"], sr=None)
     S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=sr // 2)
     S_db = librosa.power_to_db(S, ref=np.max)
 
     fig, ax = plt.subplots(figsize=(6, 2.2), dpi=100)
-    librosa.display.specshow(S_db, sr=sr, x_axis="time", y_axis="mel", fmax=sr // 2, ax=ax)
-    ax.set(title=None)
-    fig.tight_layout(pad=0.2)
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png")
+    librosa.display.specshow(
+        S_db, sr=sr, x_axis="time", y_axis="mel", fmax=sr // 2, ax=ax
+    )
+    ax.set_axis_off()
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(
+        cache_path,
+        format="png",
+        bbox_inches="tight",
+        pad_inches=0,
+    )
     plt.close(fig)
-    buf.seek(0)
-    return Response(buf.getvalue(), mimetype="image/png")
+    return send_file(cache_path, mimetype="image/png")
 
 
 def main(host: str = "127.0.0.1", port: int = 8080, *, dev: bool = False):

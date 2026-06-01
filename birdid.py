@@ -21,6 +21,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import clips
 import config
 import recorder
 import identifier
@@ -88,11 +89,37 @@ def _run_audio_cleanup(conn, rec_dir: Path, args, *, label: str = "retention") -
     """Expire old kept wavs and drop unreferenced files in recordings_dir."""
     days = _retention_days(args)
     expired, freed = storage.expire_segment_audio(conn, retention_days=days)
+    clip_expired, clip_freed = storage.expire_track_clips(conn, retention_days=days)
     orphans, orphan_freed = storage.purge_orphan_recordings(conn, rec_dir)
+    clip_orphans, clip_orphan_freed = storage.purge_orphan_clips(conn, rec_dir / "clips")
     if expired:
         print(f"[{label}] expired {expired} segment wav(s), freed {freed / 1e6:.1f} MB")
+    if clip_expired:
+        print(
+            f"[{label}] expired {clip_expired} track clip(s), "
+            f"freed {clip_freed / 1e6:.1f} MB"
+        )
     if orphans:
         print(f"[{label}] removed {orphans} orphan wav(s), freed {orphan_freed / 1e6:.1f} MB")
+    if clip_orphans:
+        print(
+            f"[{label}] removed {clip_orphans} orphan clip(s), "
+            f"freed {clip_orphan_freed / 1e6:.1f} MB"
+        )
+
+
+def _clip_paths_for_detections(
+    src_wav: Path, clips_dir: Path, started_at: datetime, detections
+) -> dict[tuple[float, float], str]:
+    """Write per-window clip files; return map for storage.record_segment."""
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    clip_paths: dict[tuple[float, float], str] = {}
+    for start, end in {(d.start_time, d.end_time) for d in detections}:
+        dst = clips.clip_dst_path(clips_dir, started_at, start, end)
+        path = clips.write_clip(src_wav, dst, start, end)
+        if path:
+            clip_paths[(start, end)] = path
+    return clip_paths
 
 
 def _fmt_mmss(seconds: float) -> str:
@@ -201,6 +228,9 @@ def cmd_identify(args) -> int:
         db_path, rec_dir = _db_paths(args)
         kept_path = _import_to_wav(src, rec_dir, started_at)
 
+        clip_paths = _clip_paths_for_detections(
+            kept_path, rec_dir / "clips", started_at, detections
+        )
         conn = storage.connect(db_path)
         try:
             seg_id = storage.record_segment(
@@ -210,6 +240,7 @@ def cmd_identify(args) -> int:
                 duration=duration,
                 detections=detections,
                 wav_path=str(kept_path),
+                clip_paths=clip_paths,
             )
         finally:
             conn.close()
@@ -300,6 +331,9 @@ def cmd_monitor(args) -> int:
             if progress.interactive:
                 spinner.join(timeout=1)
 
+            clip_paths = _clip_paths_for_detections(
+                rec.path, rec_dir / "clips", started_at, detections
+            )
             storage.record_segment(
                 conn,
                 started_at=started_at,
@@ -309,6 +343,7 @@ def cmd_monitor(args) -> int:
                 wav_path=str(rec.path),
                 mean_dbfs=rec.mean_volume_dbfs,
                 max_dbfs=rec.max_volume_dbfs,
+                clip_paths=clip_paths,
             )
 
             if detections:

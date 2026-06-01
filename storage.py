@@ -41,12 +41,80 @@ CREATE TABLE IF NOT EXISTS detections (
     confidence      REAL NOT NULL,
     start_time      REAL NOT NULL,        -- window offset within the segment (s)
     end_time        REAL NOT NULL,
-    heard_at        TEXT NOT NULL         -- absolute local ISO time of the window
+    heard_at        TEXT NOT NULL,        -- absolute local ISO time of the window
+    track_id        INTEGER REFERENCES tracks(id)
 );
 
+CREATE TABLE IF NOT EXISTS tracks (
+    id          INTEGER PRIMARY KEY,
+    segment_id  INTEGER NOT NULL REFERENCES segments(id) ON DELETE CASCADE,
+    start_time  REAL NOT NULL,
+    end_time    REAL NOT NULL,
+    duration    REAL NOT NULL,
+    clip_path   TEXT,                 -- NULL if clip audio discarded/expired
+    created_at  TEXT NOT NULL,
+    UNIQUE(segment_id, start_time, end_time)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracks_segment ON tracks(segment_id);
 CREATE INDEX IF NOT EXISTS idx_detections_species ON detections(common_name);
 CREATE INDEX IF NOT EXISTS idx_detections_heard_at ON detections(heard_at);
 """
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Upgrade older databases: track_id column, tracks rows, backfill links."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(detections)").fetchall()}
+    if "track_id" not in cols:
+        conn.execute("ALTER TABLE detections ADD COLUMN track_id INTEGER REFERENCES tracks(id)")
+
+    missing = conn.execute(
+        """
+        SELECT DISTINCT d.segment_id, d.start_time, d.end_time
+        FROM detections d
+        WHERE NOT EXISTS (
+            SELECT 1 FROM tracks t
+            WHERE t.segment_id = d.segment_id
+              AND t.start_time = d.start_time
+              AND t.end_time = d.end_time
+        )
+        """
+    ).fetchall()
+    for row in missing:
+        seg = conn.execute(
+            "SELECT started_at FROM segments WHERE id = ?", (row["segment_id"],)
+        ).fetchone()
+        created_at = (
+            seg["started_at"]
+            if seg
+            else datetime.now().isoformat(timespec="seconds")
+        )
+        duration = row["end_time"] - row["start_time"]
+        conn.execute(
+            "INSERT INTO tracks (segment_id, start_time, end_time, duration, "
+            "clip_path, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+            (
+                row["segment_id"],
+                row["start_time"],
+                row["end_time"],
+                duration,
+                created_at,
+            ),
+        )
+
+    conn.execute(
+        """
+        UPDATE detections
+        SET track_id = (
+            SELECT t.id FROM tracks t
+            WHERE t.segment_id = detections.segment_id
+              AND t.start_time = detections.start_time
+              AND t.end_time = detections.end_time
+        )
+        WHERE track_id IS NULL
+        """
+    )
+    conn.commit()
 
 
 def connect(db_path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
@@ -56,7 +124,7 @@ def connect(db_path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")  # let `stats` read while monitor writes
     conn.executescript(_SCHEMA)
-    conn.commit()
+    _migrate(conn)
     return conn
 
 
@@ -70,18 +138,24 @@ def record_segment(
     wav_path: Optional[str] = None,
     mean_dbfs: Optional[float] = None,
     max_dbfs: Optional[float] = None,
+    clip_paths: Optional[dict[tuple[float, float], str]] = None,
 ) -> int:
     """Insert a segment and its detections in one transaction. Returns segment id.
 
     `detections` are identifier.Detection objects. Each detection's `heard_at` is
     computed as started_at + its window start offset.
+
+    Optional `clip_paths` maps (start_time, end_time) window keys to on-disk clip
+    wav paths for the matching `tracks` row.
     """
     detections = list(detections)
+    paths = clip_paths or {}
+    created_at = started_at.isoformat(timespec="seconds")
     cur = conn.execute(
         "INSERT INTO segments (started_at, ended_at, duration, wav_path, "
         "mean_dbfs, max_dbfs, num_detections) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
-            started_at.isoformat(timespec="seconds"),
+            created_at,
             ended_at.isoformat(timespec="seconds"),
             duration,
             wav_path,
@@ -91,9 +165,28 @@ def record_segment(
         ),
     )
     segment_id = cur.lastrowid
+
+    windows = {(d.start_time, d.end_time) for d in detections}
+    window_to_track_id: dict[tuple[float, float], int] = {}
+    for start, end in sorted(windows):
+        tcur = conn.execute(
+            "INSERT INTO tracks (segment_id, start_time, end_time, duration, "
+            "clip_path, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                segment_id,
+                start,
+                end,
+                end - start,
+                paths.get((start, end)),
+                created_at,
+            ),
+        )
+        window_to_track_id[(start, end)] = tcur.lastrowid
+
     conn.executemany(
         "INSERT INTO detections (segment_id, common_name, scientific_name, "
-        "confidence, start_time, end_time, heard_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "confidence, start_time, end_time, heard_at, track_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (
                 segment_id,
@@ -103,12 +196,54 @@ def record_segment(
                 d.start_time,
                 d.end_time,
                 (started_at + timedelta(seconds=d.start_time)).isoformat(timespec="seconds"),
+                window_to_track_id[(d.start_time, d.end_time)],
             )
             for d in detections
         ],
     )
     conn.commit()
     return segment_id
+
+
+def get_track(
+    conn: sqlite3.Connection, segment_id: int, start: float, end: float
+) -> Optional[sqlite3.Row]:
+    """Look up the track for an exact detection window within a segment."""
+    return conn.execute(
+        "SELECT * FROM tracks WHERE segment_id = ? AND start_time = ? AND end_time = ?",
+        (segment_id, start, end),
+    ).fetchone()
+
+
+def tracks_for_segment(conn: sqlite3.Connection, segment_id: int) -> list[sqlite3.Row]:
+    """All tracks for one segment, ordered by window start."""
+    return conn.execute(
+        "SELECT * FROM tracks WHERE segment_id = ? ORDER BY start_time",
+        (segment_id,),
+    ).fetchall()
+
+
+def tracks_without_clip(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Tracks missing clip_path whose segment still references a wav file."""
+    return conn.execute(
+        """
+        SELECT t.id, t.segment_id, t.start_time, t.end_time,
+               s.wav_path, s.started_at
+        FROM tracks t
+        JOIN segments s ON s.id = t.segment_id
+        WHERE t.clip_path IS NULL AND s.wav_path IS NOT NULL
+        ORDER BY s.started_at, t.start_time
+        """
+    ).fetchall()
+
+
+def set_track_clip_path(
+    conn: sqlite3.Connection, track_id: int, clip_path: str
+) -> None:
+    """Attach an on-disk clip file to a track row."""
+    conn.execute(
+        "UPDATE tracks SET clip_path = ? WHERE id = ?", (clip_path, track_id)
+    )
 
 
 def species_summary(conn: sqlite3.Connection, *, since: Optional[str] = None) -> list[sqlite3.Row]:
@@ -722,6 +857,79 @@ def purge_orphan_recordings(
     now = time.time()
     removed = freed = 0
     for path in recordings_dir.glob("*.wav"):
+        if path.resolve() in kept:
+            continue
+        if now - path.stat().st_mtime < min_age_sec:
+            continue
+        freed += path.stat().st_size
+        path.unlink()
+        removed += 1
+    return removed, freed
+
+
+def expire_track_clips(
+    conn: sqlite3.Connection,
+    *,
+    retention_days: int,
+    now: Optional[datetime] = None,
+) -> tuple[int, int]:
+    """Delete per-detection clip wavs older than `retention_days`.
+
+    Track rows stay; only `clip_path` is cleared and the file is removed.
+    Returns (tracks_expired, bytes_freed). No-op when retention_days <= 0.
+    """
+    if retention_days <= 0:
+        return 0, 0
+
+    now = now or datetime.now()
+    cutoff = (now - timedelta(days=retention_days)).isoformat(timespec="seconds")
+    rows = conn.execute(
+        """
+        SELECT t.id, t.clip_path
+        FROM tracks t
+        JOIN segments s ON s.id = t.segment_id
+        WHERE t.clip_path IS NOT NULL AND s.started_at < ?
+        """,
+        (cutoff,),
+    ).fetchall()
+
+    freed = 0
+    for row in rows:
+        path = Path(row["clip_path"])
+        if path.is_file():
+            freed += path.stat().st_size
+            path.unlink()
+        conn.execute("UPDATE tracks SET clip_path = NULL WHERE id = ?", (row["id"],))
+    if rows:
+        conn.commit()
+    return len(rows), freed
+
+
+def purge_orphan_clips(
+    conn: sqlite3.Connection,
+    clips_dir: str | Path,
+    *,
+    min_age_sec: float = ORPHAN_MIN_AGE_SEC,
+) -> tuple[int, int]:
+    """Remove clip wav files under `clips_dir` not referenced by any track.
+
+    Skips files modified within `min_age_sec`. Returns (files_removed, bytes_freed).
+    """
+    import time
+
+    clips_dir = Path(clips_dir).expanduser()
+    if not clips_dir.is_dir():
+        return 0, 0
+
+    kept = {
+        Path(row["clip_path"]).resolve()
+        for row in conn.execute(
+            "SELECT clip_path FROM tracks WHERE clip_path IS NOT NULL"
+        ).fetchall()
+    }
+    now = time.time()
+    removed = freed = 0
+    for path in clips_dir.glob("*.wav"):
         if path.resolve() in kept:
             continue
         if now - path.stat().st_mtime < min_age_sec:

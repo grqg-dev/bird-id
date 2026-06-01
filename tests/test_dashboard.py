@@ -7,6 +7,18 @@ from datetime import date
 import dashboard
 
 
+def test_spec_cache_path_windowed(tmp_path):
+    base = tmp_path / "recordings"
+    p = dashboard._spec_cache_path(42, 0.0, 3.0, base)
+    assert p == base / "cache" / "spectrograms" / "spec_42_0_3000.png"
+
+
+def test_spec_cache_path_full_segment(tmp_path):
+    base = tmp_path / "recordings"
+    p = dashboard._spec_cache_path(7, None, None, base)
+    assert p == base / "cache" / "spectrograms" / "spec_7_full.png"
+
+
 def test_parse_day_arg_defaults_to_today():
     show_all, day = dashboard._parse_day_arg(None)
     assert show_all is False

@@ -18,7 +18,8 @@ project testable and portable.
 |---|---|---|---|
 | `recorder.py` | mic → wav (48kHz mono) + silence guard | **yes** | **yes — macOS AVFoundation** |
 | `identifier.py` | `identify(wav)` → detections via BirdNET | no | no |
-| `storage.py` | SQLite: segments + detections, queries | no | no |
+| `storage.py` | SQLite: segments, tracks, detections, queries | no | no |
+| `clips.py` | slice segment wav → per-window clip files | no | no |
 | `config.py` | load `config.json`, resolve flag>config>default | no | no |
 | `dashboard.py` | Flask web UI (offline, server-rendered) | no | no |
 | `birdid.py` | CLI that wires the above together | — | — |
@@ -33,6 +34,11 @@ Key invariants:
   reloads the whole TF model every time. Verify: "Model loaded" prints once.
 - **Store raw, aggregate at query.** Write one row per 3s-window detection; roll
   up with `GROUP BY` at read time (see `species_summary`, `day_species`).
+- **Tracks + clips.** Each distinct `(start_time, end_time)` window within a
+  segment gets a `tracks` row (optional `clip_path` under `recordings/clips/`).
+  Detections link via `track_id`. Clip files are written in `birdid.py` via
+  `clips.write_clip()`; `storage.py` only stores paths. Retention cleanup expires
+  both segment wavs and track clips.
 - **Dashboard is offline-friendly.** No CDN / JS chart libraries — charts are
   server-rendered CSS. It must work on a headless Pi with no internet. **`/live`**
   is the exception: ~40 lines of inline JS poll `/api/recent` every 5s (pauses when
@@ -84,7 +90,7 @@ pytest + Flask only; CI does not install `requirements.txt`):
 
 | Area | What is covered |
 |---|---|
-| `tests/test_storage.py` | Schema, `record_segment`, rollups, streaks, `recent_feed` |
+| `tests/test_storage.py` | Schema, tracks/clips, `record_segment`, rollups, retention, `recent_feed` |
 | `tests/test_config.py` | `load`, `resolve`, bad JSON |
 | `tests/test_identifier_summarize.py` | `summarize()`, default `min_conf` |
 | `tests/test_dashboard.py` | Helpers + `/`, `/bird/…`, `/data`, `/live`, `/api/recent` via `test_client` |
@@ -101,6 +107,28 @@ Run pytest after any change to `storage.py`, `config.py`, `dashboard.py`, or
 **Lesson from history:** every time the monitor loop was changed, *running* it
 found a bug (stdout buffering) that reading the code did not. Re-run the monitor
 smoke test after touching `cmd_monitor`.
+
+## Deploying tracks + clips (Mac mini or local)
+
+After pulling code that adds `tracks` / `clip_path`:
+
+1. **Restart** the monitor and/or dashboard (or any command that calls
+   `storage.connect()`). That runs `_migrate()` — `track_id` links and `tracks`
+   rows with `clip_path = NULL`.
+2. **Backfill clip files** (once per DB, idempotent):
+
+   ```bash
+   cd ~/bird-id   # same WorkingDirectory as the monitor
+   ./.venv/bin/python scripts/backfill_track_clips.py
+   ```
+
+   Uses `config.json` for `db` and `recordings_dir`. Skips tracks whose segment
+   `wav_path` is missing or expired. Safe to re-run; use `--dry-run` to preview.
+
+3. Optional: `./scripts/backfill_track_clips.py --limit 10` on a copy first.
+
+New segments from the monitor get clips automatically; backfill is only for
+history.
 
 ## Gotchas (these cost real debugging time)
 
@@ -125,7 +153,10 @@ smoke test after touching `cmd_monitor`.
 
 Per detection BirdNET returns exactly: `common_name`, `scientific_name`,
 `confidence`, `start_time`, `end_time`, `label` (Latin_English). bird-id adds
-`heard_at` (absolute local timestamp) and segment-level volume/path.
+`heard_at` (absolute local timestamp), `track_id` (links to the window's track),
+and segment-level volume/path. Each **track** stores the window bounds, optional
+`clip_path` (a small extracted wav under `recordings/clips/`), and ties back to
+the parent segment's full `wav_path` for fallback playback/spectrograms.
 
 ## Conventions
 
