@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 # BirdNET runs on 48 kHz mono. Recording natively at this rate avoids resampling.
 TARGET_SAMPLE_RATE = 48_000
 TARGET_CHANNELS = 1
+WAV_HEADER_BYTES = 44
+BYTES_PER_SECOND = TARGET_SAMPLE_RATE * 2  # 16-bit mono PCM
 
 # Below this mean volume (dBFS) we treat the capture as effectively silent.
 # A blocked microphone on macOS yields a clean file full of zeros, which reads
@@ -74,12 +78,46 @@ def _measure_volume(path: Path) -> tuple[float, float]:
     return mean, max_
 
 
+def expected_wav_bytes(seconds: float) -> int:
+    """Approximate on-disk size of a finished segment wav."""
+    return WAV_HEADER_BYTES + int(BYTES_PER_SECOND * seconds)
+
+
+def _run_ffmpeg_record(
+    cmd: list[str],
+    out_path: Path,
+    seconds: float,
+    progress: Callable[[float], None] | None,
+) -> subprocess.CompletedProcess:
+    """Run ffmpeg and optionally report capture progress from the growing wav file."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    stop = threading.Event()
+
+    def poll() -> None:
+        expected = expected_wav_bytes(seconds)
+        while not stop.wait(0.25):
+            try:
+                size = out_path.stat().st_size if out_path.exists() else 0
+            except OSError:
+                size = 0
+            progress(min(size / expected, 0.99))
+
+    if progress:
+        threading.Thread(target=poll, daemon=True).start()
+    stdout, stderr = proc.communicate()
+    if progress:
+        stop.set()
+        progress(1.0)
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
+
 def record(
     seconds: float,
     out_path: str | Path,
     *,
     device: str = "0",
     check_silence: bool = True,
+    progress: Callable[[float], None] | None = None,
 ) -> RecordingResult:
     """Record `seconds` of audio from the mic to `out_path` (a wav file).
 
@@ -89,6 +127,8 @@ def record(
         device: AVFoundation audio device index (see list_input_devices()).
         check_silence: If True, raise RecordingError when the capture is silent
             (the classic symptom of missing macOS mic permission).
+        progress: Optional callback invoked with capture fraction 0.0–1.0 while
+            ffmpeg is running (estimated from the growing wav file size).
 
     Returns:
         RecordingResult with the path and measured volume levels.
@@ -106,7 +146,7 @@ def record(
         "-ar", str(TARGET_SAMPLE_RATE),
         "-y", str(out_path),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = _run_ffmpeg_record(cmd, out_path, seconds, progress)
     if proc.returncode != 0:
         raise RecordingError(
             "ffmpeg failed to record. This is often a microphone-permission issue:\n"

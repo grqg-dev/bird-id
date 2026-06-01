@@ -16,6 +16,8 @@ import argparse
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -91,6 +93,71 @@ def _run_audio_cleanup(conn, rec_dir: Path, args, *, label: str = "retention") -
         print(f"[{label}] expired {expired} segment wav(s), freed {freed / 1e6:.1f} MB")
     if orphans:
         print(f"[{label}] removed {orphans} orphan wav(s), freed {orphan_freed / 1e6:.1f} MB")
+
+
+def _fmt_mmss(seconds: float) -> str:
+    total = int(seconds)
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def _progress_bar(fraction: float, width: int = 20) -> str:
+    filled = int(width * max(0.0, min(1.0, fraction)))
+    return "#" * filled + "-" * (width - filled)
+
+
+class _MonitorProgress:
+    """Terminal progress for one monitor segment (record → analyze → result)."""
+
+    _SPIN = "|/-\\"
+
+    def __init__(self, stamp: str, seg_no: int, total_s: float) -> None:
+        self.stamp = stamp
+        self.seg_no = seg_no
+        self.total_s = total_s
+        self.interactive = sys.stdout.isatty()
+        self._last_milestone = -1
+        self._spin_i = 0
+        self._analyze_start = 0.0
+
+    def _emit(self, line: str, *, end: str = "\n") -> None:
+        print(line, end=end, flush=True)
+
+    def recording(self, fraction: float) -> None:
+        elapsed = fraction * self.total_s
+        clock = f"{_fmt_mmss(elapsed)}/{_fmt_mmss(self.total_s)}"
+        if self.interactive:
+            bar = _progress_bar(fraction)
+            pct = int(fraction * 100)
+            self._emit(
+                f"\r[{self.stamp}] seg {self.seg_no}  record   [{bar}] {pct:3d}%  {clock}",
+                end="",
+            )
+            return
+        milestone = int(fraction * 100) // 25 * 25
+        if milestone > self._last_milestone:
+            self._last_milestone = milestone
+            self._emit(f"[{self.stamp}] seg {self.seg_no}  recording  {milestone:3d}%  {clock}")
+
+    def start_analyzing(self) -> None:
+        self._analyze_start = time.monotonic()
+        if not self.interactive:
+            self._emit(f"[{self.stamp}] seg {self.seg_no}  analyzing...")
+
+    def analyzing(self) -> None:
+        if not self.interactive:
+            return
+        elapsed = time.monotonic() - self._analyze_start
+        spin = self._SPIN[self._spin_i % len(self._SPIN)]
+        self._spin_i += 1
+        self._emit(
+            f"\r[{self.stamp}] seg {self.seg_no}  analyze  [{spin}]  {elapsed:4.1f}s   ",
+            end="",
+        )
+
+    def finish(self, line: str) -> None:
+        if self.interactive:
+            self._emit("\r" + " " * 78 + "\r", end="")
+        self._emit(line)
 
 
 def _import_to_wav(src: Path, dest_dir: Path, started_at: datetime) -> Path:
@@ -199,16 +266,38 @@ def cmd_monitor(args) -> int:
         while True:
             segment_no += 1
             started_at = datetime.now()
+            stamp = started_at.strftime("%H:%M:%S")
             wav_path = rec_dir / f"seg_{started_at:%Y%m%d_%H%M%S}.wav"
+            progress = _MonitorProgress(stamp, segment_no, interval_s)
             try:
-                rec = recorder.record(interval_s, wav_path, device=args.device)
+                rec = recorder.record(
+                    interval_s, wav_path, device=args.device, progress=progress.recording,
+                )
             except recorder.RecordingError as e:
-                print(f"[{started_at:%H:%M:%S}] recording failed: {e}", file=sys.stderr)
+                if progress.interactive:
+                    progress.finish("")
+                print(f"[{stamp}] recording failed: {e}", file=sys.stderr)
                 return 1  # a recording failure is persistent (mic/permission) — stop
             ended_at = datetime.now()
 
+            analyze_done = threading.Event()
+
+            def _analyze_spinner() -> None:
+                progress.start_analyzing()
+                while not analyze_done.wait(0.15):
+                    progress.analyzing()
+
+            if progress.interactive:
+                spinner = threading.Thread(target=_analyze_spinner, daemon=True)
+                spinner.start()
+            else:
+                progress.start_analyzing()
+
             detections = identifier.identify(rec.path, min_conf=min_conf,
                                              lat=lat, lon=lon)
+            analyze_done.set()
+            if progress.interactive:
+                spinner.join(timeout=1)
 
             # Retention: keep audio only for segments that found something.
             kept_path = str(rec.path)
@@ -227,13 +316,14 @@ def cmd_monitor(args) -> int:
                 max_dbfs=rec.max_volume_dbfs,
             )
 
-            stamp = started_at.strftime("%H:%M:%S")
             if detections:
                 species = sorted({d.common_name for d in detections})
-                print(f"[{stamp}] seg {segment_no}: {len(detections)} hit(s) — "
-                      f"{', '.join(species)}")
+                progress.finish(
+                    f"[{stamp}] seg {segment_no}: {len(detections)} hit(s) — "
+                    f"{', '.join(species)}"
+                )
             else:
-                print(f"[{stamp}] seg {segment_no}: nothing detected (audio discarded)")
+                progress.finish(f"[{stamp}] seg {segment_no}: nothing detected (audio discarded)")
             _run_audio_cleanup(conn, rec_dir, args)
     except KeyboardInterrupt:
         print("\nStopping. Final tally:")

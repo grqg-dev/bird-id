@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import birdid
 import config
+import recorder
 
 
 def test_resolve_id_params_uses_config_defaults():
@@ -31,6 +32,16 @@ def test_resolve_id_params_flag_overrides():
     min_conf, lat, lon, loc = birdid._resolve_id_params(args)
     assert min_conf == 0.9
     assert "location filter" in loc
+
+
+def test_progress_bar():
+    assert birdid._progress_bar(0.0) == "--------------------"
+    assert birdid._progress_bar(0.5) == "##########----------"
+    assert birdid._progress_bar(1.0) == "####################"
+
+
+def test_expected_wav_bytes():
+    assert recorder.expected_wav_bytes(1.0) == 44 + 48_000 * 2
 
 
 def test_cmd_stats_with_injected_conn(seeded_conn, capsys):
