@@ -141,10 +141,15 @@ def test_expire_segment_audio_disabled(db_conn, tmp_path):
 
 
 def test_purge_orphan_recordings(db_conn, tmp_path):
+    import os
+    import time
+
     kept = tmp_path / "kept.wav"
     orphan = tmp_path / "orphan.wav"
     kept.write_bytes(b"a" * 100)
     orphan.write_bytes(b"b" * 400)
+    old_mtime = time.time() - 3600
+    os.utime(orphan, (old_mtime, old_mtime))
     started = datetime(2026, 5, 30, 8, 0, 0)
     storage.record_segment(
         db_conn,
@@ -159,3 +164,30 @@ def test_purge_orphan_recordings(db_conn, tmp_path):
     assert freed == 400
     assert kept.exists()
     assert not orphan.exists()
+
+
+def test_purge_orphan_recordings_skips_recent(db_conn, tmp_path):
+    kept = tmp_path / "kept.wav"
+    recent = tmp_path / "recording.wav"
+    old = tmp_path / "old.wav"
+    kept.write_bytes(b"a" * 100)
+    recent.write_bytes(b"b" * 200)
+    old.write_bytes(b"c" * 300)
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[],
+        wav_path=str(kept),
+    )
+    import os
+    import time
+
+    old_mtime = time.time() - 3600
+    os.utime(old, (old_mtime, old_mtime))
+    removed, _ = storage.purge_orphan_recordings(db_conn, tmp_path, min_age_sec=600)
+    assert removed == 1
+    assert recent.exists()
+    assert not old.exists()

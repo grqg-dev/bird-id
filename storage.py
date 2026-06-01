@@ -18,6 +18,9 @@ from typing import Iterable, Optional
 
 DEFAULT_DB = "birdid.db"
 
+# Orphans newer than this are left alone — the monitor may still be writing them.
+ORPHAN_MIN_AGE_SEC = 600
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS segments (
     id             INTEGER PRIMARY KEY,
@@ -609,12 +612,19 @@ def expire_segment_audio(
 
 
 def purge_orphan_recordings(
-    conn: sqlite3.Connection, recordings_dir: str | Path
+    conn: sqlite3.Connection,
+    recordings_dir: str | Path,
+    *,
+    min_age_sec: float = ORPHAN_MIN_AGE_SEC,
 ) -> tuple[int, int]:
     """Remove wav files under `recordings_dir` not referenced by any segment.
 
-    Useful after failed captures or manual testing. Returns (files_removed, bytes_freed).
+    Skips files modified within `min_age_sec` so an in-progress monitor capture
+    (not yet in the DB) is not unlinked while ffmpeg still has it open.
+    Returns (files_removed, bytes_freed).
     """
+    import time
+
     recordings_dir = Path(recordings_dir).expanduser()
     if not recordings_dir.is_dir():
         return 0, 0
@@ -625,9 +635,12 @@ def purge_orphan_recordings(
             "SELECT wav_path FROM segments WHERE wav_path IS NOT NULL"
         ).fetchall()
     }
+    now = time.time()
     removed = freed = 0
     for path in recordings_dir.glob("*.wav"):
         if path.resolve() in kept:
+            continue
+        if now - path.stat().st_mtime < min_age_sec:
             continue
         freed += path.stat().st_size
         path.unlink()

@@ -51,10 +51,15 @@ def test_cmd_stats_empty_db(db_conn, capsys):
 
 
 def test_cmd_cleanup_orphans(tmp_path, capsys):
+    import os
+    import time
+
     rec_dir = tmp_path / "recordings"
     rec_dir.mkdir()
     orphan = rec_dir / "orphan.wav"
     orphan.write_bytes(b"x" * 100)
+    old_mtime = time.time() - 3600
+    os.utime(orphan, (old_mtime, old_mtime))
     db_path = tmp_path / "birdid.db"
     cfg = {
         "db": str(db_path),
