@@ -23,6 +23,9 @@ fi
 
 echo "poll: $LOCAL -> $REMOTE"
 
+# Untracked copies (e.g. from manual scp) block merge — drop deploy/ only.
+git clean -fd -- deploy/mac-mini/ 2>/dev/null || true
+
 if git diff --quiet config.json 2>/dev/null; then
   git pull --ff-only origin "$BRANCH"
 else
