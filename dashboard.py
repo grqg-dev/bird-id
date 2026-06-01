@@ -1120,6 +1120,10 @@ LIVE_PAGE = """
   .nav{font-size:12px;margin-top:10px}
   .nav a{color:var(--red-dark);text-decoration:none;font-weight:600;margin-right:14px}
   .nav a:hover{text-decoration:underline}
+  .filters{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12px}
+  .filters a{color:var(--red-dark);text-decoration:none;font-weight:600;padding:4px 10px;
+             border:1px solid var(--border);border-radius:999px;background:#fff}
+  .filters a.on{background:var(--ink);color:#fff;border-color:var(--ink)}
   .feed{list-style:none;margin:0;padding:0}
   .evt{background:#fff;border-bottom:1px solid var(--border);padding:12px 16px;
        animation:flash .8s ease-out}
@@ -1131,17 +1135,19 @@ LIVE_PAGE = """
   .evt-name a:hover{color:var(--red-dark)}
   .evt-conf{font-size:11px;color:#8a857a;margin-top:2px}
   .evt-conf b{color:var(--ink)}
-  .evt-thumb{flex:0 0 40px;width:40px;height:40px;border-radius:6px;border:1px solid var(--border);
+  .evt-thumb{flex:0 0 56px;width:56px;height:56px;border-radius:8px;border:1px solid var(--border);
              background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
-  .evt-thumb img{width:100%;height:100%;object-fit:contain;padding:3px}
-  .evt-thumb .ini{font-size:11px;font-weight:700;color:#b0aca2}
+  .evt-thumb img{width:100%;height:100%;object-fit:contain;padding:2px}
+  .evt-thumb .ini{font-size:13px;font-weight:700;color:#b0aca2}
+  .evt-spec{background:#0d1b14;margin-top:8px;border-radius:4px;overflow:hidden}
+  .evt-spec img{display:block;width:100%;height:72px;object-fit:cover}
   .evt audio{width:100%;margin-top:8px;height:32px}
   .empty{padding:48px 16px;text-align:center;color:#8a857a;font-size:14px;line-height:1.5}
   @media(max-width:480px){
     .hdr{padding:12px 14px 10px}
     .evt{padding:10px 14px}
     .evt-time{flex:0 0 52px;font-size:11px}
-    .evt-thumb{flex:0 0 36px;width:36px;height:36px}
+    .evt-thumb{flex:0 0 48px;width:48px;height:48px}
   }
 </style></head><body>
 <div class="wrap">
@@ -1157,6 +1163,9 @@ LIVE_PAGE = """
       <a href="/">← Bird-Dex</a>
       <a href="/timeline">Timeline</a>
       <a href="/data">Data report</a>
+    </div>
+    <div class="filters mono">
+      <a href="/live{% if not hide_low %}?hide_low=1{% endif %}" class="{{ 'on' if hide_low else '' }}">Conf ≥ {{ "%.1f"|format(conf_floor) }}</a>
     </div>
   </div>
   {% if events %}
@@ -1177,13 +1186,16 @@ LIVE_PAGE = """
           {% endif %}
         </div>
       </div>
+      <div class="evt-spec">
+        <img loading="lazy" src="/spectrogram/{{ e.segment_id }}.png?start={{ e.start_time }}&end={{ e.end_time }}" alt="call spectrogram">
+      </div>
       <audio controls preload="none"
              src="/audio/{{ e.segment_id }}?start={{ e.start_time }}&end={{ e.end_time }}"></audio>
     </li>
     {% endfor %}
   </ul>
   {% else %}
-  <p class="empty" id="empty">No birds in the last 24 hours yet.</p>
+  <p class="empty" id="empty">{% if hide_low %}No birds ≥ {{ "%.1f"|format(conf_floor) }} confidence in the last 24 hours yet.{% else %}No birds in the last 24 hours yet.{% endif %}</p>
   <ul class="feed" id="feed" hidden></ul>
   {% endif %}
 </div>
@@ -1193,6 +1205,8 @@ LIVE_PAGE = """
   var empty=document.getElementById("empty");
   var updatedEl=document.getElementById("updated");
   var since={{ latest_json|safe }};
+  var hideLow={{ 'true' if hide_low else 'false' }};
+  var confFloor={{ conf_floor }};
   var lastPoll=Date.now();
   var seen={};
 
@@ -1216,6 +1230,7 @@ LIVE_PAGE = """
     if(!list.length)return;
     if(empty){empty.hidden=true;feed.hidden=false}
     list.forEach(function(e){
+      if(hideLow&&e.peak_conf<confFloor)return;
       var k=key(e);
       if(seen[k])return;
       seen[k]=1;
@@ -1235,6 +1250,8 @@ LIVE_PAGE = """
           '</div>'+
           '<div class="evt-thumb">'+thumb+'</div>'+
         '</div>'+
+        '<div class="evt-spec"><img loading="lazy" src="/spectrogram/'+e.segment_id+
+          '.png?start='+e.start_time+'&end='+e.end_time+'" alt="call spectrogram"></div>'+
         '<audio controls preload="none" src="/audio/'+e.segment_id+
           '?start='+e.start_time+'&end='+e.end_time+'"></audio>';
       feed.insertBefore(li,feed.firstChild);
@@ -1244,7 +1261,9 @@ LIVE_PAGE = """
   setInterval(tickUpdated,1000);
   function poll(){
     if(document.hidden)return;
-    fetch("/api/recent?since="+encodeURIComponent(since),{cache:"no-store"})
+    var url="/api/recent?since="+encodeURIComponent(since);
+    if(hideLow)url+="&hide_low=1";
+    fetch(url,{cache:"no-store"})
       .then(function(r){return r.json()})
       .then(function(data){
         lastPoll=Date.now();
@@ -1295,6 +1314,12 @@ def _filter_dex_rows(rows, *, hide_low: bool):
     if not hide_low:
         return list(rows)
     return [r for r in rows if r["peak_conf"] >= PEAK_CONF_FLOOR]
+
+
+def _filter_feed_events(events, *, hide_low: bool):
+    if not hide_low:
+        return events
+    return [e for e in events if e["peak_conf"] >= PEAK_CONF_FLOOR]
 
 
 def _qs(
@@ -1919,10 +1944,12 @@ def dev_ping():
 @app.route("/api/recent")
 def api_recent():
     since = request.args.get("since") or None
+    hide_low = _parse_hide_low(request.args.get("hide_low"))
     limit = min(max(request.args.get("limit", 100, type=int), 1), 500)
     conn = _db()
     try:
         payload = _feed_payload(conn, since=since, limit=limit)
+        events = _filter_feed_events(payload["events"], hide_low=hide_low)
         # API returns slim events (no template-only fields).
         api_events = [
             {
@@ -1935,7 +1962,7 @@ def api_recent():
                 "end_time": e["end_time"],
                 "has_sprite": e["has_sprite"],
             }
-            for e in payload["events"]
+            for e in events
         ]
         resp = Response(
             json.dumps({"events": api_events, "latest": payload["latest"]}),
@@ -1949,14 +1976,17 @@ def api_recent():
 
 @app.route("/live")
 def live_feed():
+    hide_low = _parse_hide_low(request.args.get("hide_low"))
     conn = _db()
     try:
         payload = _feed_payload(conn)
-        events = payload["events"]
+        events = _filter_feed_events(payload["events"], hide_low=hide_low)
         latest = payload["latest"]
         return render_template_string(
             LIVE_PAGE,
             events=events,
+            hide_low=hide_low,
+            conf_floor=PEAK_CONF_FLOOR,
             latest_json=json.dumps(latest),
             events_json=json.dumps(
                 [

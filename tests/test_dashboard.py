@@ -122,7 +122,7 @@ def test_timeline_empty_day(client):
     assert b"No detections" in resp.data
 
 
-def _seed_recent_detection(conn, *, minutes_ago: float = 5, name: str = "Live Bird"):
+def _seed_recent_detection(conn, *, minutes_ago: float = 5, name: str = "Live Bird", conf: float = 0.88):
     from datetime import datetime, timedelta
 
     import identifier
@@ -136,7 +136,7 @@ def _seed_recent_detection(conn, *, minutes_ago: float = 5, name: str = "Live Bi
         ended_at=started + timedelta(seconds=60),
         duration=60.0,
         detections=[
-            identifier.Detection(name, "Live sp", 0.88, 0.0, 3.0),
+            identifier.Detection(name, "Live sp", conf, 0.0, 3.0),
         ],
         wav_path="/tmp/live_seg.wav",
     )
@@ -149,6 +149,27 @@ def test_live_feed_page(client, seeded_conn):
     assert b"Live feed" in resp.data
     assert b"Feed Test Bird" in resp.data
     assert b"Last 24h" in resp.data
+    assert b"/spectrogram/" in resp.data
+    assert b"Conf" in resp.data
+
+
+def test_live_feed_hide_low(client, seeded_conn):
+    _seed_recent_detection(seeded_conn, name="Low Conf Bird", conf=0.5)
+    _seed_recent_detection(seeded_conn, minutes_ago=5, name="High Conf Bird", conf=0.85)
+    resp = client.get("/live?hide_low=1")
+    assert resp.status_code == 200
+    assert b"High Conf Bird" in resp.data
+    assert b"Low Conf Bird" not in resp.data
+
+
+def test_api_recent_hide_low(client, seeded_conn):
+    _seed_recent_detection(seeded_conn, name="Low Api", conf=0.4)
+    _seed_recent_detection(seeded_conn, minutes_ago=5, name="High Api", conf=0.9)
+    resp = client.get("/api/recent?hide_low=1")
+    assert resp.status_code == 200
+    names = [e["common_name"] for e in resp.get_json()["events"]]
+    assert "High Api" in names
+    assert "Low Api" not in names
 
 
 def test_api_recent_returns_events(client, seeded_conn):
