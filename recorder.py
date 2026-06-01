@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,22 +86,18 @@ def expected_wav_bytes(seconds: float) -> int:
 
 def _run_ffmpeg_record(
     cmd: list[str],
-    out_path: Path,
     seconds: float,
     progress: Callable[[float], None] | None,
 ) -> subprocess.CompletedProcess:
-    """Run ffmpeg and optionally report capture progress from the growing wav file."""
+    """Run ffmpeg and optionally report capture progress from elapsed time."""
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stop = threading.Event()
+    started = time.monotonic()
 
     def poll() -> None:
-        expected = expected_wav_bytes(seconds)
         while not stop.wait(0.25):
-            try:
-                size = out_path.stat().st_size if out_path.exists() else 0
-            except OSError:
-                size = 0
-            progress(min(size / expected, 0.99))
+            elapsed = time.monotonic() - started
+            progress(min(elapsed / seconds, 0.99))
 
     if progress:
         threading.Thread(target=poll, daemon=True).start()
@@ -128,7 +125,7 @@ def record(
         check_silence: If True, raise RecordingError when the capture is silent
             (the classic symptom of missing macOS mic permission).
         progress: Optional callback invoked with capture fraction 0.0–1.0 while
-            ffmpeg is running (estimated from the growing wav file size).
+            ffmpeg is running (from elapsed time vs requested duration).
 
     Returns:
         RecordingResult with the path and measured volume levels.
@@ -146,7 +143,7 @@ def record(
         "-ar", str(TARGET_SAMPLE_RATE),
         "-y", str(out_path),
     ]
-    proc = _run_ffmpeg_record(cmd, out_path, seconds, progress)
+    proc = _run_ffmpeg_record(cmd, seconds, progress)
     if proc.returncode != 0:
         raise RecordingError(
             "ffmpeg failed to record. This is often a microphone-permission issue:\n"
