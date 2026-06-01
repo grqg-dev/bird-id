@@ -34,7 +34,9 @@ Key invariants:
 - **Store raw, aggregate at query.** Write one row per 3s-window detection; roll
   up with `GROUP BY` at read time (see `species_summary`, `day_species`).
 - **Dashboard is offline-friendly.** No CDN / JS chart libraries — charts are
-  server-rendered CSS. It must work on a headless Pi with no internet.
+  server-rendered CSS. It must work on a headless Pi with no internet. **`/live`**
+  is the exception: ~40 lines of inline JS poll `/api/recent` every 5s (pauses when
+  the tab is hidden) for the rolling 24h companion feed.
 
 ## Setup
 
@@ -82,10 +84,10 @@ pytest + Flask only; CI does not install `requirements.txt`):
 
 | Area | What is covered |
 |---|---|
-| `tests/test_storage.py` | Schema, `record_segment`, rollups, streaks |
+| `tests/test_storage.py` | Schema, `record_segment`, rollups, streaks, `recent_feed` |
 | `tests/test_config.py` | `load`, `resolve`, bad JSON |
 | `tests/test_identifier_summarize.py` | `summarize()`, default `min_conf` |
-| `tests/test_dashboard.py` | Helpers + `/`, `/bird/…`, `/data` via `test_client` |
+| `tests/test_dashboard.py` | Helpers + `/`, `/bird/…`, `/data`, `/live`, `/api/recent` via `test_client` |
 | `tests/test_birdid.py` | `cmd_stats`, `_resolve_id_params` |
 
 **Dashboard test seam:** every route uses `dashboard._db()`. Tests monkeypatch it to

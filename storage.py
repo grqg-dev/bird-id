@@ -317,6 +317,58 @@ def species_detections(
     ).fetchall()
 
 
+_RECENT_FEED_SELECT = """
+        SELECT common_name, scientific_name,
+               segment_id, confidence AS peak_conf,
+               heard_at, start_time, end_time, wav_path
+        FROM (
+            SELECT d.common_name, d.scientific_name,
+                   d.segment_id, d.confidence, d.heard_at,
+                   d.start_time, d.end_time, s.wav_path,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY d.segment_id, d.common_name
+                       ORDER BY d.confidence DESC, d.heard_at DESC
+                   ) AS rn
+            FROM detections d
+            JOIN segments s ON s.id = d.segment_id
+            WHERE d.heard_at >= ?
+              AND d.confidence >= ?
+              AND s.wav_path IS NOT NULL
+              {since_clause}
+        )
+        WHERE rn = 1
+        ORDER BY heard_at DESC
+        LIMIT ?
+        """
+
+
+def recent_feed(
+    conn: sqlite3.Connection,
+    *,
+    hours: int = 24,
+    limit: int = 100,
+    since: Optional[str] = None,
+    min_conf: float = 0.3,
+    now: Optional[datetime] = None,
+) -> list[sqlite3.Row]:
+    """Chronological feed: one row per (segment, species) with peak confidence.
+
+    Only includes detections within the last `hours` with playable audio.
+    Optional `since` returns rows newer than that ISO timestamp (for polling).
+    """
+    ref = now or datetime.now()
+    cutoff = (ref - timedelta(hours=hours)).isoformat(timespec="seconds")
+    since_clause = "AND d.heard_at > ?" if since else ""
+    params: list = [cutoff, min_conf]
+    if since:
+        params.append(since)
+    params.append(limit)
+    return conn.execute(
+        _RECENT_FEED_SELECT.format(since_clause=since_clause),
+        params,
+    ).fetchall()
+
+
 def species_detection_count(
     conn: sqlite3.Connection,
     common_name: str,

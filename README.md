@@ -81,7 +81,8 @@ set for Santa Barbara, CA.
 ```
 
 The dashboard works offline — no internet required once it's running. Browse by day
-or all-time, open a species for clips and spectrograms, or open **Data report**
+or all-time, open a species for clips and spectrograms, open **Live feed** (`/live`)
+for a rolling 24-hour timeline that auto-updates while you monitor, or open **Data report**
 (`/data`) for detection counts and confidence charts.
 
 Gallery mode (`/?mode=gallery`) is a lighter grid of illustrations and stats — no
@@ -110,6 +111,7 @@ A quick terminal summary: how many species today, busiest hour, and anything
 | Long file, one row per species | `./.venv/bin/python birdid.py identify big.wav --summary` |
 | Import a recording into the DB | `./.venv/bin/python birdid.py identify file.wav --save` |
 | Dashboard on your home network | `./.venv/bin/python birdid.py dashboard --host 0.0.0.0` |
+| Live companion feed (phone-friendly) | Open `/live` while monitor runs — polls every 5s |
 | Dashboard auto-reload while hacking | `./.venv/bin/python birdid.py dashboard --dev` |
 
 **Useful flags:** `-c 0.5` raises the confidence threshold (fewer false positives).

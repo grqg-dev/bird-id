@@ -232,6 +232,7 @@ PAGE = """
     <a href="{{ qs(day=today) }}">Today</a>
     {% endif %}
     <span class="spacer"></span>
+    <a href="/live">Live feed</a>
     <a href="/data{{ data_qs }}">Data report</a>
     {% if show_all %}
     <a href="{{ qs(day=today) }}">Daily (today)</a>
@@ -416,7 +417,7 @@ BIRD_PAGE = """
         {% endif %}
       </span>
     </div>
-    <div class="back mono"><a href="{{ back_href }}">← Back to Bird-Dex</a></div>
+    <div class="back mono"><a href="{{ back_href }}">← Back to Bird-Dex</a> · <a href="/live">Live feed</a></div>
   </div>
 
   <div class="hero">
@@ -629,7 +630,7 @@ DATA_VIEW = """
 <body>
 <div class="topbar"></div>
 <div class="wrap">
-  <div class="nav"><a href="{{ back_href }}">← Bird-Dex</a></div>
+  <div class="nav"><a href="{{ back_href }}">← Bird-Dex</a> · <a href="/live">Live feed</a></div>
   <div class="day-nav">
     {% if not show_all %}
     <a href="/data?day={{ prev_day }}">← Prev</a>
@@ -827,6 +828,170 @@ if(R.show_all){
 </body></html>
 """
 
+LIVE_PAGE = """
+<!doctype html><html><head><meta charset="utf-8"><title>Live feed · Bird-Dex</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--cream:#f3efe2;--ink:#21232a;
+        --gold:#ffcf3f;--grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);min-height:100vh;
+       background:var(--surface)}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .wrap{max-width:640px;margin:0 auto;padding:0 0 32px}
+  .hdr{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--border);
+       padding:14px 16px 12px}
+  .hdr h1{margin:0;font-size:20px;letter-spacing:-.3px}
+  .hdr-meta{display:flex;align-items:center;gap:10px;margin-top:6px;font-size:12px;color:#8a857a}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:var(--grn);flex-shrink:0;
+            animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  @keyframes flash{from{background:#e8f8ed}to{background:#fff}}
+  .nav{font-size:12px;margin-top:10px}
+  .nav a{color:var(--red-dark);text-decoration:none;font-weight:600;margin-right:14px}
+  .nav a:hover{text-decoration:underline}
+  .feed{list-style:none;margin:0;padding:0}
+  .evt{background:#fff;border-bottom:1px solid var(--border);padding:12px 16px;
+       animation:flash .8s ease-out}
+  .evt-row{display:flex;align-items:center;gap:10px;min-height:44px}
+  .evt-time{flex:0 0 58px;font-size:12px;color:#8a857a;text-align:right}
+  .evt-main{flex:1;min-width:0}
+  .evt-name{margin:0;font-size:15px;font-weight:700;line-height:1.25}
+  .evt-name a{color:inherit;text-decoration:none}
+  .evt-name a:hover{color:var(--red-dark)}
+  .evt-conf{font-size:11px;color:#8a857a;margin-top:2px}
+  .evt-conf b{color:var(--ink)}
+  .evt-thumb{flex:0 0 40px;width:40px;height:40px;border-radius:6px;border:1px solid var(--border);
+             background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .evt-thumb img{width:100%;height:100%;object-fit:contain;padding:3px}
+  .evt-thumb .ini{font-size:11px;font-weight:700;color:#b0aca2}
+  .evt audio{width:100%;margin-top:8px;height:32px}
+  .empty{padding:48px 16px;text-align:center;color:#8a857a;font-size:14px;line-height:1.5}
+  @media(max-width:480px){
+    .hdr{padding:12px 14px 10px}
+    .evt{padding:10px 14px}
+    .evt-time{flex:0 0 52px;font-size:11px}
+    .evt-thumb{flex:0 0 36px;width:36px;height:36px}
+  }
+</style></head><body>
+<div class="wrap">
+  <div class="hdr">
+    <h1>Live feed</h1>
+    <div class="hdr-meta mono">
+      <span class="live-dot" aria-hidden="true"></span>
+      <span>Last 24h</span>
+      <span>·</span>
+      <span id="updated">Updated just now</span>
+    </div>
+    <div class="nav mono">
+      <a href="/">← Bird-Dex</a>
+      <a href="/data">Data report</a>
+    </div>
+  </div>
+  {% if events %}
+  <ul class="feed" id="feed">
+    {% for e in events %}
+    <li class="evt" data-seg="{{ e.segment_id }}" data-name="{{ e.common_name }}">
+      <div class="evt-row">
+        <time class="evt-time mono">{{ e.time_label }}</time>
+        <div class="evt-main">
+          <p class="evt-name"><a href="/bird/{{ e.slug }}">{{ e.common_name }}</a></p>
+          <div class="evt-conf mono"><b>{{ "%.0f"|format(e.peak_conf * 100) }}%</b> confidence</div>
+        </div>
+        <div class="evt-thumb">
+          {% if e.sprite_slug %}
+          <img src="/sprite/{{ e.sprite_slug }}.png" alt="" loading="lazy">
+          {% else %}
+          <span class="ini">{{ e.initials }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <audio controls preload="none"
+             src="/audio/{{ e.segment_id }}?start={{ e.start_time }}&end={{ e.end_time }}"></audio>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty" id="empty">No birds in the last 24 hours yet.</p>
+  <ul class="feed" id="feed" hidden></ul>
+  {% endif %}
+</div>
+<script>
+(function(){
+  var feed=document.getElementById("feed");
+  var empty=document.getElementById("empty");
+  var updatedEl=document.getElementById("updated");
+  var since={{ latest_json|safe }};
+  var lastPoll=Date.now();
+  var seen={};
+
+  function key(e){return e.segment_id+"\0"+e.common_name}
+  function markSeen(list){list.forEach(function(e){seen[key(e)]=1})}
+  function fmtTime(iso){
+    var d=new Date(iso.replace(" ","T"));
+    if(isNaN(d))return iso.slice(11,16);
+    var h=d.getHours(),m=d.getMinutes(),ap=h>=12?"PM":"AM";
+    h=h%12;if(!h)h=12;
+    return h+":"+(m<10?"0":"")+m+" "+ap;
+  }
+  function initials(name){
+    return name.split(/\\s+/).map(function(w){return w[0]||""}).join("").slice(0,2).toUpperCase();
+  }
+  function tickUpdated(){
+    var s=Math.floor((Date.now()-lastPoll)/1000);
+    updatedEl.textContent=s<5?"Updated just now":"Updated "+s+"s ago";
+  }
+  function prependEvents(list){
+    if(!list.length)return;
+    if(empty){empty.hidden=true;feed.hidden=false}
+    list.forEach(function(e){
+      var k=key(e);
+      if(seen[k])return;
+      seen[k]=1;
+      var li=document.createElement("li");
+      li.className="evt";
+      li.dataset.seg=e.segment_id;
+      li.dataset.name=e.common_name;
+      var thumb=e.has_sprite
+        ?'<img src="/sprite/'+e.slug+'.png" alt="" loading="lazy">'
+        :'<span class="ini">'+initials(e.common_name)+'</span>';
+      li.innerHTML=
+        '<div class="evt-row">'+
+          '<time class="evt-time mono">'+fmtTime(e.heard_at)+'</time>'+
+          '<div class="evt-main">'+
+            '<p class="evt-name"><a href="/bird/'+e.slug+'">'+e.common_name+'</a></p>'+
+            '<div class="evt-conf mono"><b>'+Math.round(e.peak_conf*100)+'%</b> confidence</div>'+
+          '</div>'+
+          '<div class="evt-thumb">'+thumb+'</div>'+
+        '</div>'+
+        '<audio controls preload="none" src="/audio/'+e.segment_id+
+          '?start='+e.start_time+'&end='+e.end_time+'"></audio>';
+      feed.insertBefore(li,feed.firstChild);
+    });
+  }
+  markSeen({{ events_json|safe }});
+  setInterval(tickUpdated,1000);
+  function poll(){
+    if(document.hidden)return;
+    fetch("/api/recent?since="+encodeURIComponent(since),{cache:"no-store"})
+      .then(function(r){return r.json()})
+      .then(function(data){
+        lastPoll=Date.now();
+        if(data.latest)since=data.latest;
+        prependEvents(data.events||[]);
+      })
+      .catch(function(){});
+  }
+  setInterval(poll,5000);
+  document.addEventListener("visibilitychange",function(){
+    if(!document.hidden)poll();
+  });
+})();
+</script>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
+"""
+
 
 _SORT_KEYS = {
     "discovered": lambda r: r["first_heard"],
@@ -904,6 +1069,46 @@ def _format_span(first: str, last: str) -> str:
         m = int((delta.total_seconds() % 3600) // 60)
         return f"{h}h {m}m" if m else f"{h}h"
     return f"{delta.days}d {delta.seconds // 3600}h"
+
+
+def _format_heard_clock(iso: str) -> str:
+    """Local time label for a heard_at ISO string (e.g. '2:32 PM')."""
+    t = datetime.fromisoformat(iso)
+    h = t.hour % 12 or 12
+    ap = "AM" if t.hour < 12 else "PM"
+    return f"{h}:{t.minute:02d} {ap}"
+
+
+def _species_initials(common_name: str) -> str:
+    parts = common_name.split()
+    return "".join(p[0] for p in parts if p)[:2].upper()
+
+
+def _feed_event_dict(row, slugs: dict[str, str]) -> dict:
+    slug = slugs.get(row["common_name"]) or _common_to_slug(row["common_name"])
+    sprite = _sprite_slug(row["common_name"], slugs)
+    return {
+        "heard_at": row["heard_at"],
+        "common_name": row["common_name"],
+        "slug": slug,
+        "peak_conf": row["peak_conf"],
+        "segment_id": row["segment_id"],
+        "start_time": row["start_time"],
+        "end_time": row["end_time"],
+        "has_sprite": sprite is not None,
+        "sprite_slug": sprite,
+        "time_label": _format_heard_clock(row["heard_at"]),
+        "initials": _species_initials(row["common_name"]),
+    }
+
+
+def _feed_payload(conn, *, since: str | None = None, limit: int = 100) -> dict:
+    min_conf = _CFG.get("min_conf", config.DEFAULTS["min_conf"])
+    rows = storage.recent_feed(conn, limit=limit, since=since, min_conf=min_conf)
+    slugs = _slug_map()
+    events = [_feed_event_dict(r, slugs) for r in rows]
+    latest = events[0]["heard_at"] if events else (since or "")
+    return {"events": events, "latest": latest}
 
 
 def _qs_builder(mode: str, sort: str, show_all: bool, selected_day: str, hide_low: bool = False):
@@ -1254,6 +1459,64 @@ def dev_ping():
     if not _dev_mode():
         abort(404)
     return "", 204
+
+
+@app.route("/api/recent")
+def api_recent():
+    since = request.args.get("since") or None
+    limit = min(max(request.args.get("limit", 100, type=int), 1), 500)
+    conn = _db()
+    try:
+        payload = _feed_payload(conn, since=since, limit=limit)
+        # API returns slim events (no template-only fields).
+        api_events = [
+            {
+                "heard_at": e["heard_at"],
+                "common_name": e["common_name"],
+                "slug": e["slug"],
+                "peak_conf": e["peak_conf"],
+                "segment_id": e["segment_id"],
+                "start_time": e["start_time"],
+                "end_time": e["end_time"],
+                "has_sprite": e["has_sprite"],
+            }
+            for e in payload["events"]
+        ]
+        resp = Response(
+            json.dumps({"events": api_events, "latest": payload["latest"]}),
+            mimetype="application/json",
+        )
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    finally:
+        conn.close()
+
+
+@app.route("/live")
+def live_feed():
+    conn = _db()
+    try:
+        payload = _feed_payload(conn)
+        events = payload["events"]
+        latest = payload["latest"]
+        return render_template_string(
+            LIVE_PAGE,
+            events=events,
+            latest_json=json.dumps(latest),
+            events_json=json.dumps(
+                [
+                    {
+                        "segment_id": e["segment_id"],
+                        "common_name": e["common_name"],
+                    }
+                    for e in events
+                ]
+            ),
+            dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
+        )
+    finally:
+        conn.close()
 
 
 @app.route("/")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -191,3 +192,136 @@ def test_purge_orphan_recordings_skips_recent(db_conn, tmp_path):
     assert removed == 1
     assert recent.exists()
     assert not old.exists()
+
+
+def _record_with_detections(db_conn, started, wav_path, detections):
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=detections,
+        wav_path=wav_path,
+    )
+
+
+def test_recent_feed_orders_newest_first(db_conn, tmp_path):
+    wav = str(tmp_path / "seg.wav")
+    Path(wav).write_bytes(b"x")
+    now = datetime(2026, 6, 1, 14, 0, 0)
+    older = now - timedelta(hours=2)
+    newer = now - timedelta(minutes=30)
+
+    _record_with_detections(
+        db_conn,
+        older,
+        wav,
+        [
+            identifier.Detection("Bewick's Wren", "Thryomanes bewickii", 0.92, 0.0, 3.0),
+        ],
+    )
+    _record_with_detections(
+        db_conn,
+        newer,
+        wav,
+        [
+            identifier.Detection("Oak Titmouse", "Baeolophus inornatus", 0.75, 0.0, 3.0),
+        ],
+    )
+
+    rows = storage.recent_feed(db_conn, now=now)
+    assert len(rows) == 2
+    assert rows[0]["common_name"] == "Oak Titmouse"
+    assert rows[1]["common_name"] == "Bewick's Wren"
+
+
+def test_recent_feed_24h_cutoff(db_conn, tmp_path):
+    wav = str(tmp_path / "seg.wav")
+    Path(wav).write_bytes(b"x")
+    now = datetime(2026, 6, 1, 14, 0, 0)
+    recent = now - timedelta(hours=23)
+    stale = now - timedelta(hours=25)
+
+    _record_with_detections(
+        db_conn,
+        stale,
+        wav,
+        [identifier.Detection("Old Bird", "Old sp", 0.9, 0.0, 3.0)],
+    )
+    _record_with_detections(
+        db_conn,
+        recent,
+        wav,
+        [identifier.Detection("New Bird", "New sp", 0.9, 0.0, 3.0)],
+    )
+
+    rows = storage.recent_feed(db_conn, now=now)
+    assert len(rows) == 1
+    assert rows[0]["common_name"] == "New Bird"
+
+
+def test_recent_feed_since_filter(db_conn, tmp_path):
+    wav = str(tmp_path / "seg.wav")
+    Path(wav).write_bytes(b"x")
+    now = datetime(2026, 6, 1, 14, 0, 0)
+    t1 = now - timedelta(hours=1)
+    t2 = now - timedelta(minutes=30)
+
+    _record_with_detections(
+        db_conn,
+        t1,
+        wav,
+        [identifier.Detection("First", "Sp1", 0.9, 0.0, 3.0)],
+    )
+    _record_with_detections(
+        db_conn,
+        t2,
+        wav,
+        [identifier.Detection("Second", "Sp2", 0.8, 0.0, 3.0)],
+    )
+
+    since = (t1 + timedelta(seconds=30)).isoformat(timespec="seconds")
+    rows = storage.recent_feed(db_conn, since=since, now=now)
+    assert len(rows) == 1
+    assert rows[0]["common_name"] == "Second"
+
+
+def test_recent_feed_peak_clip_window(db_conn, tmp_path):
+    wav = str(tmp_path / "seg.wav")
+    Path(wav).write_bytes(b"x")
+    now = datetime(2026, 6, 1, 14, 0, 0)
+    started = now - timedelta(minutes=10)
+
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[
+            identifier.Detection("Bewick's Wren", "Thryomanes bewickii", 0.55, 0.0, 3.0),
+            identifier.Detection("Bewick's Wren", "Thryomanes bewickii", 0.92, 6.0, 9.0),
+        ],
+        wav_path=wav,
+    )
+
+    rows = storage.recent_feed(db_conn, now=now)
+    assert len(rows) == 1
+    assert rows[0]["peak_conf"] == pytest.approx(0.92)
+    assert rows[0]["start_time"] == pytest.approx(6.0)
+    assert rows[0]["end_time"] == pytest.approx(9.0)
+
+
+def test_recent_feed_skips_no_audio(db_conn, tmp_path):
+    now = datetime(2026, 6, 1, 14, 0, 0)
+    started = now - timedelta(minutes=5)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[
+            identifier.Detection("Ghost Bird", "Sp", 0.9, 0.0, 3.0),
+        ],
+        wav_path=None,
+    )
+    assert storage.recent_feed(db_conn, now=now) == []
