@@ -104,6 +104,7 @@ def _resolve_bird_slug(slug: str, conn) -> str | None:
 
 
 _CLIPS_PER_PAGE = 50
+PEAK_CONF_FLOOR = 0.7  # Bird-Dex "hide low confidence" cutoff (peak conf per species)
 
 
 def _db():
@@ -166,7 +167,7 @@ PAGE = """
   .no{font-weight:800;color:var(--ink);letter-spacing:1px}
   .peak-conf{font-weight:700;color:var(--red-deep);letter-spacing:.3px}
   .sprite{background:#fff;border-bottom:1px solid #eceae3}
-  .sprite img.art{display:block;width:100%;height:150px;object-fit:contain;padding:10px 14px 6px}
+  .sprite img.art{display:block;width:200px;height:200px;margin:0 auto;object-fit:contain;padding:10px 14px 6px}
   .spectro{background:#0d1b14}
   .spectro img{display:block;width:100%;height:88px;object-fit:cover}
   .play{background:#f7f6f2;padding:8px 10px;border-top:1px solid #eceae3}
@@ -181,6 +182,8 @@ PAGE = """
            border:1px solid var(--border);color:#7a766a;background:#fff}
   .modes a.on{background:var(--surface);border-color:#d7d2c0;color:var(--ink);font-weight:700}
   .modes a:hover{border-color:#c8c4ba;color:var(--ink);background:var(--surface)}
+  .entry.low-conf{border-color:#e8dcc0;background:#fffcf5}
+  .entry.low-conf .peak-conf{color:#b8860b}
   .day-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;padding:10px 14px;
            background:var(--surface);border:1px solid var(--border);border-radius:10px}
   .day-bar a{font-size:12px;letter-spacing:.5px;text-decoration:none;padding:6px 12px;border-radius:8px;
@@ -193,7 +196,7 @@ PAGE = """
   .day-bar button{font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);
                  background:#fff;cursor:pointer}
   .day-bar .spacer{flex:1}
-  .no-art{display:flex;align-items:center;justify-content:center;height:150px;padding:8px 12px;
+  .no-art{display:flex;align-items:center;justify-content:center;width:200px;height:200px;margin:0 auto;padding:8px 12px;
           color:#b0aca2;font-size:12px;letter-spacing:.5px;text-align:center}
   /* gallery — fixed square art box, auto columns (3–4+ on typical screens) */
   .grid.gallery{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
@@ -220,6 +223,7 @@ PAGE = """
     <form method="get" action="/">
       {% if mode == 'gallery' %}<input type="hidden" name="mode" value="gallery">{% endif %}
       {% if sort != 'discovered' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+      {% if hide_low %}<input type="hidden" name="hide_low" value="1">{% endif %}
       <label class="lbl" for="day-pick">Day</label>
       <input type="date" id="day-pick" name="day" value="{{ selected_day }}" max="{{ today }}">
       <button type="submit">Go</button>
@@ -247,6 +251,8 @@ PAGE = """
     <a href="{{ qs(sort='discovered') }}" class="{{ 'on' if sort == 'discovered' else '' }}">Discovered</a>
     <a href="{{ qs(sort='heard') }}" class="{{ 'on' if sort == 'heard' else '' }}">Most heard</a>
     <a href="{{ qs(sort='peak') }}" class="{{ 'on' if sort == 'peak' else '' }}">Peak conf</a>
+    <a href="{{ qs(hide_low=not hide_low) }}" class="{{ 'on' if hide_low else '' }}">Peak ≥ {{ "%.1f"|format(peak_floor) }}</a>
+    {% if hide_low and hidden_count %}<span class="lbl">{{ hidden_count }} hidden</span>{% endif %}
   </div>
   <div class="screen-bar">
     <div><div class="count mono">Nº {{ "%03d"|format(total) }}</div><div class="lbl">{{ species_lbl }}</div></div>
@@ -267,7 +273,7 @@ PAGE = """
   <div class="grid{{ ' gallery' if mode == 'gallery' else '' }}">
     {% for e in dex %}
     {% set clip_qs = "?start=%.1f&end=%.1f"|format(e.start_time, e.end_time) %}
-    <div class="entry">
+    <div class="entry{{ ' low-conf' if not hide_low and e.peak_conf < peak_floor else '' }}">
       <div class="top">
         <span class="no mono">Nº {{ "%03d"|format(loop.index) }}</span>
         <span class="peak-conf mono">{{ "%.3f"|format(e.peak_conf) }}</span>
@@ -332,10 +338,11 @@ BIRD_PAGE = """
   .back{font-size:12px;letter-spacing:.5px}
   .back a{color:var(--red-dark);text-decoration:none}
   .back a:hover{text-decoration:underline}
-  .hero{display:grid;grid-template-columns:180px 1fr;gap:22px;align-items:start;margin-bottom:24px}
+  .hero{display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:start;margin-bottom:24px}
   @media(max-width:640px){.hero{grid-template-columns:1fr}}
   .hero-art{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center}
-  .hero-art img{width:100%;max-height:160px;object-fit:contain}
+  .hero-art img{display:block;width:254px;height:254px;object-fit:contain}
+  @media(max-width:640px){.hero-art img{width:100%;height:auto;max-width:254px}}
   .hero-art .no-art{color:#b0aca2;font-size:12px;padding:40px 8px}
   .hero h1{margin:0 0 4px;font-size:28px;font-weight:800;letter-spacing:.2px}
   .hero .latin{font-style:italic;color:#7a766a;font-size:14px;margin:0 0 14px}
@@ -844,6 +851,16 @@ def _parse_day_arg(raw: str | None) -> tuple[bool, str]:
     return False, _today()
 
 
+def _parse_hide_low(raw: str | None) -> bool:
+    return raw in ("1", "true", "yes", "on")
+
+
+def _filter_dex_rows(rows, *, hide_low: bool):
+    if not hide_low:
+        return list(rows)
+    return [r for r in rows if r["peak_conf"] >= PEAK_CONF_FLOOR]
+
+
 def _qs(
     *,
     mode: str = "dex",
@@ -851,6 +868,7 @@ def _qs(
     day: str | None = None,
     show_all: bool = False,
     page: int | None = None,
+    hide_low: bool = False,
     include_mode_sort: bool = True,
     empty: str = "",
 ) -> str:
@@ -864,6 +882,8 @@ def _qs(
             parts.append("mode=gallery")
         if sort != "discovered":
             parts.append(f"sort={sort}")
+        if hide_low:
+            parts.append("hide_low=1")
     if page and page > 1:
         parts.append(f"page={page}")
     if not parts:
@@ -886,15 +906,16 @@ def _format_span(first: str, last: str) -> str:
     return f"{delta.days}d {delta.seconds // 3600}h"
 
 
-def _qs_builder(mode: str, sort: str, show_all: bool, selected_day: str):
+def _qs_builder(mode: str, sort: str, show_all: bool, selected_day: str, hide_low: bool = False):
     def qs(**kw):
         m = kw.get("mode", mode)
         s = kw.get("sort", sort)
+        hl = kw["hide_low"] if "hide_low" in kw else hide_low
         if kw.get("day") == "all":
-            return _qs(mode=m, sort=s, show_all=True, empty="/")
+            return _qs(mode=m, sort=s, show_all=True, hide_low=hl, empty="/")
         if "day" in kw:
-            return _qs(mode=m, sort=s, day=kw["day"], show_all=False, empty="/")
-        return _qs(mode=m, sort=s, day=selected_day, show_all=show_all, empty="/")
+            return _qs(mode=m, sort=s, day=kw["day"], show_all=False, hide_low=hl, empty="/")
+        return _qs(mode=m, sort=s, day=selected_day, show_all=show_all, hide_low=hl, empty="/")
 
     return qs
 
@@ -931,10 +952,12 @@ def _sorted_dex_birds(
     show_all: bool,
     selected_day: str,
     sort: str,
+    hide_low: bool = False,
 ) -> list[tuple[str, str]]:
     """Return [(slug, common_name), ...] in current dex order."""
     slugs = _slug_map()
     rows = storage.species_dex(conn) if show_all else storage.species_dex_day(conn, selected_day)
+    rows = _filter_dex_rows(rows, hide_low=hide_low)
     return [
         (
             slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
@@ -1246,7 +1269,10 @@ def index():
         all_totals = storage.totals(conn)
         slugs = _slug_map()
         sort = _normalize_sort(request.args.get("sort"))
+        hide_low = _parse_hide_low(request.args.get("hide_low"))
         rows = storage.species_dex(conn) if show_all else storage.species_dex_day(conn, selected_day)
+        hidden_count = sum(1 for r in rows if r["peak_conf"] < PEAK_CONF_FLOOR)
+        rows = _filter_dex_rows(rows, hide_low=hide_low)
         dex = [
             dict(
                 r,
@@ -1268,7 +1294,13 @@ def index():
             header_day = _scope_label(selected_day, show_all, style="header")
             empty_msg = (
                 f"No species detected {day_scope} — try another day or "
-                f'<a href="{_qs(show_all=True, mode=mode, sort=sort, empty="/")}">show all</a>.'
+                f'<a href="{_qs(show_all=True, mode=mode, sort=sort, hide_low=hide_low, empty="/")}">show all</a>.'
+            )
+        if hide_low and hidden_count and not dex:
+            empty_msg = (
+                f"No species with peak confidence ≥ {PEAK_CONF_FLOOR:.1f} {day_scope or 'in this view'} — "
+                f'<a href="{_qs(show_all=show_all, day=selected_day, mode=mode, sort=sort, empty="/")}">'
+                f"show all {hidden_count} hidden</a>."
             )
         sel = date.fromisoformat(selected_day)
         prev_day = (sel - timedelta(days=1)).isoformat()
@@ -1289,12 +1321,15 @@ def index():
             dex=dex,
             mode=mode,
             sort=sort,
+            hide_low=hide_low,
+            hidden_count=hidden_count if hide_low else 0,
+            peak_floor=PEAK_CONF_FLOOR,
             species_lbl=species_lbl,
             day_scope=day_scope,
             empty_msg=empty_msg,
-            qs=_qs_builder(mode, sort, show_all, selected_day),
+            qs=_qs_builder(mode, sort, show_all, selected_day, hide_low=hide_low),
             bird_qs=_qs(
-                show_all=show_all, day=selected_day, mode=mode, sort=sort
+                show_all=show_all, day=selected_day, mode=mode, sort=sort, hide_low=hide_low
             ),
             data_qs=_qs(day=selected_day, show_all=show_all, include_mode_sort=False),
             dev=_dev_mode(),
@@ -1367,19 +1402,31 @@ def bird_detail(slug: str):
         per_seg = f"{stats['windows'] / stats['segments']:.1f}" if stats["segments"] else "0"
 
         sort = _normalize_sort(request.args.get("sort"))
+        hide_low = _parse_hide_low(request.args.get("hide_low"))
         mode = "gallery" if request.args.get("mode") == "gallery" else "dex"
         scope_label = _scope_label(selected_day, show_all, style="bird")
 
         def page_qs(p: int) -> str:
             return f"/bird/{slug}" + _qs(
-                show_all=show_all, day=selected_day, page=p, mode=mode, sort=sort
+                show_all=show_all,
+                day=selected_day,
+                page=p,
+                mode=mode,
+                sort=sort,
+                hide_low=hide_low,
             )
 
-        index_qs = _qs(mode=mode, sort=sort, day=selected_day, show_all=show_all)
+        index_qs = _qs(
+            mode=mode, sort=sort, day=selected_day, show_all=show_all, hide_low=hide_low
+        )
         back_href = index_qs if index_qs else "/"
 
         dex_birds = _sorted_dex_birds(
-            conn, show_all=show_all, selected_day=selected_day, sort=sort
+            conn,
+            show_all=show_all,
+            selected_day=selected_day,
+            sort=sort,
+            hide_low=hide_low,
         )
         dex_idx = next((i for i, (s, _) in enumerate(dex_birds) if s == slug), None)
         prev_bird = (
@@ -1395,7 +1442,11 @@ def bird_detail(slug: str):
 
         def bird_href(b_slug: str) -> str:
             return f"/bird/{b_slug}" + _qs(
-                show_all=show_all, day=selected_day, mode=mode, sort=sort
+                show_all=show_all,
+                day=selected_day,
+                mode=mode,
+                sort=sort,
+                hide_low=hide_low,
             )
 
         return render_template_string(

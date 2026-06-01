@@ -33,6 +33,25 @@ def test_is_tentative():
     assert dashboard._is_tentative(0.8, 3) is False
 
 
+def test_filter_dex_rows_hide_low():
+    rows = [
+        {"common_name": "Strong", "peak_conf": 0.85},
+        {"common_name": "Weak", "peak_conf": 0.55},
+        {"common_name": "Edge", "peak_conf": 0.7},
+    ]
+    kept = dashboard._filter_dex_rows(rows, hide_low=True)
+    assert [r["common_name"] for r in kept] == ["Strong", "Edge"]
+    assert len(dashboard._filter_dex_rows(rows, hide_low=False)) == 3
+
+
+def test_index_hide_low_toggle(client):
+    resp = client.get("/?day=2026-05-30&hide_low=1")
+    assert resp.status_code == 200
+    assert b"Peak" in resp.data
+    assert b"Oak Titmouse" in resp.data
+    assert b"Bewick" in resp.data
+
+
 def test_index_renders_species(client):
     resp = client.get("/?day=2026-05-30")
     assert resp.status_code == 200
