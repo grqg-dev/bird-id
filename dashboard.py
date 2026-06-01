@@ -1419,7 +1419,7 @@ def bird_detail(slug: str):
         index_qs = _qs(
             mode=mode, sort=sort, day=selected_day, show_all=show_all, hide_low=hide_low
         )
-        back_href = index_qs if index_qs else "/"
+        back_href = "/" + index_qs
 
         dex_birds = _sorted_dex_birds(
             conn,
@@ -1500,7 +1500,7 @@ def data_view():
         next_day = (sel + timedelta(days=1)).isoformat()
         scope_label = _scope_label(selected_day, show_all, style="header")
         index_qs = _qs(day=selected_day, show_all=show_all, include_mode_sort=False)
-        back_href = index_qs if index_qs else "/"
+        back_href = "/" + index_qs
         empty = report.get("empty", True)
         return render_template_string(
             DATA_VIEW,

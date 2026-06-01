@@ -75,6 +75,21 @@ def test_bird_detail_unknown_slug(client):
     assert resp.status_code == 404
 
 
+def test_bird_detail_back_link_is_absolute(client):
+    resp = client.get("/bird/bewicks_wren?day=2026-05-30&mode=gallery")
+    assert resp.status_code == 200
+    assert b'href="/?day=2026-05-30&amp;mode=gallery"' in resp.data
+    assert b'href="?mode=gallery' not in resp.data
+    assert b'href="?day=2026-05-30' not in resp.data
+
+
+def test_data_view_back_link_is_absolute(client):
+    resp = client.get("/data?day=2026-05-30")
+    assert resp.status_code == 200
+    assert b'href="/?day=2026-05-30"' in resp.data
+    assert b'href="?day=2026-05-30"' not in resp.data
+
+
 def test_data_view(client):
     resp = client.get("/data?day=2026-05-30")
     assert resp.status_code == 200
