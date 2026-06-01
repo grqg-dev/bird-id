@@ -46,6 +46,20 @@ def test_day_species(seeded_conn):
     assert storage.day_species(seeded_conn, "2026-01-01") == []
 
 
+def test_timeline_occurrences(seeded_conn):
+    rows = storage.timeline_occurrences(seeded_conn, "2026-05-30")
+    assert len(rows) == 2
+    assert rows[0]["common_name"] == "Bewick's Wren"
+
+
+def test_timeline_by_day(seeded_conn):
+    rows = storage.timeline_by_day(seeded_conn)
+    assert len(rows) == 1
+    assert rows[0]["day"] == "2026-05-30"
+    assert rows[0]["n"] == 2
+    assert rows[0]["species"] == 2
+
+
 def test_day_overview(seeded_conn):
     ov = storage.day_overview(seeded_conn, "2026-05-30")
     assert ov["detections"] == 2

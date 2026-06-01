@@ -96,6 +96,32 @@ def test_data_view(client):
     assert b"Data report" in resp.data or b"report" in resp.data.lower()
 
 
+def test_timeline_day_view(client):
+    resp = client.get("/timeline?day=2026-05-30")
+    assert resp.status_code == 200
+    assert b"Timeline" in resp.data
+    assert b"Bewick" in resp.data
+    assert b"Oak Titmouse" in resp.data
+
+
+def test_timeline_all_time(client):
+    resp = client.get("/timeline?day=all")
+    assert resp.status_code == 200
+    assert b"05-30" in resp.data
+
+
+def test_timeline_back_link_is_absolute(client):
+    resp = client.get("/timeline?day=2026-05-30")
+    assert resp.status_code == 200
+    assert b'href="/?day=2026-05-30"' in resp.data
+
+
+def test_timeline_empty_day(client):
+    resp = client.get("/timeline?day=2026-01-01")
+    assert resp.status_code == 200
+    assert b"No detections" in resp.data
+
+
 def _seed_recent_detection(conn, *, minutes_ago: float = 5, name: str = "Live Bird"):
     from datetime import datetime, timedelta
 

@@ -105,6 +105,7 @@ def _resolve_bird_slug(slug: str, conn) -> str | None:
 
 _CLIPS_PER_PAGE = 50
 PEAK_CONF_FLOOR = 0.7  # Bird-Dex "hide low confidence" cutoff (peak conf per species)
+TIMELINE_CONF_FLOOR = 0.7  # Timeline only plots detections at/above this confidence
 
 
 def _db():
@@ -233,6 +234,7 @@ PAGE = """
     {% endif %}
     <span class="spacer"></span>
     <a href="/live">Live feed</a>
+    <a href="/timeline{{ timeline_qs }}">Timeline</a>
     <a href="/data{{ data_qs }}">Data report</a>
     {% if show_all %}
     <a href="{{ qs(day=today) }}">Daily (today)</a>
@@ -417,7 +419,7 @@ BIRD_PAGE = """
         {% endif %}
       </span>
     </div>
-    <div class="back mono"><a href="{{ back_href }}">← Back to Bird-Dex</a> · <a href="/live">Live feed</a></div>
+    <div class="back mono"><a href="{{ back_href }}">← Back to Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/timeline{{ timeline_qs }}">Timeline</a></div>
   </div>
 
   <div class="hero">
@@ -630,7 +632,7 @@ DATA_VIEW = """
 <body>
 <div class="topbar"></div>
 <div class="wrap">
-  <div class="nav"><a href="{{ back_href }}">← Bird-Dex</a> · <a href="/live">Live feed</a></div>
+  <div class="nav"><a href="{{ back_href }}">← Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/timeline{{ timeline_qs }}">Timeline</a></div>
   <div class="day-nav">
     {% if not show_all %}
     <a href="/data?day={{ prev_day }}">← Prev</a>
@@ -828,6 +830,275 @@ if(R.show_all){
 </body></html>
 """
 
+TIMELINE_PAGE = """
+<!doctype html><html><head><meta charset="utf-8"><title>Timeline · Bird-Dex</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;--cream:#f3efe2;--ink:#21232a;
+        --gold:#ffcf3f;--grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8;
+        --night:#10131f;--night2:#1d2238;--dawn:#d98a4a;--dusk:#c0563f;--day:#f5eedd;
+        --lane-w:188px}
+  *{box-sizing:border-box}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);min-height:100vh;
+       background:radial-gradient(1200px 480px at 50% -8%,#fbfaf6 0,#f2f1ec 60%,#edece6 100%)}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .lbl{font-size:11px;letter-spacing:1.5px;color:#8a857a}
+  .wrap{max-width:1040px;margin:0 auto;padding:26px 22px 60px}
+  .day-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px;padding:10px 14px;
+           background:rgba(255,255,255,.7);backdrop-filter:blur(6px);border:1px solid var(--border);border-radius:12px}
+  .day-bar a{font-size:12px;letter-spacing:.5px;text-decoration:none;padding:6px 12px;border-radius:8px;
+             border:1px solid var(--border);color:#7a766a;background:#fff;transition:.15s}
+  .day-bar a.on{background:#fff;border-color:var(--red);color:var(--red-deep);font-weight:700}
+  .day-bar a:hover{border-color:#c8c4ba;color:var(--ink);transform:translateY(-1px)}
+  .day-bar form{display:flex;align-items:center;gap:8px;margin:0}
+  .day-bar input[type=date]{font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;
+                            font-family:inherit;background:#fff}
+  .day-bar button{font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);
+                 background:#fff;cursor:pointer}
+  .day-bar .spacer{flex:1}
+  .hdr{margin-bottom:18px}
+  .hdr h1{margin:0 0 6px;font-size:30px;letter-spacing:-.6px;font-weight:800;
+          background:linear-gradient(92deg,var(--ink),var(--red-dark));-webkit-background-clip:text;
+          background-clip:text;-webkit-text-fill-color:transparent}
+  .hdr p{margin:0;color:#8a857a;font-size:14px;line-height:1.5}
+  .hdr .pill{display:inline-block;font-size:11px;letter-spacing:.4px;color:var(--red-deep);font-weight:700;
+             background:#fff;border:1px solid #ecd9c2;border-radius:20px;padding:2px 10px;margin-left:6px}
+
+  /* solar arc + dawn-chorus ribbon */
+  .arc{position:relative;border-radius:16px;overflow:hidden;border:1px solid #d9d6cc;margin-bottom:20px;
+       box-shadow:0 8px 26px rgba(20,18,14,.10)}
+  .arc-sky{position:relative;height:118px;
+    background:linear-gradient(90deg,
+      var(--night) 0%, var(--night2) calc(var(--sr) - 7%),
+      var(--dawn) var(--sr), var(--day) calc(var(--sr) + 6%),
+      var(--day) calc(var(--ss) - 6%), var(--dusk) var(--ss),
+      var(--night2) calc(var(--ss) + 7%), var(--night) 100%)}
+  .stars{position:absolute;inset:0;opacity:.7;pointer-events:none;
+    background-image:radial-gradient(1px 1px at 6% 30%,#fff,transparent),
+      radial-gradient(1px 1px at 12% 60%,#fff,transparent),
+      radial-gradient(1px 1px at 90% 40%,#fff,transparent),
+      radial-gradient(1px 1px at 95% 70%,#fff,transparent),
+      radial-gradient(1px 1px at 3% 70%,#fff,transparent)}
+  .sun{position:absolute;top:24px;width:30px;height:30px;border-radius:50%;transform:translateX(-50%);
+       background:radial-gradient(circle,#fff8e1 0,#ffd34d 55%,#ffb43d 100%);
+       box-shadow:0 0 22px 6px rgba(255,196,70,.55)}
+  .chorus{position:absolute;inset:0;display:flex;align-items:flex-end;gap:1px;padding:0 1px}
+  .chorus .bar{flex:1;min-height:1px;border-radius:2px 2px 0 0;
+               background:linear-gradient(180deg,rgba(255,255,255,.95),rgba(255,255,255,.32));
+               box-shadow:0 0 0 .5px rgba(0,0,0,.04);transition:height .6s cubic-bezier(.2,.8,.2,1)}
+  .chorus .bar.peak{background:linear-gradient(180deg,var(--gold),rgba(255,207,63,.45));
+                    box-shadow:0 0 10px rgba(255,207,63,.7)}
+  .arc-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 14px;
+            background:#fff;border-top:1px solid #ecebe4;font-size:11px;color:#8a857a;letter-spacing:.4px}
+  .arc-foot .sr,.arc-foot .ss{display:flex;align-items:center;gap:6px;font-weight:600;color:#6c6a62}
+  .arc-foot .dot{width:8px;height:8px;border-radius:50%}
+  .arc-foot .sr .dot{background:var(--dawn)}.arc-foot .ss .dot{background:var(--dusk)}
+  .arc-foot .mid{color:var(--red-deep);font-weight:700}
+
+  /* stat cards */
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+  @media(max-width:620px){.cards{grid-template-columns:repeat(2,1fr)}}
+  .card{background:#fff;border:1px solid var(--border);border-radius:13px;padding:13px 15px;
+        box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  .card .n{font-size:24px;font-weight:800;letter-spacing:-.4px;line-height:1}
+  .card .n small{font-size:13px;color:#b0aca2;font-weight:700}
+  .card .lbl{margin-top:5px}
+  .card.accent{background:linear-gradient(150deg,#fff,#fff6f4);border-color:#f0d6cf}
+  .card.accent .n{color:var(--red-deep)}
+
+  .legend{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-size:11px;color:#8a857a;letter-spacing:.4px}
+  .legend .ramp{height:8px;width:120px;border-radius:5px;
+    background:linear-gradient(90deg,#f0a500,#d83a36,#7d1c1b)}
+
+  /* swimlanes */
+  .lanes{display:flex;flex-direction:column;gap:7px}
+  .lane{display:grid;grid-template-columns:var(--lane-w) 1fr;gap:14px;align-items:center;
+        background:#fff;border:1px solid var(--border);border-radius:12px;padding:8px 12px 8px 8px;
+        box-shadow:0 1px 3px rgba(0,0,0,.04);transition:.18s}
+  .lane:hover{border-color:#d8b9b2;box-shadow:0 4px 14px rgba(125,28,27,.10);transform:translateY(-1px)}
+  .lane-name{display:flex;align-items:center;gap:9px;min-width:0}
+  .lane-rank{flex:0 0 22px;font-size:12px;font-weight:800;color:#c3beb2;text-align:right}
+  .lane-thumb{width:38px;height:38px;border-radius:50%;border:1px solid var(--border);flex-shrink:0;
+              display:flex;align-items:center;justify-content:center;overflow:hidden;
+              background:radial-gradient(circle at 30% 25%,#fff,#f1efe7)}
+  .lane-thumb img{width:100%;height:100%;object-fit:contain;padding:3px}
+  .lane-thumb .ini{font-size:12px;font-weight:800;color:#b8b3a7}
+  .lane-meta{min-width:0}
+  .lane-meta a{color:var(--ink);text-decoration:none;font-size:13.5px;font-weight:700;display:block;
+               white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lane-meta a:hover{color:var(--red-deep)}
+  .lane-sub{font-size:10.5px;color:#9a958a;letter-spacing:.3px;margin-top:1px}
+  .lane-sub b{color:var(--red-dark)}
+  .lane-track{position:relative;height:34px;border-radius:9px;border:1px solid #e7e5dc;overflow:hidden;
+    background:linear-gradient(90deg,
+      #edeef4 0%, #f0f0f5 calc(var(--sr) - 6%),
+      #fbf1e2 var(--sr), #ffffff calc(var(--sr) + 5%),
+      #ffffff calc(var(--ss) - 5%), #fbeee6 var(--ss),
+      #f0f0f5 calc(var(--ss) + 6%), #edeef4 100%)}
+  .lane-span{position:absolute;top:50%;height:2px;transform:translateY(-50%);border-radius:2px;
+             background:linear-gradient(90deg,rgba(125,28,27,.05),rgba(125,28,27,.28),rgba(125,28,27,.05))}
+  .lane-mark{position:absolute;top:50%;transform:translate(-50%,-50%) scale(0);border-radius:50%;
+             border:1.5px solid rgba(255,255,255,.92);box-shadow:0 1px 2px rgba(0,0,0,.22);cursor:default;
+             animation:pop .45s cubic-bezier(.2,1.3,.4,1) forwards}
+  .lane-mark.peak{box-shadow:0 0 0 2px rgba(255,255,255,.9),0 0 9px 1px rgba(216,58,54,.6)}
+  @keyframes pop{to{transform:translate(-50%,-50%) scale(1)}}
+  .now-line{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--grn);z-index:3;
+            box-shadow:0 0 7px rgba(70,198,107,.8)}
+  .now-line::after{content:"";position:absolute;top:-3px;left:-2px;width:6px;height:6px;border-radius:50%;background:var(--grn)}
+  .axis{position:relative;height:16px;margin:8px 0 0;margin-left:calc(var(--lane-w) + 14px)}
+  .axis span{position:absolute;transform:translateX(-50%);font-size:10px;color:#9a958a}
+  .axis .sun-tick{color:var(--red-deep);font-weight:700}
+  @media(prefers-reduced-motion:reduce){
+    .lane-mark{animation:none;transform:translate(-50%,-50%) scale(1)}
+    .chorus .bar{transition:none}
+    .lane:hover,.day-bar a:hover{transform:none}
+  }
+
+  /* all-time day bars */
+  .day-rows{display:flex;flex-direction:column;gap:6px}
+  .day-row{display:grid;grid-template-columns:84px 1fr 54px 46px;gap:12px;align-items:center;font-size:13px;
+           background:#fff;border:1px solid var(--border);border-radius:10px;padding:7px 12px}
+  .day-row a.day-link{color:var(--red-dark);text-decoration:none;font-weight:700}
+  .day-row a.day-link:hover{text-decoration:underline}
+  .day-track{height:18px;background:#f3f1ea;border-radius:6px;overflow:hidden}
+  .day-fill{height:100%;background:linear-gradient(90deg,#f0a500,#d83a36);border-radius:6px;min-width:3px}
+  .day-num{text-align:right;font-weight:800}
+  .day-sp{font-size:11px;color:#8a857a;text-align:right}
+  .empty{background:#fff;border:1px solid var(--border);border-radius:14px;padding:50px;
+         text-align:center;color:#7a766a;font-size:15px}
+  .nav-top{font-size:12px;margin-bottom:14px}
+  .nav-top a{color:var(--red-dark);text-decoration:none;font-weight:600;margin-right:14px}
+  .nav-top a:hover{text-decoration:underline}
+  @media(max-width:600px){
+    :root{--lane-w:1fr}
+    .lane{grid-template-columns:1fr;gap:6px}
+    .axis{margin-left:0}
+    .day-row{grid-template-columns:70px 1fr 44px 40px;gap:8px;font-size:12px}
+  }
+</style></head><body>
+<div class="wrap">
+  <div class="nav-top mono"><a href="{{ back_href }}">← Bird-Dex</a><a href="/live">Live feed</a><a href="/data{{ data_qs }}">Data report</a></div>
+  <div class="day-bar mono">
+    {% if not show_all %}
+    <a href="/timeline?day={{ prev_day }}">← Prev</a>
+    <a href="/timeline?day={{ next_day }}">Next →</a>
+    {% endif %}
+    <form method="get" action="/timeline">
+      <label class="lbl" for="day-pick">Day</label>
+      <input type="date" id="day-pick" name="day" value="{{ selected_day }}" max="{{ today }}">
+      <button type="submit">Go</button>
+    </form>
+    {% if not show_all and selected_day != today %}
+    <a href="/timeline">Today</a>
+    {% endif %}
+    <span class="spacer"></span>
+    {% if show_all %}
+    <a href="/timeline" class="on">All time</a>
+    {% else %}
+    <a href="/timeline?day=all">All time</a>
+    {% endif %}
+    <span class="lbl">{{ scope_label }}</span>
+  </div>
+
+  <div class="hdr">
+    <h1>Timeline</h1>
+    {% if show_all %}
+    <p>Occurrences grouped by day — click a date to see the hour-by-hour swimlanes.<span class="pill">confidence ≥ {{ "%.1f"|format(conf_floor) }}</span></p>
+    {% else %}
+    <p>When each species sang {{ scope_label }}, mapped against the day's light. Dots are individual detections, sized &amp; warmed by confidence.<span class="pill">confidence ≥ {{ "%.1f"|format(conf_floor) }}</span></p>
+    {% endif %}
+  </div>
+
+  {% if empty %}
+  <div class="empty">No detections {{ scope_label }} above {{ "%.1f"|format(conf_floor) }} confidence.</div>
+  {% elif tl.mode == 'hours' %}
+  <div class="arc" style="--sr:{{ '%.2f'|format(tl.sun.sunrise_pct) }}%;--ss:{{ '%.2f'|format(tl.sun.sunset_pct) }}%">
+    <div class="arc-sky">
+      <div class="stars"></div>
+      <div class="sun" style="left:{{ '%.2f'|format(tl.sun.noon_pct) }}%"></div>
+      <div class="chorus">
+        {% for n in tl.hourly %}
+        <div class="bar{{ ' peak' if loop.index0 == tl.busiest_hour else '' }}"
+             style="height:{{ (12 + n * 86 / tl.hourly_max) if n else 0 }}%"
+             title="{{ loop.index0 }}:00 — {{ n }} detection{{ '' if n == 1 else 's' }}"></div>
+        {% endfor %}
+      </div>
+      {% if tl.now_pct is not none %}<div class="now-line" style="left:{{ '%.2f'|format(tl.now_pct) }}%"></div>{% endif %}
+    </div>
+    <div class="arc-foot mono">
+      <span class="sr"><span class="dot"></span>Sunrise {{ tl.sun.sunrise_label }}</span>
+      <span class="mid">{% if tl.busiest_hour is not none %}Dawn chorus peaks ~{{ tl.busiest_hour }}:00{% endif %}</span>
+      <span class="ss">Sunset {{ tl.sun.sunset_label }}<span class="dot"></span></span>
+    </div>
+  </div>
+
+  <div class="cards mono">
+    <div class="card accent"><div class="n">{{ tl.total }}</div><div class="lbl">Detections</div></div>
+    <div class="card"><div class="n">{{ tl.species }}</div><div class="lbl">Species</div></div>
+    <div class="card"><div class="n">{% if tl.busiest_hour is not none %}{{ tl.busiest_hour }}<small>:00</small>{% else %}—{% endif %}</div><div class="lbl">Busiest hour</div></div>
+    <div class="card"><div class="n" style="font-size:15px;font-weight:700;line-height:1.25">{{ tl.peak_lane or '—' }}</div><div class="lbl">Most vocal</div></div>
+  </div>
+
+  <div class="legend mono">
+    <span>LOW</span><span class="ramp"></span><span>HIGH CONFIDENCE</span>
+    <span style="flex:1"></span><span>{{ "%.1f"|format(conf_floor) }} → 1.00</span>
+  </div>
+
+  <div class="lanes" style="--sr:{{ '%.2f'|format(tl.sun.sunrise_pct) }}%;--ss:{{ '%.2f'|format(tl.sun.sunset_pct) }}%">
+    {% for lane in tl.lanes %}
+    <div class="lane">
+      <div class="lane-name">
+        <span class="lane-rank">{{ loop.index }}</span>
+        <span class="lane-thumb">
+          {% if lane.sprite %}<img src="/sprite/{{ lane.sprite }}.png" alt="" loading="lazy">
+          {% else %}<span class="ini">{{ lane.name[:2]|upper }}</span>{% endif %}
+        </span>
+        <span class="lane-meta">
+          <a href="/bird/{{ lane.slug }}?day={{ selected_day }}">{{ lane.name }}</a>
+          <span class="lane-sub mono"><b>{{ lane.count }}×</b> · {{ lane.first_label }}–{{ lane.last_label }} · peak {{ "%.2f"|format(lane.peak_conf) }}</span>
+        </span>
+      </div>
+      <div class="lane-track">
+        <div class="lane-span" style="left:{{ '%.2f'|format(lane.first_pct) }}%;width:{{ '%.2f'|format(lane.last_pct - lane.first_pct) }}%"></div>
+        {% for m in lane.marks %}
+        <span class="lane-mark{{ ' peak' if m.pct == lane.peak_pct else '' }}"
+              style="left:{{ '%.2f'|format(m.pct) }}%;width:{{ '%.1f'|format(m.radius * 2) }}px;height:{{ '%.1f'|format(m.radius * 2) }}px;background:{{ m.color }};animation-delay:{{ '%.0f'|format(loop.index0 * 6) }}ms"
+              title="{{ m.time }} · {{ '%.3f'|format(m.conf) }}"></span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="axis mono">
+    <span style="left:0">12 AM</span>
+    <span style="left:{{ '%.2f'|format(tl.sun.sunrise_pct) }}%" class="sun-tick">↑ dawn</span>
+    <span style="left:50%">noon</span>
+    <span style="left:{{ '%.2f'|format(tl.sun.sunset_pct) }}%" class="sun-tick">dusk ↓</span>
+    <span style="left:100%">12 AM</span>
+  </div>
+  {% else %}
+  <div class="cards mono">
+    <div class="card accent"><div class="n">{{ tl.total }}</div><div class="lbl">Detections</div></div>
+    <div class="card"><div class="n">{{ tl.days|length }}</div><div class="lbl">Days recorded</div></div>
+  </div>
+  <div class="day-rows">
+    {% for d in tl.days %}
+    <div class="day-row mono">
+      <a class="day-link" href="/timeline?day={{ d.day }}">{{ d.label }}</a>
+      <div class="day-track">
+        <div class="day-fill" style="width:{{ (d.n * 100 / tl.max_n) if tl.max_n else 0 }}%"></div>
+      </div>
+      <span class="day-num">{{ d.n }}</span>
+      <span class="day-sp">{{ d.species }}sp</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
+"""
+
 LIVE_PAGE = """
 <!doctype html><html><head><meta charset="utf-8"><title>Live feed · Bird-Dex</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -885,6 +1156,7 @@ LIVE_PAGE = """
     </div>
     <div class="nav mono">
       <a href="/">← Bird-Dex</a>
+      <a href="/timeline">Timeline</a>
       <a href="/data">Data report</a>
     </div>
   </div>
@@ -1109,6 +1381,182 @@ def _feed_payload(conn, *, since: str | None = None, limit: int = 100) -> dict:
     events = [_feed_event_dict(r, slugs) for r in rows]
     latest = events[0]["heard_at"] if events else (since or "")
     return {"events": events, "latest": latest}
+
+
+def _heard_pct(heard_at: str) -> float:
+    """Map ISO heard_at to 0–100 position on a 24h axis."""
+    t = heard_at[11:19]
+    h, m, s = (int(x) for x in t.split(":"))
+    return (h * 3600 + m * 60 + s) / 86400 * 100
+
+
+def _clock_label(decimal_hour: float) -> str:
+    h = int(decimal_hour) % 24
+    m = int(round((decimal_hour - int(decimal_hour)) * 60)) % 60
+    ap = "AM" if h < 12 else "PM"
+    hh = h % 12 or 12
+    return f"{hh}:{m:02d} {ap}"
+
+
+def _solar_arc(lat: float, lon: float, d: date, tzname: str = "America/Los_Angeles") -> dict:
+    """Local sunrise/sunset for the day as positions on a 24h axis (NOAA formula).
+
+    Returns dawn/dusk percentages and labels so the timeline can shade night vs
+    day. Falls back to coarse fixed bands if the calculation can't run.
+    """
+    import math
+
+    try:
+        from zoneinfo import ZoneInfo
+
+        off = (
+            datetime(d.year, d.month, d.day, 12, tzinfo=ZoneInfo(tzname))
+            .utcoffset()
+            .total_seconds()
+            / 3600
+        )
+        n = d.timetuple().tm_yday
+        g = 2 * math.pi / 365 * (n - 1)
+        eq = 229.18 * (
+            0.000075
+            + 0.001868 * math.cos(g)
+            - 0.032077 * math.sin(g)
+            - 0.014615 * math.cos(2 * g)
+            - 0.040849 * math.sin(2 * g)
+        )
+        decl = (
+            0.006918
+            - 0.399912 * math.cos(g)
+            + 0.070257 * math.sin(g)
+            - 0.006758 * math.cos(2 * g)
+            + 0.000907 * math.sin(2 * g)
+            - 0.002697 * math.cos(3 * g)
+            + 0.00148 * math.sin(3 * g)
+        )
+        la = math.radians(lat)
+        cos_ha = math.cos(math.radians(90.833)) / (
+            math.cos(la) * math.cos(decl)
+        ) - math.tan(la) * math.tan(decl)
+        cos_ha = max(-1.0, min(1.0, cos_ha))
+        ha = math.degrees(math.acos(cos_ha))
+        sunrise = (720 - 4 * (lon + ha) - eq) / 60 + off
+        sunset = (720 - 4 * (lon - ha) - eq) / 60 + off
+    except Exception:
+        sunrise, sunset = 6.0, 19.5
+
+    sunrise = max(0.0, min(24.0, sunrise))
+    sunset = max(0.0, min(24.0, sunset))
+    return {
+        "sunrise_pct": sunrise / 24 * 100,
+        "sunset_pct": sunset / 24 * 100,
+        "sunrise_label": _clock_label(sunrise),
+        "sunset_label": _clock_label(sunset),
+        "noon_pct": (sunrise + sunset) / 2 / 24 * 100,
+        # Dawn chorus: the ~hour after first light, when songbirds are loudest.
+        "chorus_pct": (sunrise + 0.5) / 24 * 100,
+    }
+
+
+def _conf_style(conf: float) -> tuple[str, float]:
+    """Map a confidence (≥ floor) to a dot color (amber→deep red) and radius (px)."""
+    floor = TIMELINE_CONF_FLOOR
+    t = 0.0 if conf <= floor else min(1.0, (conf - floor) / (1.0 - floor))
+    stops = [(0.0, (240, 165, 0)), (0.5, (216, 58, 54)), (1.0, (125, 28, 27))]
+    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
+        if t <= p1:
+            f = 0 if p1 == p0 else (t - p0) / (p1 - p0)
+            rgb = tuple(round(a + (b - a) * f) for a, b in zip(c0, c1))
+            break
+    else:
+        rgb = stops[-1][1]
+    radius = 4.5 + t * 3.0
+    return "#%02x%02x%02x" % rgb, radius
+
+
+def _build_timeline(conn, *, selected_day: str, show_all: bool) -> dict:
+    """Swimlanes for one day, or per-day bars for all-time (conf ≥ floor only)."""
+    slugs = _slug_map()
+    floor = TIMELINE_CONF_FLOOR
+    if show_all:
+        rows = storage.timeline_by_day(conn, min_conf=floor)
+        days = [dict(r, label=r["day"][5:]) for r in rows]
+        max_n = max((d["n"] for d in days), default=1)
+        return {"mode": "days", "days": days, "max_n": max_n, "total": sum(d["n"] for d in days)}
+
+    rows = storage.timeline_occurrences(conn, selected_day, min_conf=floor)
+    lanes_map: dict[str, dict] = {}
+    hourly = [0] * 24
+    for i, r in enumerate(rows):
+        name = r["common_name"]
+        conf = r["confidence"]
+        hourly[int(r["heard_at"][11:13])] += 1
+        if name not in lanes_map:
+            lanes_map[name] = {
+                "name": name,
+                "slug": slugs.get(name) or _common_to_slug(name),
+                "sprite": _sprite_slug(name, slugs),
+                "marks": [],
+                "peak_conf": 0.0,
+                "peak_pct": 0.0,
+                "peak_time": "",
+            }
+        lane = lanes_map[name]
+        pct = _heard_pct(r["heard_at"])
+        # Nudge overlapping dots so same-second hits stay visible.
+        pct = min(99.5, max(0.5, pct + (i % 5) * 0.15))
+        color, radius = _conf_style(conf)
+        lane["marks"].append(
+            {
+                "pct": pct,
+                "time": _format_heard_clock(r["heard_at"]),
+                "conf": conf,
+                "color": color,
+                "radius": radius,
+            }
+        )
+        if conf > lane["peak_conf"]:
+            lane["peak_conf"] = conf
+            lane["peak_pct"] = pct
+            lane["peak_time"] = _format_heard_clock(r["heard_at"])
+
+    for lane in lanes_map.values():
+        pcts = [m["pct"] for m in lane["marks"]]
+        lane["count"] = len(lane["marks"])
+        lane["first_pct"] = min(pcts) if pcts else 0.0
+        lane["last_pct"] = max(pcts) if pcts else 0.0
+        lane["first_label"] = lane["marks"][0]["time"] if lane["marks"] else ""
+        lane["last_label"] = lane["marks"][-1]["time"] if lane["marks"] else ""
+
+    lanes = sorted(lanes_map.values(), key=lambda lane: (-lane["count"], lane["name"]))
+
+    lat = float(_CFG.get("lat", 34.42))
+    lon = float(_CFG.get("lon", -119.70))
+    sun = _solar_arc(lat, lon, date.fromisoformat(selected_day))
+    now_pct = None
+    if selected_day == _today():
+        now = datetime.now()
+        now_pct = (now.hour * 3600 + now.minute * 60 + now.second) / 86400 * 100
+
+    return {
+        "mode": "hours",
+        "lanes": lanes,
+        "total": len(rows),
+        "species": len(lanes),
+        "hourly": hourly,
+        "hourly_max": max(hourly) if rows else 1,
+        "busiest_hour": (max(range(24), key=lambda h: hourly[h]) if rows else None),
+        "sun": sun,
+        "now_pct": now_pct,
+        "peak_lane": lanes[0]["name"] if lanes else None,
+    }
+
+
+def _timeline_qs(*, day: str | None = None, show_all: bool = False) -> str:
+    if show_all:
+        return "?day=all"
+    if day and day != _today():
+        return f"?day={day}"
+    return ""
 
 
 def _qs_builder(mode: str, sort: str, show_all: bool, selected_day: str, hide_low: bool = False):
@@ -1595,6 +2043,7 @@ def index():
                 show_all=show_all, day=selected_day, mode=mode, sort=sort, hide_low=hide_low
             ),
             data_qs=_qs(day=selected_day, show_all=show_all, include_mode_sort=False),
+            timeline_qs=_timeline_qs(day=selected_day, show_all=show_all),
             dev=_dev_mode(),
             dev_script=_DEV_RELOAD_SCRIPT,
         )
@@ -1744,6 +2193,44 @@ def bird_detail(slug: str):
             dex_no=(dex_idx + 1) if dex_idx is not None else 0,
             dex_total=len(dex_birds),
             bird_href=bird_href,
+            timeline_qs=_timeline_qs(day=selected_day, show_all=show_all),
+            dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/timeline")
+def timeline_view():
+    today = _today()
+    show_all, selected_day = _parse_day_arg(request.args.get("day"))
+    conn = _db()
+    try:
+        tl = _build_timeline(conn, selected_day=selected_day, show_all=show_all)
+        sel = date.fromisoformat(selected_day)
+        prev_day = (sel - timedelta(days=1)).isoformat()
+        next_day = (sel + timedelta(days=1)).isoformat()
+        scope_label = _scope_label(selected_day, show_all, style="header")
+        index_qs = _qs(day=selected_day, show_all=show_all, include_mode_sort=False)
+        back_href = "/" + index_qs
+        if show_all:
+            empty = not tl.get("days")
+        else:
+            empty = tl.get("total", 0) == 0
+        return render_template_string(
+            TIMELINE_PAGE,
+            today=today,
+            selected_day=selected_day,
+            show_all=show_all,
+            prev_day=prev_day,
+            next_day=next_day,
+            scope_label=scope_label,
+            back_href=back_href,
+            data_qs=_qs(day=selected_day, show_all=show_all, include_mode_sort=False),
+            conf_floor=TIMELINE_CONF_FLOOR,
+            tl=tl,
+            empty=empty,
             dev=_dev_mode(),
             dev_script=_DEV_RELOAD_SCRIPT,
         )
@@ -1784,6 +2271,7 @@ def data_view():
             lon=report.get("lon", _CFG.get("lon", -119.70)),
             tentative=report.get("tentative", []),
             report_json=json.dumps(report) if not empty else "{}",
+            timeline_qs=_timeline_qs(day=selected_day, show_all=show_all),
             dev=_dev_mode(),
             dev_script=_DEV_RELOAD_SCRIPT,
         )

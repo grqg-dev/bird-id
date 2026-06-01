@@ -442,6 +442,38 @@ def species_daily(
     ).fetchall()
 
 
+def timeline_occurrences(
+    conn: sqlite3.Connection, day: str, *, min_conf: float = 0.0
+) -> list[sqlite3.Row]:
+    """All detections on one day, ordered by heard_at (for swimlane timeline)."""
+    return conn.execute(
+        """
+        SELECT common_name, heard_at, confidence
+        FROM detections WHERE date(heard_at) = ? AND confidence >= ?
+        ORDER BY heard_at
+        """,
+        (day, min_conf),
+    ).fetchall()
+
+
+def timeline_by_day(
+    conn: sqlite3.Connection, *, limit: int = 120, min_conf: float = 0.0
+) -> list[sqlite3.Row]:
+    """Per-day detection totals for the all-time timeline view."""
+    return conn.execute(
+        """
+        SELECT date(heard_at) AS day,
+               COUNT(*) AS n,
+               COUNT(DISTINCT common_name) AS species
+        FROM detections
+        WHERE confidence >= ?
+        GROUP BY day ORDER BY day DESC
+        LIMIT ?
+        """,
+        (min_conf, limit),
+    ).fetchall()
+
+
 def species_confidence_buckets(
     conn: sqlite3.Connection,
     common_name: str,
