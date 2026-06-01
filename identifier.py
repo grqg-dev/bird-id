@@ -12,6 +12,7 @@ for a hosted HTTP API without changing any callers.
 from __future__ import annotations
 
 # Quiet TensorFlow's startup chatter before it is imported by birdnetlib.
+import contextlib
 import os
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
@@ -26,12 +27,22 @@ from typing import Optional
 _ANALYZER = None
 
 
+@contextlib.contextmanager
+def _quiet_birdnet():
+    """Silence birdnetlib's debug print() chatter during model load and analyze."""
+    with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(
+        devnull
+    ), contextlib.redirect_stderr(devnull):
+        yield
+
+
 def _get_analyzer():
     global _ANALYZER
     if _ANALYZER is None:
         from birdnetlib.analyzer import Analyzer
 
-        _ANALYZER = Analyzer()
+        with _quiet_birdnet():
+            _ANALYZER = Analyzer()
     return _ANALYZER
 
 
@@ -66,8 +77,9 @@ def identify(
         kwargs["lon"] = lon
         kwargs["date"] = when or date_cls.today()
 
-    recording = Recording(analyzer, str(wav_path), **kwargs)
-    recording.analyze()
+    with _quiet_birdnet():
+        recording = Recording(analyzer, str(wav_path), **kwargs)
+        recording.analyze()
 
     detections = [
         Detection(
