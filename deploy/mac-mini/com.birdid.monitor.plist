@@ -6,14 +6,15 @@
 	<string>com.birdid.monitor</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/matt/bird-id/.venv/bin/python</string>
-		<string>/Users/matt/bird-id/birdid.py</string>
-		<string>monitor</string>
-		<string>-d</string>
-		<string>0</string>
+		<string>/Users/matt/Applications/BirdID Monitor.app/Contents/MacOS/birdid-monitor</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>/Users/matt/bird-id</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/Users/matt/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>

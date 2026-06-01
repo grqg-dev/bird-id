@@ -11,6 +11,7 @@ import config
 
 def test_defaults_include_min_conf():
     assert config.DEFAULTS["min_conf"] == 0.3
+    assert config.DEFAULTS["retention_days"] == 30
 
 
 def test_load_merges_over_defaults(tmp_path):

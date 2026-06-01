@@ -78,6 +78,21 @@ def _db_paths(args) -> tuple[Path, Path]:
     return db_path, rec_dir
 
 
+def _retention_days(args) -> int:
+    return int(config.resolve(getattr(args, "retention_days", None), "retention_days", args.cfg) or 0)
+
+
+def _run_audio_cleanup(conn, rec_dir: Path, args, *, label: str = "retention") -> None:
+    """Expire old kept wavs and drop unreferenced files in recordings_dir."""
+    days = _retention_days(args)
+    expired, freed = storage.expire_segment_audio(conn, retention_days=days)
+    orphans, orphan_freed = storage.purge_orphan_recordings(conn, rec_dir)
+    if expired:
+        print(f"[{label}] expired {expired} segment wav(s), freed {freed / 1e6:.1f} MB")
+    if orphans:
+        print(f"[{label}] removed {orphans} orphan wav(s), freed {orphan_freed / 1e6:.1f} MB")
+
+
 def _import_to_wav(src: Path, dest_dir: Path, started_at: datetime) -> Path:
     """Copy or convert source audio to a 48 kHz mono wav under dest_dir."""
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -170,11 +185,14 @@ def cmd_monitor(args) -> int:
     conn = storage.connect(db_path)
     rec_dir.mkdir(parents=True, exist_ok=True)
     interval_s = args.minutes * 60.0
+    retention = _retention_days(args)
+    retention_note = f", audio retention {retention}d" if retention > 0 else ""
 
     print(
         f"Monitoring: {args.minutes:g}-min segments -> {db_path} "
-        f"(min_conf={min_conf}{loc}). Ctrl-C to stop.\n"
+        f"(min_conf={min_conf}{loc}{retention_note}). Ctrl-C to stop.\n"
     )
+    _run_audio_cleanup(conn, rec_dir, args)
     segment_no = 0
     try:
         while True:
@@ -215,6 +233,7 @@ def cmd_monitor(args) -> int:
                       f"{', '.join(species)}")
             else:
                 print(f"[{stamp}] seg {segment_no}: nothing detected (audio discarded)")
+            _run_audio_cleanup(conn, rec_dir, args)
     except KeyboardInterrupt:
         print("\nStopping. Final tally:")
         cmd_stats(args, conn=conn)
@@ -285,6 +304,17 @@ def cmd_dashboard(args) -> int:
     return 0
 
 
+def cmd_cleanup(args) -> int:
+    """Drop expired segment wavs and unreferenced files in recordings_dir."""
+    db_path, rec_dir = _db_paths(args)
+    conn = storage.connect(db_path)
+    try:
+        _run_audio_cleanup(conn, rec_dir, args, label="cleanup")
+    finally:
+        conn.close()
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="birdid", description="Record and identify bird sounds.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -330,7 +360,23 @@ def main(argv=None) -> int:
     p_mon.add_argument("--dir", help="where segment wavs are written (overrides config)")
     p_mon.add_argument("--lat", type=float)
     p_mon.add_argument("--lon", type=float)
+    p_mon.add_argument(
+        "--retention-days", type=int,
+        help="days to keep segment wav files (0 = forever; overrides config)",
+    )
     p_mon.set_defaults(func=cmd_monitor)
+
+    p_clean = sub.add_parser(
+        "cleanup",
+        help="delete expired segment wavs and orphan files in recordings_dir",
+    )
+    p_clean.add_argument("--db", help="SQLite database path (overrides config)")
+    p_clean.add_argument("--dir", help="recordings directory (overrides config)")
+    p_clean.add_argument(
+        "--retention-days", type=int,
+        help="days to keep segment wav files (0 = forever; overrides config)",
+    )
+    p_clean.set_defaults(func=cmd_cleanup)
 
     p_stats = sub.add_parser("stats", help="show running results from the database")
     p_stats.add_argument("--db", help="SQLite database path (overrides config)")

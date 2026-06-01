@@ -48,3 +48,22 @@ def test_cmd_stats_empty_db(db_conn, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "No data yet" in out
+
+
+def test_cmd_cleanup_orphans(tmp_path, capsys):
+    rec_dir = tmp_path / "recordings"
+    rec_dir.mkdir()
+    orphan = rec_dir / "orphan.wav"
+    orphan.write_bytes(b"x" * 100)
+    db_path = tmp_path / "birdid.db"
+    cfg = {
+        "db": str(db_path),
+        "recordings_dir": str(rec_dir),
+        "retention_days": 0,
+    }
+    args = SimpleNamespace(db=None, dir=None, retention_days=None, cfg=cfg)
+    rc = birdid.cmd_cleanup(args)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "removed 1 orphan" in out
+    assert not orphan.exists()

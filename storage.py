@@ -573,6 +573,68 @@ def hourly_aggregate(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def expire_segment_audio(
+    conn: sqlite3.Connection,
+    *,
+    retention_days: int,
+    now: Optional[datetime] = None,
+) -> tuple[int, int]:
+    """Delete kept segment wav files older than `retention_days`.
+
+    Detection rows and segment metadata stay in the DB; only `wav_path` is cleared
+    and the file is removed from disk. Returns (segments_expired, bytes_freed).
+    No-op when retention_days <= 0.
+    """
+    if retention_days <= 0:
+        return 0, 0
+
+    now = now or datetime.now()
+    cutoff = (now - timedelta(days=retention_days)).isoformat(timespec="seconds")
+    rows = conn.execute(
+        "SELECT id, wav_path FROM segments "
+        "WHERE wav_path IS NOT NULL AND started_at < ?",
+        (cutoff,),
+    ).fetchall()
+
+    freed = 0
+    for row in rows:
+        path = Path(row["wav_path"])
+        if path.is_file():
+            freed += path.stat().st_size
+            path.unlink()
+        conn.execute("UPDATE segments SET wav_path = NULL WHERE id = ?", (row["id"],))
+    if rows:
+        conn.commit()
+    return len(rows), freed
+
+
+def purge_orphan_recordings(
+    conn: sqlite3.Connection, recordings_dir: str | Path
+) -> tuple[int, int]:
+    """Remove wav files under `recordings_dir` not referenced by any segment.
+
+    Useful after failed captures or manual testing. Returns (files_removed, bytes_freed).
+    """
+    recordings_dir = Path(recordings_dir).expanduser()
+    if not recordings_dir.is_dir():
+        return 0, 0
+
+    kept = {
+        Path(row["wav_path"]).resolve()
+        for row in conn.execute(
+            "SELECT wav_path FROM segments WHERE wav_path IS NOT NULL"
+        ).fetchall()
+    }
+    removed = freed = 0
+    for path in recordings_dir.glob("*.wav"):
+        if path.resolve() in kept:
+            continue
+        freed += path.stat().st_size
+        path.unlink()
+        removed += 1
+    return removed, freed
+
+
 def longest_heard_streak(heard_times: list[str], *, max_gap_sec: float = 6.0) -> int:
     """Longest run of detections with gaps no larger than max_gap_sec."""
     if not heard_times:

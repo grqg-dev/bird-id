@@ -3,5 +3,6 @@
   "lon": -122.4194,
   "min_conf": 0.3,
   "db": "birdid.db",
-  "recordings_dir": "recordings"
+  "recordings_dir": "recordings",
+  "retention_days": 30
 }

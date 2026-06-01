@@ -80,3 +80,82 @@ def test_species_dex_day(seeded_conn):
     rows = storage.species_dex_day(seeded_conn, "2026-05-30")
     assert len(rows) == 2
     assert rows[0]["common_name"] == "Bewick's Wren"
+
+
+def test_expire_segment_audio_drops_old_wav(db_conn, tmp_path):
+    wav_old = tmp_path / "old.wav"
+    wav_new = tmp_path / "new.wav"
+    wav_old.write_bytes(b"x" * 1000)
+    wav_new.write_bytes(b"y" * 2000)
+
+    old_start = datetime(2026, 1, 1, 8, 0, 0)
+    new_start = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=old_start,
+        ended_at=old_start + timedelta(seconds=60),
+        duration=60.0,
+        detections=[],
+        wav_path=str(wav_old),
+    )
+    storage.record_segment(
+        db_conn,
+        started_at=new_start,
+        ended_at=new_start + timedelta(seconds=60),
+        duration=60.0,
+        detections=[],
+        wav_path=str(wav_new),
+    )
+
+    n, freed = storage.expire_segment_audio(
+        db_conn, retention_days=30, now=datetime(2026, 5, 31, 12, 0, 0)
+    )
+    assert n == 1
+    assert freed == 1000
+    assert not wav_old.exists()
+    assert wav_new.exists()
+    row = db_conn.execute(
+        "SELECT wav_path FROM segments WHERE wav_path IS NOT NULL"
+    ).fetchone()
+    assert row["wav_path"] == str(wav_new)
+
+
+def test_expire_segment_audio_disabled(db_conn, tmp_path):
+    wav = tmp_path / "keep.wav"
+    wav.write_bytes(b"z" * 500)
+    started = datetime(2026, 1, 1, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[],
+        wav_path=str(wav),
+    )
+    n, freed = storage.expire_segment_audio(
+        db_conn, retention_days=0, now=datetime(2026, 5, 31, 12, 0, 0)
+    )
+    assert n == 0
+    assert freed == 0
+    assert wav.exists()
+
+
+def test_purge_orphan_recordings(db_conn, tmp_path):
+    kept = tmp_path / "kept.wav"
+    orphan = tmp_path / "orphan.wav"
+    kept.write_bytes(b"a" * 100)
+    orphan.write_bytes(b"b" * 400)
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[],
+        wav_path=str(kept),
+    )
+    removed, freed = storage.purge_orphan_recordings(db_conn, tmp_path)
+    assert removed == 1
+    assert freed == 400
+    assert kept.exists()
+    assert not orphan.exists()
