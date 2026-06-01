@@ -372,5 +372,68 @@
     "sound": "A rapid, musical, ringing trill on one pitch, plus sharp 'tick' or 'tek' call notes.",
     "habitat": "Suburban yards, woodland edges, and feeders.",
     "note": "The local 'Oregon' form has a dark hood, brown back, and pinkish sides; white outer tail feathers flash as it flies up. Forages on the ground with a tidy hop."
+  },
+  "barn_owl": {
+    "group": "Raptor",
+    "season": "Year-round resident",
+    "sound": "Not a hooter — gives a harsh, drawn-out, raspy shriek or scream, plus hisses and snores at the nest.",
+    "habitat": "Open grassland, farmland, palms, and old buildings; hunts low over fields at night.",
+    "note": "A pale, ghostly owl with a heart-shaped facial disk and dark eyes. Hunts almost entirely by sound, locating rodents in total darkness, and readily uses nest boxes."
+  },
+  "great_horned_owl": {
+    "group": "Raptor",
+    "season": "Year-round resident",
+    "sound": "A deep, soft, rhythmic series of hoots — 'hoo-h'HOO-hoo-hoo' — often answered by a mate in a lower-and-higher duet.",
+    "habitat": "Oak woodland, canyon edges, parks, and tall trees near open ground.",
+    "note": "A large, powerful owl with prominent feather 'ear' tufts and yellow eyes. The region's top nocturnal predator; nests early in winter, often reusing an old hawk or raven nest."
+  },
+  "white_breasted_nuthatch": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A nasal, repeated 'yank-yank-yank,' lower and more drawn-out than a chickadee.",
+    "habitat": "Oak woodland and tall mature trees.",
+    "note": "A compact blue-gray bird with a white face and black cap that creeps headfirst down tree trunks, prying insects and seeds from the bark."
+  },
+  "brown_creeper": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A very high, thin, sibilant song ('trees-trees-see-the-trees') and a single high 'see' call — so high-pitched many people can't hear it.",
+    "habitat": "Mature oak and conifer woodland with large trunks.",
+    "note": "A tiny, bark-colored bird that spirals up a tree trunk probing crevices for insects, then drops to the base of the next tree to start over. Easily overlooked against the bark."
+  },
+  "white_crowned_sparrow": {
+    "group": "Migrant & seasonal",
+    "season": "Fall–spring (winter visitor)",
+    "sound": "A clear whistle followed by buzzy, trilled notes, with distinct local dialects; call is a sharp metallic 'pink.'",
+    "habitat": "Brushy edges, weedy fields, gardens, and hedgerows.",
+    "note": "A crisp gray sparrow; adults wear bold black-and-white crown stripes (immatures are brown-and-tan). Forages on the ground in winter flocks, then heads far north and to the mountains to breed."
+  },
+  "green_winged_teal": {
+    "group": "Water & shore",
+    "season": "Fall–spring (winter visitor)",
+    "sound": "The male gives a clear, high, whistled 'preep'; the female a thin quack.",
+    "habitat": "Ponds, lagoon edges, marshes, and shallow mudflats.",
+    "note": "The smallest dabbling duck in North America. The male has a chestnut head with a green eye-patch and a vertical white bar on the side; winters here and breeds far to the north."
+  },
+  "western_grebe": {
+    "group": "Water & shore",
+    "season": "Mostly fall–spring nonbreeding visitor",
+    "sound": "A high, rolling, two-note 'creet-creet' that carries across the water.",
+    "habitat": "Nearshore ocean, harbor, and lagoons.",
+    "note": "A large, elegant black-and-white waterbird with a long slender neck and a long yellow bill. Dives for fish and is famous for the synchronized 'rushing' courtship dance across the surface."
+  },
+  "forsters_tern": {
+    "group": "Water & shore",
+    "season": "Nonbreeding visitor (mostly fall–spring)",
+    "sound": "A low, nasal, grating 'kerr' that drops in pitch.",
+    "habitat": "Harbor, lagoons, estuaries, and the open coast.",
+    "note": "A pale medium-sized tern; nonbreeding birds show a black 'mask' through the eye rather than a full cap. Hovers and plunge-dives for small fish."
+  },
+  "whimbrel": {
+    "group": "Water & shore",
+    "season": "Mostly fall–spring; some through summer",
+    "sound": "A rippling, even series of short whistles, all on one pitch — 'pip-pip-pip-pip-pip-pip-pip.'",
+    "habitat": "Beaches, rocky shores, tidal flats, and mudflats.",
+    "note": "A large brown shorebird with a long, smoothly downcurved bill and a striped crown. Probes mud and pries crabs from rocks; a long-distance migrant along the coast."
   }
 }
