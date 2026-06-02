@@ -1303,6 +1303,11 @@ _SORT_KEYS = {
     "heard": lambda r: (-r["windows"], r["first_heard"]),
     "peak": lambda r: (-r["peak_conf"], r["first_heard"]),
 }
+_SORT_REVERSE = {"discovered": True}
+
+
+def _sort_dex_rows(rows, sort: str):
+    return sorted(rows, key=_SORT_KEYS[sort], reverse=_SORT_REVERSE.get(sort, False))
 
 
 def _today() -> str:
@@ -1663,7 +1668,7 @@ def _sorted_dex_birds(
             slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
             r["common_name"],
         )
-        for r in sorted(rows, key=_SORT_KEYS[sort])
+        for r in _sort_dex_rows(rows, sort)
     ]
 
 
@@ -2042,7 +2047,7 @@ def index():
                 sprite_slug=_sprite_slug(r["common_name"], slugs),
                 bird_slug=slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
             )
-            for r in sorted(rows, key=_SORT_KEYS[sort])
+            for r in _sort_dex_rows(rows, sort)
         ]
         mode = "gallery" if request.args.get("mode") == "gallery" else "dex"
         day_scope = _scope_label(selected_day, show_all, style="short")

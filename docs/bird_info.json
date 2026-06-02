@@ -435,5 +435,138 @@
     "sound": "A rippling, even series of short whistles, all on one pitch — 'pip-pip-pip-pip-pip-pip-pip.'",
     "habitat": "Beaches, rocky shores, tidal flats, and mudflats.",
     "note": "A large brown shorebird with a long, smoothly downcurved bill and a striped crown. Probes mud and pries crabs from rocks; a long-distance migrant along the coast."
+  },
+  "american_goldfinch": {
+    "group": "Backyard regular",
+    "season": "Year-round resident",
+    "sound": "A bright, lively, rambling song of sweet whistled notes, trills, and twitters delivered in a bouncy rhythm. In flight, it gives a distinctive, cheerful 'po-ta-to-chip!' call.",
+    "habitat": "Riparian edges, weedy fields, gardens, and backyard feeders.",
+    "note": "Males are brilliant yellow with a black cap and wings in summer; females and winter birds are a drab olive-brown. While the similar Lesser Goldfinch is ubiquitous year-round in Santa Barbara yards, American Goldfinches are more localized and are often detected visiting feeders in winter and spring flocks. With only a single low-confidence detection on record, backyard mic IDs can be noisy, but the species is highly plausible locally."
+  },
+  "band_tailed_pigeon": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A deep, hollow, two-syllable cooing that sounds owl-like: 'hoo-whoo' or 'whoo-hoo', repeated slowly. Wings produce a loud, sharp clapping sound upon takeoff.",
+    "habitat": "Oak woodlands, foothill canyons, and residential yards with mature trees.",
+    "note": "Our native wild pigeon, much larger and sleeker than a Mourning Dove, with a yellow bill, yellow feet, and a white crescent on the back of the neck. They travel in nomadic flocks searching out acorns and berries, and can suddenly appear in large numbers in foothill yards before vanishing."
+  },
+  "black_crowned_night_heron": {
+    "group": "Water & shore",
+    "season": "Year-round resident",
+    "sound": "A sudden, loud, harsh, flat croak or 'quok' that is often heard at dusk or during the night as they fly overhead.",
+    "habitat": "Lagoons, harbors, creeks, marshes, and roosting in tall trees near water.",
+    "note": "A stocky, short-necked heron with a black back, gray wings, and long white head plumes in breeding plumage. Strictly nocturnal or crepuscular, they spend the day hunched silently in dense foliage near water before emerging at dusk to hunt fish, frogs, and crustaceans."
+  },
+  "canada_goose": {
+    "group": "Water & shore",
+    "season": "Year-round resident",
+    "sound": "A loud, resonant, musical honking 'ah-honk' or 'ka-ronk', often given in flight by V-shaped flocks.",
+    "habitat": "Lakes, parks, golf courses, estuaries, and lawns near water.",
+    "note": "The familiar large goose with a black head and neck, white 'chinstrap,' and brown body. While wild flocks migrate through in winter, feral resident populations are present year-round in local parks and golf courses. With only a single low-confidence detection on record, this was likely a flyover or a local park bird."
+  },
+  "cedar_waxwing": {
+    "group": "Migrant & seasonal",
+    "season": "Fall through spring migrant",
+    "sound": "High-pitched, thin, sibilant trills or whistles: a soft, high 'zeee' or 'bzeee' that is easily overlooked.",
+    "habitat": "Residential yards with fruiting trees, parks, and riparian corridors.",
+    "note": "Sleek, crested, silky-brown birds with a black mask and bright yellow tail tip. They travel in highly social, nomadic flocks that descend on berry-producing trees and shrubs like pyracantha and toyon, stripping them bare before moving on."
+  },
+  "chestnut_backed_chickadee": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A scratchy, high-pitched 'tseek-a-dee-dee' or 'chick-a-dee' call, faster and squeakier than other chickadees. They do not have a whistled song.",
+    "habitat": "Shady oak woodlands, riparian canyons, and mature residential yards.",
+    "note": "A small, active bird with a rich chestnut back and flanks, a black cap, and white cheeks. Santa Barbara is near the southern limit of their range, where they are increasingly common in shady yards and oak groves, often foraging in mixed flocks with bushtits and warblers."
+  },
+  "coopers_hawk": {
+    "group": "Raptor",
+    "season": "Year-round resident",
+    "sound": "A rapid, nasal, barking series of 'kak-kak-kak-kak' calls, usually given near the nest in spring. Mostly silent during the rest of the year.",
+    "habitat": "Oak woodlands, riparian corridors, and leafy residential neighborhoods.",
+    "note": "A medium-sized, agile forest hawk with a long banded tail and rounded wings. It has adapted well to suburban Santa Barbara, where it frequently hunts songbirds around backyard feeders. With only a single low-confidence detection on record, backyard mic IDs can be noisy, but the species is highly plausible locally."
+  },
+  "downy_woodpecker": {
+    "group": "Woodpecker",
+    "season": "Year-round resident",
+    "sound": "A sharp, flat 'pik' call and a high-pitched, descending whinny or rattle. Drums on dead wood in rapid, even taps.",
+    "habitat": "Riparian woodlands, willow thickets, and mature suburban trees.",
+    "note": "The smallest woodpecker in North America, black-and-white with a small bill. It is uncommon in coastal Santa Barbara, where the very similar Nuttall's Woodpecker is the default resident. Low-confidence backyard detections should be treated with caution, as they are easily confused with Nuttall's Woodpecker calls or drum patterns."
+  },
+  "house_wren": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A fast, bubbling, liquid song that rises in pitch and intensity, then cascades downward in a sweet, chattering torrent. Also a harsh, scolding 'churr.'",
+    "habitat": "Oak woodlands, riparian edges, and brushy residential yards with nesting cavities.",
+    "note": "A small, plain brown wren with faint dark barring on its wings and tail, lacking the bold white eyebrow of the Bewick's Wren. Highly energetic and territorial, they readily use nest boxes. With only a couple of low-confidence detections on record, backyard mic IDs can be noisy, but the species is highly plausible locally."
+  },
+  "huttons_vireo": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A persistent, monotonous, two-note whistled song, typically 'zu-weep, zu-weep' or 'che-veek, che-veek', repeated endlessly. Also a dry, scolding rattle.",
+    "habitat": "Oak woodlands, shaded canyons, and oak-shaded residential yards.",
+    "note": "Superficially identical to a Ruby-crowned Kinglet, but has a thicker, slightly hooked bill, stouter blue-gray legs, and lacks the kinglet's constant wing-flicking. It is a classic oak canopy specialist and a very active vocalist in Santa Barbara's oak-dominated residential neighborhoods."
+  },
+  "mountain_chickadee": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident (high elevations); rare winter visitor to coast",
+    "sound": "A clear, whistled, descending song: 'fee-bee-bay' or 'cheeseburger'. Also a scratchy 'chick-a-dee-dee-dee' call with a distinct husky quality.",
+    "habitat": "Conifer forests at high elevations; occasionally oak woodlands or yards during winter downslope movements.",
+    "note": "Distinguished from the Chestnut-backed Chickadee by its gray back, pale flanks, and a prominent white eyebrow stripe cutting through its black cap. Detections on coastal backyard mics are highly unusual and may represent downslope winter wanderers, or potentially acoustic misidentifications of other species."
+  },
+  "mountain_quail": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A loud, clear, echoing, single-note whistled 'plook!' or 'que-ark!' given at intervals of several seconds in spring.",
+    "habitat": "Dense chaparral, montane scrub, and steep foothill slopes.",
+    "note": "Larger than the California Quail, with a long, straight, vertical head plume and chestnut throat and flanks with bold white bars. They are secretive residents of the high chaparral and montane slopes, rarely descending to coastal yards. Backyard detections are likely foothill residents or potential acoustic misidentifications of other loud, sharp sounds."
+  },
+  "northern_rough_winged_swallow": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder",
+    "sound": "A short, flat, buzzy, unmusical 'bzzzt' or 'vrt' call, given in flight. Lacks the sweet, liquid twittering of other swallows.",
+    "habitat": "Over creeks, lagoons, coastal cliffs, and open fields.",
+    "note": "A plain brown-backed swallow with a dingy throat and white belly. They nest in burrows along dirt banks, drainpipes, or crevices in bridges. With only a single low-confidence detection on record, this was likely a spring migrant or summer foraging visitor."
+  },
+  "purple_finch": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident (mountains); winter downslope visitor",
+    "sound": "A rich, fast, musical, rolling warble, sweeter and more continuous than the House Finch's song, without the buzzy downward 'wheer' ending. Call is a flat, metallic 'pit.'",
+    "habitat": "Moist oak woodlands, coniferous forests, and foothill yards.",
+    "note": "Males are a raspberry-red (often described as 'dipped in cranberry juice'), while females are heavily streaked with a bold white eyebrow. They are easily confused with the ubiquitous House Finch; in coastal Santa Barbara, they are mostly winter downslope visitors, though they breed in the nearby mountains."
+  },
+  "rock_wren": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "A highly varied, mechanical song consisting of distinct, repeated phrases — 'che-ree, che-ree, che-ree, trrrrrr, tew-tew-tew' — with a dry, buzzing quality. Call is a dry, buzzy 'tick-ear.'",
+    "habitat": "Rocky canyons, dry slopes, road cuts, and stony washes in the foothills.",
+    "note": "A pale gray-brown wren with a finely speckled back and a buffy rump. They are highly specialized for rocky terrain and are uncommon in flat residential yards. With only a single low-confidence detection on record, this was likely a foothill wanderer or an acoustic misidentification."
+  },
+  "rufous_hummingbird": {
+    "group": "Migrant & seasonal",
+    "season": "Spring and fall migrant",
+    "sound": "Buzzy chip notes and a high, metallic, squealing chatter. The male's wings produce a high-pitched, musical hum in flight.",
+    "habitat": "Gardens, flowering chaparral, and feeders during migration.",
+    "note": "Famous for its aggressive nature, the male is brilliant coppery-orange, while females and immatures have green backs and rufous flanks. They do not breed locally but pass through Santa Barbara in spring (February–April) and fall (July–September), often taking over backyard feeders. With only a single low-confidence detection on record, backyard mic IDs can be noisy, but the species is highly plausible during migration."
+  },
+  "stellers_jay": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident (mountains); occasional winter visitor to coast",
+    "sound": "A harsh, nasal, repeated 'shack-sheek-sheek' or 'wah-wah-wah' scold. Also an expert mimic, frequently giving a flawless imitation of a Red-tailed Hawk's scream.",
+    "habitat": "Conifer and high oak forests in the mountains; occasionally wanders to foothill yards.",
+    "note": "A striking, crested jay, deep blue with a black head and shoulders. They are residents of the higher, wetter mountain forests of Santa Barbara County and are rare in coastal lowlands. With only a single low-confidence detection on record, this was likely a mountain bird or an acoustic misidentification."
+  },
+  "western_tanager": {
+    "group": "Migrant & seasonal",
+    "season": "Spring/summer migrant",
+    "sound": "A short, hoarse, robin-like song of rising and falling phrases, with a distinctly buzzy or raspy quality. Call is a dry, three-note 'pit-er-ick.'",
+    "habitat": "Oak canopy, riparian corridors, and leafy suburban yards during migration.",
+    "note": "The male is a spectacular sight with a flame-orange head, bright yellow body, and black wings and tail. They are common spring migrants in Santa Barbara (April–May) as they travel to montane breeding grounds, often foraging high in oak and sycamore canopies."
+  },
+  "wild_turkey": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident (introduced)",
+    "sound": "The male's loud, echoing 'gobble-gobble-gobble,' plus dry, sharp 'clucks' and 'putts' given by both sexes.",
+    "habitat": "Oak savannas, grasslands, and foothill ranchlands.",
+    "note": "A massive, heavy-bodied bird introduced to California for hunting. While common in the Santa Ynez Valley and backcountry, they are rare on the coastal side of the mountains. With only a single low-confidence detection on record, backyard mic IDs near the coast can be noisy, and this was likely a misidentified loud noise or a rare foothill wanderer."
   }
 }

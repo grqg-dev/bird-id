@@ -3,11 +3,40 @@
 Guidance for AI agents (and humans) contributing to this project. Read this
 before changing code. For *usage*, see `README.md`.
 
+## Environments — dev vs prod
+
+| | **Dev (this machine)** | **Prod (Mac mini)** |
+|---|---|---|
+| Role | Hack, test, write content | Always-on backyard monitor + dashboard |
+| SSH | — | `mac-mini` (`~/.ssh/config`) |
+| Path | local checkout | `/Users/matt/bird-id` (user `matt`) |
+| Python | Apple Silicon → `requirements.txt` | **Intel** → `requirements-intel-mac.txt` |
+| `birdid.db` | Small / stale unless pulled from prod | **Source of truth** — live detections |
+| `recordings/` | Optional pull for playback tests | Full segment + clip history |
+| `config.json` | Local copy (gitignored) | Prod copy on mini (gitignored) |
+| Monitor | Manual smoke tests only | Runs 24/7 (`birdid.py monitor -d 0`) |
+| Dashboard | `127.0.0.1:8080` when hacking | `0.0.0.0:8080` via launchd (LAN) |
+
+**Rules for agents:**
+
+- **Prod is the Mac mini.** Treat local data as dev-only. When asked "what birds
+  do we have?" or "what's missing?", query **prod** (`ssh mac-mini …`), not the
+  local `./birdid.db` unless the user explicitly wants dev data.
+- **Do not deploy to prod without explicit user confirmation.** That includes
+  `git pull`, `deploy/mac-mini/deploy.sh`, restarting launch agents, schema
+  backfills, and overwriting prod files.
+- **Never push dev DB or recordings to prod.** Data flows prod → dev only.
+- **Code and static content flow dev → prod** via git + deploy script.
+
+Santa Barbara coords (`34.4208`, `-119.6982`) and `min_conf` **0.3** apply on both
+environments. Prod `config.json` lives only on the mini — do not commit it.
+
 ## What this is
 
 A prototype that records bird sounds and identifies them with Cornell Lab's
-**BirdNET**, run locally via `birdnetlib` (no API key, no network). It runs on a
-Mac today; the intended home is an **always-on Raspberry Pi** in Santa Barbara, CA.
+**BirdNET**, run locally via `birdnetlib` (no API key, no network). **Prod today**
+is an always-on **Mac mini** in Santa Barbara, CA; the longer-term target is a
+**Raspberry Pi** with the same architecture.
 
 ## Architecture — keep these boundaries
 
@@ -108,38 +137,106 @@ Run pytest after any change to `storage.py`, `config.py`, `dashboard.py`, or
 found a bug (stdout buffering) that reading the code did not. Re-run the monitor
 smoke test after touching `cmd_monitor`.
 
-## Deploying tracks + clips (Mac mini or local)
+## Deploying to prod (Mac mini)
 
-After pulling code that adds `tracks` / `clip_path`:
+**Only after the user confirms.** Typical flow:
 
-1. **Restart** the monitor and/or dashboard (or any command that calls
-   `storage.connect()`). That runs `_migrate()` — `track_id` links and `tracks`
-   rows with `clip_path = NULL`.
-2. **Backfill clip files** (once per DB, idempotent):
+1. **Dev:** land changes locally, run `pytest -q`, manual smokes if needed.
+2. **Push** to GitHub (`grqg-dev/bird-id`, branch `main`).
+3. **On the mini:**
 
    ```bash
-   cd ~/bird-id   # same WorkingDirectory as the monitor
+   ssh mac-mini
+   cd ~/bird-id
+   git pull
+   ./deploy/mac-mini/deploy.sh
+   ```
+
+`deploy/mac-mini/deploy.sh` (run **on the mini**, not from dev):
+
+- `pip install -r requirements-intel-mac.txt`
+- Rebuilds `~/Applications/BirdID Monitor.app` (mic-permission wrapper)
+- Installs launch-agent plists to `~/Library/LaunchAgents/`
+- Runs `birdid.py cleanup` (retention)
+- **Restarts dashboard** launch agent (`com.birdid.dashboard`)
+- **Restarts monitor** launch agent only if already loaded — skips when monitor
+  runs in a Terminal session (avoids killing a manual session)
+
+### Prod services (launchd)
+
+| Label | What | Logs |
+|---|---|---|
+| `com.birdid.monitor` | `BirdID Monitor.app` → `birdid.py monitor -d 0` | `logs/monitor.log`, `monitor.err` |
+| `com.birdid.dashboard` | `birdid.py dashboard --host 0.0.0.0 --port 8080` | `logs/dashboard.log`, `dashboard.err` |
+
+Both use `WorkingDirectory=/Users/matt/bird-id`. **CWD matters** — relative
+`db` and `recordings_dir` in `config.json` resolve from there.
+
+**First-time monitor setup** (mic permission — macOS grants mic to `.app`
+bundles, not bare Python under launchd):
+
+```bash
+ssh mac-mini
+cd ~/bird-id
+./deploy/mac-mini/install-monitor-app.sh
+# Screen Sharing: open ~/Applications/BirdID Monitor.app once → allow mic
+# Stop any Terminal monitor, then:
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.birdid.monitor.plist
+```
+
+### Post-deploy: schema / clips / content
+
+After code that touches DB schema or clips:
+
+1. **Restart** monitor and/or dashboard (deploy script restarts launch agents;
+   a Terminal monitor needs manual restart). `storage.connect()` runs `_migrate()`.
+2. **Backfill clip files** (once per DB, idempotent — **on prod, only with user OK**):
+
+   ```bash
+   cd ~/bird-id
    ./.venv/bin/python scripts/backfill_track_clips.py
    ```
 
    Uses `config.json` for `db` and `recordings_dir`. Skips tracks whose segment
    `wav_path` is missing or expired. Safe to re-run; use `--dry-run` to preview.
 
-3. Optional: `./scripts/backfill_track_clips.py --limit 10` on a copy first.
+3. **`docs/bird_info.json`** — field notes for the species drill-down card, keyed
+   by slug from `docs/birds.json`. Dashboard caches this at import; **restart
+   dashboard** after editing on prod. No DB migration needed.
 
 New segments from the monitor get clips automatically; backfill is only for
 history.
 
-## Mac mini → local DB
+### Pulling prod data to dev
 
-`scripts/pull_db_from_mini.sh` SSHes to `mac-mini`, runs `sqlite3 .backup` on
-`~/bird-id/birdid.db`, and saves a timestamped `birdid.db.local-backup-*` in the
-repo root. Pass `--activate` to copy into `./birdid.db` for local dashboard work.
+Read-only snapshots for local dashboard / identify testing:
 
-`scripts/pull_recordings_from_mini.sh` rsyncs segment wavs into `./recordings/`
-(default: 30 newest; `--all` for everything). Use for local identify / dashboard testing;
-DB paths on the mini are absolute, so dashboard playback still needs `--activate`
-plus matching filenames under `recordings/`.
+```bash
+# DB snapshot (SQLite .backup on mini — safe while monitor writes)
+./scripts/pull_db_from_mini.sh
+./scripts/pull_db_from_mini.sh --activate   # → ./birdid.db
+
+# Segment wavs (default: 30 newest; --all for everything)
+./scripts/pull_recordings_from_mini.sh
+./scripts/pull_recordings_from_mini.sh --recent 50
+```
+
+Override host/path: `BIRD_MINI_HOST`, `BIRD_MINI_DIR`, `BIRD_MINI_DB`.
+
+Pulled DB paths are absolute from the mini — dashboard playback needs
+`--activate` **and** matching `seg_*.wav` files under `./recordings/`.
+
+### Querying prod from dev
+
+One-liners without pulling the whole DB:
+
+```bash
+ssh mac-mini 'cd ~/bird-id && ./.venv/bin/python birdid.py stats'
+ssh mac-mini 'cd ~/bird-id && sqlite3 birdid.db "SELECT DISTINCT common_name FROM detections ORDER BY 1"'
+```
+
+To find species **missing field notes** (`docs/bird_info.json`), compare prod
+detections to info slugs (see `_common_to_slug` / `_slug_map` in `dashboard.py`).
 
 ## Gotchas (these cost real debugging time)
 
@@ -152,9 +249,12 @@ plus matching filenames under `recordings/`.
 - **Redirected stdout is block-buffered.** `cmd_monitor` calls
   `sys.stdout.reconfigure(line_buffering=True)` so live progress shows. Don't
   remove it.
-- **`db` / `recordings_dir` are relative to CWD.** A systemd/cron service with a
-  different working dir will silently use a *different* `birdid.db`. On the Pi,
-  set `WorkingDirectory=` or use absolute paths in `config.json`.
+- **`db` / `recordings_dir` are relative to CWD.** A launchd agent or systemd unit with a
+  different working dir will silently use a *different* `birdid.db`. On prod and Pi,
+  set `WorkingDirectory=` (already `/Users/matt/bird-id` on the mini) or use absolute
+  paths in `config.json`.
+- **Dev `birdid.db` ≠ prod.** Local stats and "missing content" checks against
+  `./birdid.db` are misleading unless you pulled prod first.
 - **BirdNET's default model includes non-bird classes** (Human, Dog, Gun,
   Fireworks) and emits low-confidence false birds from noise. The Santa Barbara
   location filter + `min_conf` (currently 0.3) handle this — don't lower the
@@ -177,8 +277,12 @@ the parent segment's full `wav_path` for fallback playback/spectrograms.
 - Keep modules small and single-purpose. Match the existing comment density and
   docstring style.
 - After adding a runtime dependency, regenerate `requirements.txt` via `pip freeze`.
-- User-facing usage lives in `README.md`; architecture, testing, and gotchas live
-  here. Keep both in sync when commands or defaults change.
+- User-facing usage lives in `README.md`; architecture, testing, environments, and
+  gotchas live here. Keep both in sync when commands or defaults change.
+- **Static dex content:** `docs/birds.json` (top-50 slug list), `docs/bird_info.json`
+  (field notes), `realistic-sprites/*.png` (illustrations). Prod may detect species
+  outside `birds.json`; those still get dex cards but need slugs + sprites + info
+  added in dev, then deployed.
 
 ## Roadmap / open work
 
