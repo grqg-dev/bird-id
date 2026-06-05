@@ -109,6 +109,7 @@ TIMELINE_CONF_FLOOR = 0.7  # Timeline only plots detections at/above this confid
 TIMELINE_BINS = 96  # Per-lane histogram buckets across 24h (15-minute bars)
 _CALLVIZ_ROWS = 48
 _CALLVIZ_COLS = 96
+_CALLVIZ_HSCALE = 8  # horizontal upscale for scrolling spectrogram + scope
 
 
 def _db():
@@ -166,7 +167,7 @@ def _resample_cols(matrix, target_cols: int):
 
 
 def _compute_callviz(audio_path: str, start: float | None, end: float | None) -> dict:
-    """Downsampled mel magnitude matrix + per-frame pitch for the 3D call view."""
+    """Downsampled mel matrix, waveform, and pitch for the Call Chamber view."""
     import librosa
     import numpy as np
 
@@ -194,6 +195,12 @@ def _compute_callviz(audio_path: str, start: float | None, end: float | None) ->
     pitch = librosa.yin(y, fmin=fmin, fmax=fmax, sr=sr, frame_length=2048)
     pitch = _resample_cols(pitch.reshape(1, -1), _CALLVIZ_COLS).reshape(-1)
 
+    wave_pts = _resample_cols(
+        y.reshape(1, -1), _CALLVIZ_COLS * _CALLVIZ_HSCALE
+    ).reshape(-1)
+    peak = float(np.max(np.abs(wave_pts))) or 1e-8
+    wave_norm = (wave_pts / peak).tolist()
+
     freqs = librosa.mel_frequencies(n_mels=n_mels, fmax=sr // 2).tolist()
     times = np.linspace(0.0, duration, _CALLVIZ_COLS).tolist()
     return {
@@ -204,6 +211,7 @@ def _compute_callviz(audio_path: str, start: float | None, end: float | None) ->
         "rows": _CALLVIZ_ROWS,
         "cols": _CALLVIZ_COLS,
         "mag": mag_norm.tolist(),
+        "wave": wave_norm,
         "pitch": [float(p) if p > 0 else 0.0 for p in pitch],
     }
 
@@ -293,6 +301,13 @@ PAGE = """
   .sprite img.art{display:block;width:200px;height:200px;margin:0 auto;object-fit:contain;padding:10px 14px 6px}
   .spectro{background:#0d1b14}
   .spectro img{display:block;width:100%;height:88px;object-fit:cover}
+  .clip-nav{display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 10px;
+            background:#fff;border-top:1px solid #eceae3;font-size:11px}
+  .clip-nav a{color:var(--red-dark);text-decoration:none;font-weight:600;padding:2px 8px;
+              border:1px solid var(--border);border-radius:6px;background:#fff}
+  .clip-nav a:hover{background:var(--surface)}
+  .clip-nav .off{color:#b0aca2;padding:2px 8px}
+  .clip-nav .pos{color:#8a857a;letter-spacing:.3px}
   .play{background:#f7f6f2;padding:8px 10px;border-top:1px solid #eceae3}
   .play audio{display:block;width:100%;height:32px}
   .body{padding:10px 12px 12px}
@@ -403,7 +418,7 @@ PAGE = """
         <span class="no mono">Nº {{ "%03d"|format(loop.index) }}</span>
         <div class="top-right">
           {% if e.has_audio and mode != 'gallery' %}
-          <a class="viz-btn mono" title="3D call view"
+          <a class="viz-btn mono" title="Call analyzer"
              href="{{ call_href(e.segment_id, e.start_time, e.end_time, e.bird_slug) }}">◳ Viz</a>
           {% endif %}
           <span class="peak-conf mono">{{ "%.3f"|format(e.peak_conf) }}</span>
@@ -421,6 +436,19 @@ PAGE = """
         <div class="spectro">
           <img loading="lazy" src="/spectrogram/{{ e.segment_id }}.png{{ clip_qs }}" alt="call spectrogram">
         </div>
+        {% if e.clip_total > 1 %}
+        <div class="clip-nav mono">
+          {% if e.prev_clip %}
+          <a href="{{ call_href(e.prev_clip.segment_id, e.prev_clip.start, e.prev_clip.end, e.bird_slug) }}"
+             title="{{ e.prev_clip.heard_at }}">← {{ "%.3f"|format(e.prev_clip.peak_conf) }}</a>
+          {% else %}<span class="off">←</span>{% endif %}
+          <span class="pos">{{ e.clip_no }} / {{ e.clip_total }}</span>
+          {% if e.next_clip %}
+          <a href="{{ call_href(e.next_clip.segment_id, e.next_clip.start, e.next_clip.end, e.bird_slug) }}"
+             title="{{ e.next_clip.heard_at }}">{{ "%.3f"|format(e.next_clip.peak_conf) }} →</a>
+          {% else %}<span class="off">→</span>{% endif %}
+        </div>
+        {% endif %}
         <div class="play"><audio controls preload="none" src="/audio/{{ e.segment_id }}{{ clip_qs }}"></audio></div>
         {% endif %}
       </div>
@@ -448,70 +476,157 @@ PAGE = """
 VISUALIZE_PAGE = """
 <!doctype html><html><head><meta charset="utf-8"><title>{{ common_name }} · Call Chamber</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="/static/three.min.js"></script>
 <style>
-  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;--cream:#f3efe2;--ink:#21232a;
-        --gold:#ffcf3f;--surface:#f7f6f2;--border:#e2e0d8}
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;--ink:#21232a;
+        --surface:#f7f6f2;--border:#e2e0d8;--muted:#8a857a}
   *{box-sizing:border-box}
-  body{margin:0;font-family:"Helvetica Neue",Arial,sans-serif;color:var(--cream);background:#060a0e;min-height:100vh}
+  body{margin:0;font-family:"Helvetica Neue",Arial,sans-serif;color:var(--ink);
+        background:#fff;min-height:100vh}
   .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
-  .lbl{font-size:11px;letter-spacing:1.5px;color:#7a8a94;text-transform:uppercase}
-  .wrap{max-width:1280px;margin:0 auto;padding:18px 20px 28px}
-  .hdr{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;margin-bottom:14px}
-  .hdr a{color:#9ab0bc;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:.4px}
-  .hdr a:hover{color:var(--cream)}
-  .hdr .spacer{flex:1}
-  .hdr .pos{font-size:12px;color:#7a8a94}
-  .title{margin:0;font-size:22px;font-weight:800;letter-spacing:.2px}
-  .latin{margin:2px 0 0;font-style:italic;color:#8a9aa4;font-size:13px}
-  .conf{font-size:18px;font-weight:800;color:var(--red)}
-  .nav{display:flex;gap:8px}
-  .nav a{padding:7px 12px;border:1px solid #243038;border-radius:8px;background:#0c1218;color:#b8c8d0;
-         text-decoration:none;font-size:12px;font-weight:700}
-  .nav a:hover{border-color:#3a4a54;color:var(--cream)}
+  .wrap{max-width:960px;margin:0 auto;padding:28px 22px 36px}
+  .top{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:16px}
+  .top a{color:var(--red-dark);text-decoration:none;font-size:12px;font-weight:600;letter-spacing:.3px}
+  .top a:hover{text-decoration:underline}
+  .top .pos{font-size:11px;color:var(--muted);letter-spacing:.5px}
+  .top .spacer{flex:1}
+  .hero-card{position:relative;margin-bottom:18px;padding:14px 16px;background:var(--surface);
+             border:1px solid var(--border);border-radius:12px}
+  .hero-head{display:flex;gap:16px;align-items:flex-start;padding-right:88px;
+             padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:12px}
+  .hero-main{flex:1;min-width:0}
+  .hero-nav{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+  .nav-group{display:flex;align-items:center;gap:8px;flex:1 1 220px}
+  .nav-group.bird{justify-content:flex-end}
+  .nav-lbl{font-size:9px;letter-spacing:1.3px;text-transform:uppercase;color:var(--muted);width:34px;flex:0 0 34px}
+  .nav{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .clip-pos{font-size:11px;color:var(--muted);letter-spacing:.4px;padding:0 4px}
+  .nav a{padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;
+         color:#7a766a;text-decoration:none;font-size:11px;font-weight:600;max-width:168px;
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav a:hover{border-color:#c8c4ba;color:var(--ink);background:var(--surface)}
   .nav a.off{opacity:.35;pointer-events:none}
-  .stage{position:relative;border:1px solid #1a2830;border-radius:14px;overflow:hidden;
-         background:radial-gradient(ellipse at 50% 20%,#12202a 0%,#060a0e 70%);min-height:420px}
-  #chamber-canvas{display:block;width:100%;height:min(72vh,640px);cursor:pointer}
-  #chamber-fallback{display:none;position:absolute;inset:0;align-items:center;justify-content:center;
-                    color:#7a8a94;font-size:14px;padding:24px;text-align:center}
-  .controls{margin-top:14px;padding:12px 14px;border:1px solid #1a2830;border-radius:12px;background:#0a1016}
-  .controls audio{display:block;width:100%;height:36px}
-  .hint{margin-top:10px;font-size:11px;color:#5a6a74;letter-spacing:.3px}
-  .sprite-sm{width:48px;height:48px;object-fit:contain;border-radius:8px;background:#0c1218;
-             border:1px solid #1a2830;padding:4px}
+  .sprite-sm{width:56px;height:56px;object-fit:contain;border-radius:10px;background:#fff;
+             border:1px solid var(--border);padding:5px}
+  .title{margin:0;font-size:24px;font-weight:800;letter-spacing:.1px;line-height:1.15}
+  .latin{margin:4px 0 0;font-style:italic;color:#7a766a;font-size:13px}
+  .hero-meta{margin:6px 0 0;font-size:10px;color:var(--muted);letter-spacing:.4px}
+  .badge{position:absolute;top:14px;right:16px;display:flex;flex-direction:column;
+         align-items:flex-end;gap:3px;text-align:right}
+  .conf{font-size:15px;font-weight:800;color:var(--red-deep)}
+  .conf-lbl{font-size:9px;letter-spacing:1.2px;color:var(--muted);text-transform:uppercase}
+  .stage{position:relative;border:1px solid var(--border);border-radius:12px;overflow:hidden;
+         background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.06);
+         opacity:0;transform:translateY(4px);transition:opacity .35s ease,transform .35s ease}
+  .stage.ready{opacity:1;transform:none}
+  .stage-hud{position:absolute;inset:0;pointer-events:none;z-index:2;
+             display:flex;flex-direction:column;justify-content:space-between;padding:10px 12px}
+  .hud-top{display:flex;justify-content:flex-end;align-items:flex-start;width:100%}
+  .time-readout{font-size:11px;color:#e8ece9;background:rgba(6,12,10,.55);
+                border:1px solid rgba(255,255,255,.08);padding:4px 9px;border-radius:6px}
+  .stage-load{position:absolute;inset:0;z-index:4;display:flex;align-items:center;justify-content:center;
+              background:#f7f6f2;transition:opacity .3s}
+  .stage-load.hide{opacity:0;pointer-events:none}
+  .stage-load span{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);
+                   animation:loadpulse 1.4s ease-in-out infinite}
+  @keyframes loadpulse{0%,100%{opacity:.45}50%{opacity:1}}
+  .play-overlay{position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;
+                pointer-events:none;transition:opacity .25s ease}
+  .play-chip{font-size:11px;letter-spacing:.8px;color:var(--ink);background:rgba(255,255,255,.9);
+             border:1px solid var(--border);padding:10px 16px;border-radius:999px;
+             display:flex;align-items:center;gap:8px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+  .play-chip i{font-style:normal;color:var(--red);font-size:13px}
+  .play-overlay.hide{opacity:0}
+  #chamber-canvas{display:block;width:100%;height:min(66vh,520px);cursor:pointer;touch-action:manipulation}
+  #chamber-fallback{display:none;position:absolute;inset:0;z-index:5;align-items:center;justify-content:center;
+                    color:var(--muted);font-size:14px;padding:28px;text-align:center;background:var(--surface)}
+  .transport{margin-top:12px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;
+             background:var(--surface);display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:center}
+  .t-btn{width:38px;height:38px;border:0;border-radius:50%;background:var(--red);color:#fff;
+         font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .t-btn:hover{background:var(--red-dark)}
+  .t-btn:focus-visible{outline:2px solid var(--red-dark);outline-offset:2px}
+  .t-track{grid-column:2;display:flex;flex-direction:column;gap:6px}
+  .t-bar{position:relative;height:5px;border-radius:999px;background:#eceae3;overflow:visible;cursor:pointer}
+  .t-fill{height:100%;width:0;background:var(--red);border-radius:999px}
+  .t-thumb{position:absolute;top:50%;width:11px;height:11px;border-radius:50%;background:#fff;
+           border:2px solid var(--red);transform:translate(-50%,-50%);pointer-events:none;left:0}
+  .t-meta{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);letter-spacing:.4px}
+  .t-meta .on{color:var(--red-deep);font-weight:600}
+  audio#chamber-audio{display:none}
+  @media(prefers-reduced-motion:reduce){
+    .stage,.stage-load,.play-overlay{transition:none}
+    .stage-load span{animation:none}
+  }
 </style></head><body>
 <div class="wrap">
-  <div class="hdr mono">
+  <div class="top mono">
     <a href="{{ back_href }}">← Bird-Dex</a>
-    <span class="pos">Nº {{ "%03d"|format(dex_no) }} of {{ "%03d"|format(dex_total) }}</span>
     <span class="spacer"></span>
-    <div class="nav">
-      {% if prev_call %}
-      <a href="{{ call_href(prev_call) }}">← {{ prev_call.name }}</a>
-      {% else %}<a class="off" href="#">← Prev</a>{% endif %}
-      {% if next_call %}
-      <a href="{{ call_href(next_call) }}">{{ next_call.name }} →</a>
-      {% else %}<a class="off" href="#">Next →</a>{% endif %}
+    <span class="pos">Dex #{{ "%03d"|format(dex_no) }} / {{ "%03d"|format(dex_total) }}</span>
+  </div>
+  <div class="hero-card">
+    <div class="badge mono">
+      <span class="conf-lbl">Peak conf</span>
+      <span class="conf">{{ "%.3f"|format(peak_conf) }}</span>
+    </div>
+    <div class="hero-head">
+      {% if sprite_slug %}<img class="sprite-sm" src="/sprite/{{ sprite_slug }}.png" alt="">{% endif %}
+      <div class="hero-main">
+        <h1 class="title">{{ common_name }}</h1>
+        {% if scientific_name %}<p class="latin">{{ scientific_name }}</p>{% endif %}
+        {% if clip_seconds %}<p class="hero-meta mono">{{ "%.1f"|format(clip_seconds) }}s clip · seg {{ segment_id }}</p>{% endif %}
+      </div>
+    </div>
+    <div class="hero-nav mono">
+      <div class="nav-group call">
+        <span class="nav-lbl">Call</span>
+        <div class="nav">
+          {% if prev_clip %}
+          <a href="{{ call_href(prev_clip) }}" title="{{ prev_clip.heard_at }}">← {{ "%.3f"|format(prev_clip.peak_conf) }}</a>
+          {% else %}<a class="off" href="#">← Prev</a>{% endif %}
+          <span class="clip-pos">{{ clip_no }} / {{ clip_total }}</span>
+          {% if next_clip %}
+          <a href="{{ call_href(next_clip) }}" title="{{ next_clip.heard_at }}">{{ "%.3f"|format(next_clip.peak_conf) }} →</a>
+          {% else %}<a class="off" href="#">Next →</a>{% endif %}
+        </div>
+      </div>
+      <div class="nav-group bird">
+        <span class="nav-lbl">Bird</span>
+        <div class="nav">
+          {% if prev_call %}
+          <a href="{{ call_href(prev_call) }}" title="{{ prev_call.name }}">← {{ prev_call.name }}</a>
+          {% else %}<a class="off" href="#">← Prev</a>{% endif %}
+          {% if next_call %}
+          <a href="{{ call_href(next_call) }}" title="{{ next_call.name }}">{{ next_call.name }} →</a>
+          {% else %}<a class="off" href="#">Next →</a>{% endif %}
+        </div>
+      </div>
     </div>
   </div>
-  <div class="hdr" style="margin-bottom:10px">
-    {% if sprite_slug %}<img class="sprite-sm" src="/sprite/{{ sprite_slug }}.png" alt="">{% endif %}
-    <div>
-      <h1 class="title">{{ common_name }}</h1>
-      {% if scientific_name %}<p class="latin">{{ scientific_name }}</p>{% endif %}
+  <div class="stage" id="stage">
+    <div class="stage-load mono" id="stage-load"><span>Loading analyzer</span></div>
+    <div class="stage-hud mono">
+      <div class="hud-top">
+        <span class="time-readout" id="time-readout">0:00 / 0:00</span>
+      </div>
     </div>
-    <span class="spacer"></span>
-    <span class="conf mono">{{ "%.3f"|format(peak_conf) }}</span>
-  </div>
-  <div class="stage">
+    <div class="play-overlay" id="play-overlay">
+      <span class="play-chip"><i>▶</i> Space to play</span>
+    </div>
     <canvas id="chamber-canvas"></canvas>
-    <div id="chamber-fallback">WebGL unavailable — audio playback still works below.</div>
+    <div id="chamber-fallback">Analyzer unavailable — use transport below for audio.</div>
   </div>
-  <div class="controls">
-    <audio id="chamber-audio" controls preload="metadata"
+  <div class="transport mono">
+    <button class="t-btn" id="t-btn" type="button" aria-label="Play">▶</button>
+    <div class="t-track">
+      <div class="t-bar" id="t-bar">
+        <div class="t-fill" id="t-fill"></div>
+        <div class="t-thumb" id="t-thumb"></div>
+      </div>
+      <div class="t-meta"><span id="t-status">Paused</span><span id="t-dur">—</span></div>
+    </div>
+    <audio id="chamber-audio" preload="metadata"
            src="/audio/{{ segment_id }}?start={{ start }}&end={{ end }}"></audio>
-    <p class="hint mono">Press play — fullscreen viz pulses with the call · click canvas to play/pause</p>
   </div>
 </div>
 <script>
@@ -519,8 +634,72 @@ VISUALIZE_PAGE = """
   var canvas=document.getElementById('chamber-canvas');
   var fallback=document.getElementById('chamber-fallback');
   var audio=document.getElementById('chamber-audio');
+  var tBtn=document.getElementById('t-btn');
+  var tBar=document.getElementById('t-bar');
+  var tFill=document.getElementById('t-fill');
+  var tStatus=document.getElementById('t-status');
+  var tDur=document.getElementById('t-dur');
+  var timeReadout=document.getElementById('time-readout');
+  var playOverlay=document.getElementById('play-overlay');
+  var stage=document.getElementById('stage');
+  var stageLoad=document.getElementById('stage-load');
+  var tThumb=document.getElementById('t-thumb');
   var vizUrl='/callviz/{{ segment_id }}.json?start={{ start }}&end={{ end }}';
-  if(!canvas||!window.THREE){
+  var vizDuration=0;
+  function togglePlay(){
+    if(audio.paused)audio.play().catch(function(){});else audio.pause();
+  }
+  function seekTo(clientX){
+    var dur=vizDuration||audio.duration;
+    if(!dur||isNaN(dur))return;
+    var r=tBar.getBoundingClientRect();
+    audio.currentTime=Math.max(0,Math.min(1,(clientX-r.left)/r.width))*dur;
+  }
+  function syncTransport(){
+    var playing=!audio.paused&&!audio.ended;
+    tBtn.textContent=playing?'\u23F8':'\u25B6';
+    tBtn.setAttribute('aria-label',playing?'Pause':'Play');
+    if(tStatus){
+      tStatus.textContent=playing?'Playing':'Paused';
+      tStatus.className=playing?'on':'';
+    }
+    if(playOverlay)playOverlay.classList.toggle('hide',playing);
+  }
+  function updateProgress(t){
+    var dur=vizDuration||audio.duration||1;
+    var pct=Math.max(0,Math.min(100,(t/dur)*100));
+    if(tFill)tFill.style.width=pct+'%';
+    if(tThumb)tThumb.style.left=pct+'%';
+    if(timeReadout)timeReadout.textContent=fmtTime(t)+' / '+fmtTime(dur);
+  }
+  function fmtTime(t){
+    if(!isFinite(t)||t<0)t=0;
+    var s=Math.floor(t%60),m=Math.floor(t/60);
+    return m+':'+(s<10?'0':'')+s;
+  }
+  tBtn.addEventListener('click',togglePlay);
+  tBar.addEventListener('click',function(e){seekTo(e.clientX);});
+  document.addEventListener('keydown',function(e){
+    if(e.target&&/input|textarea|select/i.test(e.target.tagName))return;
+    if(e.code==='Space'){e.preventDefault();togglePlay();}
+    else if(e.code==='ArrowRight'){
+      e.preventDefault();
+      audio.currentTime=Math.min(vizDuration||audio.duration||0,(audio.currentTime||0)+0.15);
+    }
+    else if(e.code==='ArrowLeft'){
+      e.preventDefault();
+      audio.currentTime=Math.max(0,(audio.currentTime||0)-0.15);
+    }
+  });
+  audio.addEventListener('play',syncTransport);
+  audio.addEventListener('pause',syncTransport);
+  audio.addEventListener('ended',syncTransport);
+  audio.addEventListener('timeupdate',function(){
+    if(!vizDuration)updateProgress(audio.currentTime||0);
+  });
+  syncTransport();
+  if(!canvas||!canvas.getContext){
+    if(stageLoad)stageLoad.classList.add('hide');
     fallback.style.display='flex';
     return;
   }
@@ -528,46 +707,88 @@ VISUALIZE_PAGE = """
     if(!r.ok)throw new Error('viz');
     return r.json();
   }).then(function(data){
-    try{initScene(data);}catch(e){
+    try{
+      initSpectrogram(data);
+      if(stage)stage.classList.add('ready');
+      if(stageLoad)stageLoad.classList.add('hide');
+    }catch(e){
+      if(stageLoad)stageLoad.classList.add('hide');
       fallback.style.display='flex';
-      fallback.textContent='WebGL unavailable — audio playback still works below.';
+      fallback.textContent='Analyzer unavailable — use transport below for audio.';
     }
   }).catch(function(){
+    if(stageLoad)stageLoad.classList.add('hide');
     fallback.style.display='flex';
-    fallback.textContent='Visualization data unavailable — audio playback still works below.';
+    fallback.textContent='Analyzer data unavailable — use transport below for audio.';
   });
 
-  function initScene(data){
-    var THREE=window.THREE;
+  function initSpectrogram(data){
+    var ctx=canvas.getContext('2d');
     var rows=data.rows,cols=data.cols,mag=data.mag;
     var duration=data.duration||1;
-    var nLow=Math.max(1,Math.floor(rows*0.33));
-    var nMid=Math.max(nLow+1,Math.floor(rows*0.66));
-    function colBands(c){
-      var bass=0,mid=0,treb=0;
-      for(var r=0;r<rows;r++){
-        var m=(mag[r]&&mag[r][c]!=null)?mag[r][c]:0;
-        if(r<nLow)bass+=m;
-        else if(r<nMid)mid+=m;
-        else treb+=m;
-      }
-      bass/=nLow;
-      mid/=(nMid-nLow);
-      treb/=(rows-nMid);
-      return{bass:bass,mid:mid,treb:treb,energy:(bass+mid+treb)/3};
+    vizDuration=duration;
+    if(tDur)tDur.textContent=fmtTime(duration);
+    var playheadFrac=0.33;
+    var scopeFrac=0.21;
+    var marginL=12,marginB=8,marginT=34,marginR=12;
+    var lut=new Uint8ClampedArray(256*3);
+    for(var i=0;i<256;i++){
+      var v=i/255;
+      var t=v*v;
+      lut[i*3]=Math.min(255,Math.floor(8+t*140+v*55));
+      lut[i*3+1]=Math.min(255,Math.floor(16+v*200+t*40));
+      lut[i*3+2]=Math.min(255,Math.floor(30+v*35+t*10));
     }
-    function bandsAt(colF){
+    var HSCALE=8;
+    var off=document.createElement('canvas');
+    off.width=cols*HSCALE;off.height=rows;
+    var offCtx=off.getContext('2d');
+    var img=offCtx.createImageData(off.width,rows);
+    var px=img.data;
+    for(var xc=0;xc<off.width;xc++){
+      var colF=xc/HSCALE;
       var c0=Math.floor(colF);
       var c1=Math.min(cols-1,c0+1);
-      var f=colF-c0;
-      var b0=colBands(c0),b1=colBands(c1);
-      return{
-        bass:b0.bass*(1-f)+b1.bass*f,
-        mid:b0.mid*(1-f)+b1.mid*f,
-        treb:b0.treb*(1-f)+b1.treb*f,
-        energy:b0.energy*(1-f)+b1.energy*f
-      };
+      var cf=colF-c0;
+      for(var r=0;r<rows;r++){
+        var m0=(mag[r]&&mag[r][c0]!=null)?mag[r][c0]:0;
+        var m1=(mag[r]&&mag[r][c1]!=null)?mag[r][c1]:0;
+        var m=m0*(1-cf)+m1*cf;
+        var idx=Math.min(255,Math.max(0,Math.floor(m*255)))*3;
+        var y=rows-1-r;
+        var o=(y*off.width+xc)*4;
+        px[o]=lut[idx];px[o+1]=lut[idx+1];px[o+2]=lut[idx+2];px[o+3]=255;
+      }
     }
+    offCtx.putImageData(img,0,0);
+    var syncT=0,syncWall=0;
+    function syncAudioClock(){
+      syncT=audio.currentTime||0;
+      syncWall=performance.now();
+    }
+    audio.addEventListener('timeupdate',syncAudioClock);
+    audio.addEventListener('seeked',syncAudioClock);
+    audio.addEventListener('play',syncAudioClock);
+    audio.addEventListener('pause',syncAudioClock);
+    syncAudioClock();
+    function playbackTime(){
+      if(audio.paused||audio.ended)return audio.currentTime||0;
+      if(!syncWall)return audio.currentTime||0;
+      return Math.min(duration,syncT+(performance.now()-syncWall)*0.001);
+    }
+    var dpr=1;
+    function resize(){
+      var nw=canvas.clientWidth,nh=canvas.clientHeight;
+      if(!nw||!nh)return;
+      dpr=Math.min(window.devicePixelRatio||1,2);
+      canvas.width=Math.floor(nw*dpr);
+      canvas.height=Math.floor(nh*dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+    }
+    window.addEventListener('resize',resize);
+    resize();
+    canvas.addEventListener('click',togglePlay);
+    var smoothPulse=0,lastPulse=0,headGlow=0;
     function spectrumAt(colF){
       var c0=Math.floor(colF);
       var c1=Math.min(cols-1,c0+1);
@@ -580,203 +801,162 @@ VISUALIZE_PAGE = """
       }
       return out;
     }
-    var renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true});
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
-    var cam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
-    var audioSeed=(function(){
-      var wsum=0,esum=0,acc=0;
-      for(var c=0;c<cols;c++){
-        for(var r=0;r<rows;r++){
-          var m=(mag[r]&&mag[r][c]!=null)?mag[r][c]:0;
-          wsum+=m*r;esum+=m;
-          acc+=m*(r*7.0+c*3.0);
-        }
-      }
-      var centroid=esum>0?(wsum/esum)/Math.max(1,rows-1):0.5;
-      var frac=(acc*0.013)%1.0;
-      if(frac<0)frac+=1.0;
-      return (centroid*0.6+frac*0.4)%1.0;
-    })();
-    function pal3(t){
-      return [0.5+0.5*Math.cos(6.28318*t),
-              0.5+0.5*Math.cos(6.28318*(t+0.33)),
-              0.5+0.5*Math.cos(6.28318*(t+0.66))];
-    }
-    // --- minimal dark background: faint grid + seed-tinted center glow ---
-    var bgScene=new THREE.Scene();
-    var quadGeo=new THREE.PlaneGeometry(2,2);
-    var vs='varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.0,1.0);}';
-    var bgFs=[
-      'precision highp float;',
-      'uniform float u_time;uniform float u_energy;uniform float u_seed;uniform vec2 u_res;varying vec2 vUv;',
-      'void main(){',
-      'vec2 p=vUv*2.0-1.0;p.x*=u_res.x/u_res.y;',
-      'float r=length(p);',
-      'vec3 col=vec3(0.015,0.022,0.03);',
-      'vec2 g=abs(fract(vUv*vec2(46.0,28.0))-0.5);',
-      'float line=smoothstep(0.0,0.035,min(g.x,g.y));',
-      'col+=vec3(0.02,0.07,0.10)*(1.0-line)*0.6;',
-      'vec3 glow=0.5+0.5*cos(6.28318*(u_seed+vec3(0.0,0.33,0.66)));',
-      'col+=glow*exp(-r*1.9)*(0.10+u_energy*0.55);',
-      'col*=1.0-r*0.25;',
-      'gl_FragColor=vec4(col,1.0);',
-      '}'
-    ].join('');
-    var w=canvas.clientWidth||800,h=canvas.clientHeight||480;
-    var bgUniforms={
-      u_time:{value:0},u_energy:{value:0},u_seed:{value:audioSeed},
-      u_res:{value:new THREE.Vector2(w,h)}
-    };
-    bgScene.add(new THREE.Mesh(quadGeo,new THREE.ShaderMaterial({
-      vertexShader:vs,fragmentShader:bgFs,uniforms:bgUniforms})));
-    // --- bar field (radial ring + bottom spectrum) ---
-    var fxScene=new THREE.Scene();
-    function makeBars(maxBars){
-      var geo=new THREE.BufferGeometry();
-      var pos=new Float32Array(maxBars*18);
-      var col=new Float32Array(maxBars*18);
-      geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
-      geo.setAttribute('color',new THREE.BufferAttribute(col,3));
-      fxScene.add(new THREE.Mesh(geo,new THREE.MeshBasicMaterial({
-        vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,
-        side:THREE.DoubleSide,depthTest:false,depthWrite:false})));
-      return {geo:geo,pos:pos,col:col};
-    }
-    function quad(P,C,o,ax,ay,bx,by,cx,cy,dx,dy,r,g,b){
-      var xs=[ax,bx,cx,ax,cx,dx],ys=[ay,by,cy,ay,cy,dy];
-      for(var k=0;k<6;k++){
-        P[o+k*3]=xs[k];P[o+k*3+1]=ys[k];P[o+k*3+2]=0;
-        C[o+k*3]=r;C[o+k*3+1]=g;C[o+k*3+2]=b;
-      }
-    }
-    function specAtRow(spec,fr){
-      var i0=Math.floor(fr),i1=Math.min(rows-1,i0+1),f=fr-i0;
-      return spec[i0]*(1-f)+spec[i1]*f;
-    }
-    var NR=84,radial=makeBars(NR);
-    var NB=64,bottom=makeBars(NB);
-    function updateRadial(spec,energy,clock,asp){
-      var P=radial.pos,C=radial.col,o=0;
-      var ri=0.17+energy*0.05;
-      var rot=clock*0.1+audioSeed*6.28318;
-      var wa=(6.28318/NR)*0.36;
-      for(var i=0;i<NR;i++){
-        var fr=i/(NR-1)*(rows-1);
-        var s=Math.max(0,specAtRow(spec,fr));
-        var ang=rot+(i/NR)*6.28318;
-        var ro=ri+0.03+s*0.62*(0.6+energy);
-        var c0=Math.cos(ang-wa),s0=Math.sin(ang-wa);
-        var c1=Math.cos(ang+wa),s1=Math.sin(ang+wa);
-        var rgb=pal3(audioSeed+(i/NR)*0.5),br=0.45+s*1.7;
-        quad(P,C,o,
-          c0*ri/asp,s0*ri, c1*ri/asp,s1*ri,
-          c1*ro/asp,s1*ro, c0*ro/asp,s0*ro,
-          rgb[0]*br,rgb[1]*br,rgb[2]*br);
-        o+=18;
-      }
-      radial.geo.attributes.position.needsUpdate=true;
-      radial.geo.attributes.color.needsUpdate=true;
-    }
-    function updateBottom(spec,energy){
-      var P=bottom.pos,C=bottom.col,o=0;
-      var baseY=-0.97,bw=(1.9/NB)*0.4;
-      for(var i=0;i<NB;i++){
-        var fr=i/(NB-1)*(rows-1);
-        var s=Math.max(0,specAtRow(spec,fr));
-        var x=-0.95+(i/(NB-1))*1.9;
-        var hgt=0.015+s*0.62*(0.7+energy);
-        var rgb=pal3(audioSeed+(i/NB)*0.5),br=0.45+s*1.7;
-        quad(P,C,o,
-          x-bw,baseY, x+bw,baseY, x+bw,baseY+hgt, x-bw,baseY+hgt,
-          rgb[0]*br,rgb[1]*br,rgb[2]*br);
-        o+=18;
-      }
-      bottom.geo.attributes.position.needsUpdate=true;
-      bottom.geo.attributes.color.needsUpdate=true;
-    }
-    // --- oscilloscope waveform lines ---
-    var lineScene=new THREE.Scene();
-    var lineSpecs=[
-      {lag:0,amp:0.6,yOff:0.0,opacity:0.95,color:0xffffff},
-      {lag:2,amp:0.5,yOff:0.0,opacity:0.45,color:0x37e6ff},
-      {lag:5,amp:0.42,yOff:0.0,opacity:0.3,color:0xff3df0}
-    ];
-    var freqLines=[];
-    for(var li=0;li<lineSpecs.length;li++){
-      var spc0=lineSpecs[li];
-      var geo=new THREE.BufferGeometry();
-      var posArr=new Float32Array(rows*3);
-      geo.setAttribute('position',new THREE.BufferAttribute(posArr,3));
-      lineScene.add(new THREE.Line(geo,new THREE.LineBasicMaterial({
-        color:spc0.color,transparent:true,opacity:spc0.opacity,
-        blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false})));
-      freqLines.push({geo:geo,spec:spc0});
-    }
-    function updateFreqLines(colF,energy){
-      for(var li=0;li<freqLines.length;li++){
-        var fl=freqLines[li],sp=fl.spec;
-        var raw=spectrumAt(Math.max(0,colF-sp.lag));
-        var pos=fl.geo.attributes.position.array;
-        for(var i=0;i<rows;i++){
-          pos[i*3]=-0.92+(i/(rows-1))*1.84;
-          pos[i*3+1]=sp.yOff+(raw[i]-0.25)*sp.amp*(0.7+energy*1.4);
-          pos[i*3+2]=0;
-        }
-        fl.geo.attributes.position.needsUpdate=true;
-      }
-    }
-    var smooth={bass:0,mid:0,treb:0,energy:0};
-    var startMs=performance.now();
-    var lastE=0;
-    function resize(){
-      var nw=canvas.clientWidth,nh=canvas.clientHeight;
-      if(!nw||!nh)return;
-      renderer.setSize(nw,nh,false);
-      bgUniforms.u_res.value.set(nw,nh);
-    }
-    window.addEventListener('resize',resize);
-    resize();
-    canvas.addEventListener('click',function(){
-      if(audio.paused)audio.play();else audio.pause();
-    });
-    function lerpBands(target,spd){
-      smooth.bass+=(target.bass-smooth.bass)*spd;
-      smooth.mid+=(target.mid-smooth.mid)*spd;
-      smooth.treb+=(target.treb-smooth.treb)*spd;
-      smooth.energy+=(target.energy-smooth.energy)*spd;
-    }
-    function animate(){
-      requestAnimationFrame(animate);
-      var clock=(performance.now()-startMs)*0.001;
-      var playing=!audio.paused&&!audio.ended;
-      var target,colF;
-      if(playing&&audio.duration&&!isNaN(audio.duration)){
-        colF=(audio.currentTime/duration)*(cols-1);
-        target=bandsAt(colF);
-        lerpBands(target,0.4);
+    function scrollGeom(plotW,plotH,colF,playing){
+      var gap=8;
+      var specH=plotH*(1-scopeFrac)-gap;
+      var scopeH=plotH*scopeFrac;
+      var specTop=marginT;
+      var scopeTop=marginT+specH+gap;
+      var visCols=Math.max(8,Math.min(cols,Math.ceil(cols*0.55)));
+      var dx,dw,headX;
+      if(playing){
+        var colW=plotW/visCols;
+        dx=marginL+playheadFrac*plotW-colF*colW;
+        dw=cols*colW;
+        headX=marginL+playheadFrac*plotW;
       }else{
-        colF=(clock*0.4)%(cols-1);
-        target=bandsAt(colF);
-        target.bass*=0.5;target.mid*=0.5;target.treb*=0.5;target.energy*=0.5;
-        lerpBands(target,0.12);
+        dx=marginL;
+        dw=plotW;
+        headX=marginL+(colF/Math.max(1,cols-1))*plotW;
       }
-      var beat=Math.max(0,smooth.energy-lastE)*8.0;
-      lastE=smooth.energy;
-      var e=smooth.energy+beat*0.25;
-      var asp=(canvas.clientWidth||w)/(canvas.clientHeight||h);
-      var inst=spectrumAt(colF);
-      bgUniforms.u_time.value=clock;
-      bgUniforms.u_energy.value=e;
-      updateRadial(inst,e,clock,asp);
-      updateBottom(inst,e);
-      updateFreqLines(colF,e);
-      renderer.autoClear=true;
-      renderer.render(bgScene,cam);
-      renderer.autoClear=false;
-      renderer.render(fxScene,cam);
-      renderer.render(lineScene,cam);
+      return{visCols:visCols,dx:dx,dw:dw,headX:headX,
+             specTop:specTop,specH:specH,scopeTop:scopeTop,scopeH:scopeH};
     }
-    animate();
+    function scopePath(spec,midY,amp,x0,x1){
+      var pts=[];
+      for(var r=0;r<rows;r++){
+        pts.push([
+          x0+(r/(rows-1||1))*(x1-x0),
+          midY-(spec[r]-0.3)*amp
+        ]);
+      }
+      return pts;
+    }
+    function strokePath(pts,color,width){
+      ctx.strokeStyle=color;
+      ctx.lineWidth=width;
+      ctx.lineJoin='round';
+      ctx.lineCap='round';
+      ctx.beginPath();
+      for(var i=0;i<pts.length;i++){
+        if(i===0)ctx.moveTo(pts[i][0],pts[i][1]);
+        else ctx.lineTo(pts[i][0],pts[i][1]);
+      }
+      ctx.stroke();
+    }
+    function fillUnderPath(pts,midY,top,hgt,color){
+      if(pts.length<2)return;
+      var fg=ctx.createLinearGradient(0,top,0,top+hgt);
+      fg.addColorStop(0,color);
+      fg.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=fg;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0],midY);
+      for(var i=0;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);
+      ctx.lineTo(pts[pts.length-1][0],midY);
+      ctx.closePath();
+      ctx.fill();
+    }
+    function drawPulseScope(g,plotW,colF,pulse){
+      var traces=[
+        {lag:4,color:'rgba(168,40,38,0.15)',w:1,fill:0},
+        {lag:2,color:'rgba(168,40,38,0.35)',w:1.2,fill:0},
+        {lag:0,color:'rgba(125,28,27,0.88)',w:1.6,fill:1}
+      ];
+      var midY=g.scopeTop+g.scopeH*0.54;
+      var amp=g.scopeH*0.38*(0.78+pulse*0.5);
+      var x0=marginL,x1=marginL+plotW;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(marginL,g.scopeTop,plotW,g.scopeH);
+      ctx.clip();
+      for(var ti=0;ti<traces.length;ti++){
+        var tr=traces[ti];
+        var spec=spectrumAt(Math.max(0,colF-tr.lag));
+        var pts=scopePath(spec,midY,amp,x0,x1);
+        if(tr.fill)fillUnderPath(pts,midY,g.scopeTop,g.scopeH,'rgba(216,58,54,0.1)');
+        strokePath(pts,tr.color,tr.w);
+      }
+      ctx.restore();
+    }
+    function drawSpecGrid(g,plotW){
+      ctx.strokeStyle='rgba(42,62,72,0.22)';
+      ctx.lineWidth=1;
+      var bands=5;
+      for(var b=1;b<bands;b++){
+        var y=g.specTop+(b/bands)*g.specH;
+        ctx.beginPath();
+        ctx.moveTo(marginL,y);
+        ctx.lineTo(marginL+plotW,y);
+        ctx.stroke();
+      }
+    }
+    function drawVignette(g,plotW,w,h){
+      var vg=ctx.createLinearGradient(marginL,0,marginL+28,0);
+      vg.addColorStop(0,'rgba(8,17,14,0.55)');
+      vg.addColorStop(1,'rgba(8,17,14,0)');
+      ctx.fillStyle=vg;
+      ctx.fillRect(marginL,g.specTop,28,g.specH);
+      vg=ctx.createLinearGradient(marginL+plotW,0,marginL+plotW-28,0);
+      vg.addColorStop(0,'rgba(8,17,14,0.55)');
+      vg.addColorStop(1,'rgba(8,17,14,0)');
+      ctx.fillStyle=vg;
+      ctx.fillRect(marginL+plotW-28,g.specTop,28,g.specH);
+    }
+    function draw(){
+      requestAnimationFrame(draw);
+      var w=canvas.clientWidth,h=canvas.clientHeight;
+      if(!w||!h)return;
+      var plotW=w-marginL-marginR,plotH=h-marginT-marginB;
+      var playing=!audio.paused&&!audio.ended;
+      var t=Math.max(0,Math.min(duration,playbackTime()));
+      var colF=(t/duration)*Math.max(1,cols-1);
+      var g=scrollGeom(plotW,plotH,colF,playing);
+      ctx.fillStyle='#f7f6f2';
+      ctx.fillRect(0,0,w,h);
+      ctx.fillStyle='#0d1b14';
+      ctx.fillRect(marginL,g.specTop,plotW,g.specH);
+      ctx.imageSmoothingEnabled=true;
+      ctx.drawImage(off,0,0,off.width,rows,g.dx,g.specTop,g.dw,g.specH);
+      drawSpecGrid(g,plotW);
+      drawVignette(g,plotW,w,h);
+      ctx.fillStyle='#f3efe2';
+      ctx.fillRect(marginL,g.scopeTop,plotW,g.scopeH);
+      ctx.strokeStyle='#e2e0d8';
+      ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.moveTo(marginL,g.scopeTop-1);
+      ctx.lineTo(marginL+plotW,g.scopeTop-1);
+      ctx.stroke();
+      var midY=g.scopeTop+g.scopeH*0.54;
+      ctx.strokeStyle='rgba(138,133,122,0.35)';
+      ctx.beginPath();
+      ctx.moveTo(marginL,midY);
+      ctx.lineTo(marginL+plotW,midY);
+      ctx.stroke();
+      var specNow=spectrumAt(colF);
+      var energy=0;
+      for(var ri=0;ri<rows;ri++)energy+=specNow[ri];
+      energy/=rows;
+      var beat=Math.max(0,energy-lastPulse)*5.5;
+      lastPulse=energy;
+      smoothPulse+=(energy+beat*0.18-smoothPulse)*(playing?0.28:0.14);
+      headGlow+=(smoothPulse-headGlow)*(playing?0.22:0.1);
+      drawPulseScope(g,plotW,colF,smoothPulse);
+      var headW=1.5+headGlow*1.5;
+      ctx.strokeStyle='rgba(216,58,54,0.85)';
+      ctx.lineWidth=headW;
+      ctx.beginPath();
+      ctx.moveTo(g.headX,marginT);
+      ctx.lineTo(g.headX,h-marginB);
+      ctx.stroke();
+      ctx.fillStyle='#d83a36';
+      ctx.beginPath();
+      ctx.arc(g.headX,g.specTop,3+headGlow,0,6.28318);
+      ctx.fill();
+      updateProgress(t);
+    }
+    draw();
   }
 })();
 </script>
@@ -797,15 +977,18 @@ BIRD_PAGE = """
   .lbl{font-size:11px;letter-spacing:1.5px;color:#8a857a;text-transform:uppercase}
   .wrap{max-width:960px;margin:0 auto;padding:28px 22px}
   .top-bar{margin-bottom:22px}
-  .bird-nav{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;
-             padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:13px}
-  .bird-nav a{color:var(--red-dark);text-decoration:none;letter-spacing:.3px;font-weight:600}
-  .bird-nav a:hover{text-decoration:underline}
-  .bird-nav .prev,.bird-nav .next{flex:1;min-width:0}
-  .bird-nav .prev{text-align:left}
-  .bird-nav .next{text-align:right}
-  .bird-nav .pos{flex:0 0 auto;color:#8a857a;letter-spacing:.5px;font-size:12px;white-space:nowrap}
-  .bird-nav .off{color:#b0aca2}
+  .nav-panel{margin-bottom:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);
+             border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+  .nav-group{display:flex;align-items:center;gap:8px;flex:1 1 220px}
+  .nav-group.bird{justify-content:flex-end}
+  .nav-lbl{font-size:9px;letter-spacing:1.3px;text-transform:uppercase;color:#8a857a;width:34px;flex:0 0 34px}
+  .nav{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .nav a{color:var(--red-dark);text-decoration:none;font-size:11px;font-weight:600;padding:6px 12px;
+         border:1px solid var(--border);border-radius:8px;background:#fff;max-width:168px;
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav a:hover{background:var(--surface)}
+  .nav a.off,.nav .off{opacity:.35;pointer-events:none;color:#b0aca2;padding:6px 12px}
+  .clip-pos{font-size:11px;color:#8a857a;letter-spacing:.4px;padding:0 4px}
   .back{font-size:12px;letter-spacing:.5px}
   .back a{color:var(--red-dark);text-decoration:none}
   .back a:hover{text-decoration:underline}
@@ -870,22 +1053,31 @@ BIRD_PAGE = """
 </style></head><body>
 <div class="wrap">
   <div class="top-bar">
-    <div class="bird-nav mono">
-      <span class="prev">
-        {% if prev_bird %}
-        <a href="{{ bird_href(prev_bird.slug) }}">← {{ prev_bird.name }}</a>
-        {% else %}
-        <span class="off">←</span>
-        {% endif %}
-      </span>
-      <span class="pos">Nº {{ dex_no }} of {{ dex_total }}</span>
-      <span class="next">
-        {% if next_bird %}
-        <a href="{{ bird_href(next_bird.slug) }}">{{ next_bird.name }} →</a>
-        {% else %}
-        <span class="off">→</span>
-        {% endif %}
-      </span>
+    <div class="nav-panel mono">
+      <div class="nav-group call">
+        <span class="nav-lbl">Call</span>
+        <div class="nav">
+          {% if prev_clip %}
+          <a href="{{ call_href(prev_clip) }}" title="{{ prev_clip.heard_at }}">← {{ "%.3f"|format(prev_clip.peak_conf) }}</a>
+          {% else %}<a class="off" href="#">← Prev</a>{% endif %}
+          <span class="clip-pos">{{ clip_no }} / {{ clip_total }}</span>
+          {% if next_clip %}
+          <a href="{{ call_href(next_clip) }}" title="{{ next_clip.heard_at }}">{{ "%.3f"|format(next_clip.peak_conf) }} →</a>
+          {% else %}<a class="off" href="#">Next →</a>{% endif %}
+        </div>
+      </div>
+      <div class="nav-group bird">
+        <span class="nav-lbl">Bird</span>
+        <div class="nav">
+          {% if prev_bird %}
+          <a href="{{ bird_href(prev_bird.slug) }}" title="{{ prev_bird.name }}">← {{ prev_bird.name }}</a>
+          {% else %}<a class="off" href="#">← Prev</a>{% endif %}
+          <span class="clip-pos">Nº {{ dex_no }} / {{ dex_total }}</span>
+          {% if next_bird %}
+          <a href="{{ bird_href(next_bird.slug) }}" title="{{ next_bird.name }}">{{ next_bird.name }} →</a>
+          {% else %}<a class="off" href="#">Next →</a>{% endif %}
+        </div>
+      </div>
     </div>
     <div class="back mono"><a href="{{ back_href }}">← Back to Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/timeline{{ timeline_qs }}">Timeline</a></div>
   </div>
@@ -2177,6 +2369,112 @@ def _dex_call_order(
     ]
 
 
+def _resolve_call_clip(
+    conn,
+    segment_id: int,
+    start: float | None,
+    end: float | None,
+) -> dict | None:
+    """Return one detection window for the call chamber, or None."""
+    if start is None or end is None or end <= start:
+        return None
+    row = conn.execute(
+        """
+        SELECT d.common_name, d.confidence, d.start_time, d.end_time,
+               d.heard_at, d.segment_id
+        FROM detections d
+        WHERE d.segment_id = ?
+          AND ABS(d.start_time - ?) < 0.05
+          AND ABS(d.end_time - ?) < 0.05
+        LIMIT 1
+        """,
+        (segment_id, start, end),
+    ).fetchone()
+    if not row:
+        return None
+    slugs = _slug_map()
+    common_name = row["common_name"]
+    return {
+        "slug": slugs.get(common_name) or _common_to_slug(common_name),
+        "name": common_name,
+        "segment_id": row["segment_id"],
+        "start": row["start_time"],
+        "end": row["end_time"],
+        "peak_conf": row["confidence"],
+        "heard_at": row["heard_at"],
+    }
+
+
+def _species_call_order(
+    conn,
+    common_name: str,
+    *,
+    show_all: bool,
+    selected_day: str,
+) -> list[dict]:
+    """All detection windows for one species, highest confidence first."""
+    slugs = _slug_map()
+    bird_slug = slugs.get(common_name) or _common_to_slug(common_name)
+    rows = storage.species_detections(
+        conn,
+        common_name,
+        day=None if show_all else selected_day,
+        show_all=show_all,
+        limit=500,
+    )
+    return [
+        {
+            "slug": bird_slug,
+            "name": common_name,
+            "segment_id": r["segment_id"],
+            "start": r["start_time"],
+            "end": r["end_time"],
+            "peak_conf": r["confidence"],
+            "heard_at": r["heard_at"],
+        }
+        for r in rows
+    ]
+
+
+def _call_clip_index(calls: list[dict], segment_id: int, start: float, end: float) -> int | None:
+    for i, e in enumerate(calls):
+        if (
+            e["segment_id"] == segment_id
+            and abs(e["start"] - start) < 0.05
+            and abs(e["end"] - end) < 0.05
+        ):
+            return i
+    return None
+
+
+def _clip_nav(
+    conn,
+    common_name: str,
+    segment_id: int,
+    start: float,
+    end: float,
+    *,
+    show_all: bool,
+    selected_day: str,
+) -> tuple[dict | None, dict | None, int, int]:
+    """Prev/next clip within a species plus 1-based position."""
+    calls = _species_call_order(
+        conn, common_name, show_all=show_all, selected_day=selected_day
+    )
+    total = len(calls)
+    if not total:
+        return None, None, 0, 0
+    idx = _call_clip_index(calls, segment_id, start, end)
+    if idx is None:
+        idx = 0
+    return (
+        calls[idx - 1] if idx > 0 else None,
+        calls[idx + 1] if idx < total - 1 else None,
+        idx + 1,
+        total,
+    )
+
+
 def _split_segments_am_pm(
     segments: list,
 ) -> tuple[list[int], list[int], float]:
@@ -2546,14 +2844,28 @@ def index():
         rows = storage.species_dex(conn) if show_all else storage.species_dex_day(conn, selected_day)
         hidden_count = sum(1 for r in rows if r["peak_conf"] < PEAK_CONF_FLOOR)
         rows = _filter_dex_rows(rows, hide_low=hide_low)
-        dex = [
-            dict(
-                r,
-                sprite_slug=_sprite_slug(r["common_name"], slugs),
-                bird_slug=slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
+        dex = []
+        for r in _sort_dex_rows(rows, sort):
+            prev_clip, next_clip, clip_no, clip_total = _clip_nav(
+                conn,
+                r["common_name"],
+                r["segment_id"],
+                r["start_time"],
+                r["end_time"],
+                show_all=show_all,
+                selected_day=selected_day,
             )
-            for r in _sort_dex_rows(rows, sort)
-        ]
+            dex.append(
+                dict(
+                    r,
+                    sprite_slug=_sprite_slug(r["common_name"], slugs),
+                    bird_slug=slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
+                    prev_clip=prev_clip,
+                    next_clip=next_clip,
+                    clip_no=clip_no,
+                    clip_total=clip_total,
+                )
+            )
         mode = "gallery" if request.args.get("mode") == "gallery" else "dex"
         day_scope = _scope_label(selected_day, show_all, style="short")
         if show_all:
@@ -2736,6 +3048,39 @@ def bird_detail(slug: str):
                 hide_low=hide_low,
             )
 
+        species_calls = _species_call_order(
+            conn,
+            common_name,
+            show_all=show_all,
+            selected_day=selected_day,
+        )
+        if species_calls:
+            peak = species_calls[0]
+            prev_clip, next_clip, clip_no, clip_total = _clip_nav(
+                conn,
+                common_name,
+                peak["segment_id"],
+                peak["start"],
+                peak["end"],
+                show_all=show_all,
+                selected_day=selected_day,
+            )
+        else:
+            prev_clip = next_clip = None
+            clip_no = clip_total = 0
+
+        def call_href(e: dict) -> str:
+            return _call_href(
+                e["segment_id"],
+                e["start"],
+                e["end"],
+                slug,
+                show_all=show_all,
+                selected_day=selected_day,
+                sort=sort,
+                hide_low=hide_low,
+            )
+
         return render_template_string(
             BIRD_PAGE,
             slug=slug,
@@ -2765,9 +3110,14 @@ def bird_detail(slug: str):
             back_href=back_href,
             prev_bird=prev_bird,
             next_bird=next_bird,
+            prev_clip=prev_clip,
+            next_clip=next_clip,
+            clip_no=clip_no,
+            clip_total=clip_total,
             dex_no=(dex_idx + 1) if dex_idx is not None else 0,
             dex_total=len(dex_birds),
             bird_href=bird_href,
+            call_href=call_href,
             timeline_qs=_timeline_qs(day=selected_day, show_all=show_all),
             dev=_dev_mode(),
             dev_script=_DEV_RELOAD_SCRIPT,
@@ -2869,6 +3219,14 @@ def call_view(segment_id: int):
         if not seg:
             abort(404)
 
+        entry = _resolve_call_clip(conn, segment_id, start, end)
+        if entry is None:
+            abort(404)
+
+        common_name = entry["name"]
+        bird_slug = slug or entry["slug"]
+        meta = storage.species_meta(conn, common_name)
+
         call_order = _dex_call_order(
             conn,
             show_all=show_all,
@@ -2876,34 +3234,29 @@ def call_view(segment_id: int):
             sort=sort,
             hide_low=hide_low,
         )
-        dex_idx = None
-        entry = None
-        if slug:
-            for i, e in enumerate(call_order):
-                if e["slug"] == slug:
-                    dex_idx = i
-                    entry = e
-                    break
-        if entry is None and start is not None and end is not None:
-            for i, e in enumerate(call_order):
-                if (
-                    e["segment_id"] == segment_id
-                    and abs(e["start"] - start) < 0.05
-                    and abs(e["end"] - end) < 0.05
-                ):
-                    dex_idx = i
-                    entry = e
-                    break
-        if entry is None:
-            abort(404)
-
-        common_name = entry["name"]
-        meta = storage.species_meta(conn, common_name)
-        prev_call = call_order[dex_idx - 1] if dex_idx and dex_idx > 0 else None
+        dex_idx = next(
+            (i for i, e in enumerate(call_order) if e["slug"] == bird_slug),
+            None,
+        )
+        prev_call = (
+            call_order[dex_idx - 1]
+            if dex_idx is not None and dex_idx > 0
+            else None
+        )
         next_call = (
             call_order[dex_idx + 1]
             if dex_idx is not None and dex_idx < len(call_order) - 1
             else None
+        )
+
+        prev_clip, next_clip, clip_no, clip_total = _clip_nav(
+            conn,
+            common_name,
+            segment_id,
+            start,
+            end,
+            show_all=show_all,
+            selected_day=selected_day,
         )
 
         def call_href(e: dict) -> str:
@@ -2931,17 +3284,24 @@ def call_view(segment_id: int):
             segment_id=segment_id,
             start=start,
             end=end,
-            slug=slug or entry["slug"],
+            slug=bird_slug,
             common_name=common_name,
             scientific_name=meta["scientific_name"] if meta else "",
             peak_conf=entry["peak_conf"],
             dex_no=(dex_idx + 1) if dex_idx is not None else 0,
             dex_total=len(call_order),
+            clip_no=clip_no,
+            clip_total=clip_total,
             prev_call=prev_call,
             next_call=next_call,
+            prev_clip=prev_clip,
+            next_clip=next_clip,
             call_href=call_href,
             back_href=back_href,
             sprite_slug=_sprite_slug(common_name, _slug_map()),
+            clip_seconds=(end - start)
+            if start is not None and end is not None and end > start
+            else None,
             dev=_dev_mode(),
             dev_script=_DEV_RELOAD_SCRIPT,
         )
@@ -2957,7 +3317,12 @@ def callviz_json(segment_id: int):
         segment_id, start, end, _CFG["recordings_dir"]
     )
     if cache_path.is_file():
-        return Response(cache_path.read_text(), mimetype="application/json")
+        try:
+            cached = json.loads(cache_path.read_text())
+            if cached.get("wave"):
+                return Response(json.dumps(cached), mimetype="application/json")
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     conn = _db()
     try:

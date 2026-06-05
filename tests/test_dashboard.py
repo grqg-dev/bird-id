@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import dashboard
+import identifier
+import storage
 
 
 def test_audio_mimetype():
@@ -126,9 +128,51 @@ def test_call_view(client):
     assert resp.status_code == 200
     assert b"Call Chamber" in resp.data
     assert b"chamber-canvas" in resp.data
-    assert b"/static/three.min.js" in resp.data
+    assert b"initSpectrogram" in resp.data
+    assert b"time-readout" in resp.data
+    assert b"t-btn" in resp.data
+    assert b"stage-load" in resp.data
+    assert b"s clip" in resp.data
+    assert b"hero-card" in resp.data
+    assert b"hero-nav" in resp.data
+    assert b"nav-group call" in resp.data
+    assert b"nav-group bird" in resp.data
+    assert b"1 / 1" in resp.data
+    assert b"/static/three.min.js" not in resp.data
     assert b"Bewick" in resp.data
     assert b"Oak Titmouse" in resp.data  # next bird nav
+
+
+def test_species_call_order_and_clip_nav(seeded_conn):
+    calls = dashboard._species_call_order(
+        seeded_conn,
+        "Bewick's Wren",
+        show_all=False,
+        selected_day="2026-05-30",
+    )
+    assert len(calls) == 1
+    assert calls[0]["peak_conf"] == 0.92
+
+    day2 = datetime(2026, 5, 30, 9, 0, 0)
+    storage.record_segment(
+        seeded_conn,
+        started_at=day2,
+        ended_at=day2 + timedelta(seconds=6),
+        duration=6.0,
+        detections=[
+            identifier.Detection("Bewick's Wren", "Thryomanes bewickii", 0.81, 0.0, 3.0),
+        ],
+        wav_path="/tmp/seg2.wav",
+    )
+    calls = dashboard._species_call_order(
+        seeded_conn,
+        "Bewick's Wren",
+        show_all=False,
+        selected_day="2026-05-30",
+    )
+    assert len(calls) == 2
+    assert calls[0]["peak_conf"] == 0.92
+    assert calls[1]["peak_conf"] == 0.81
 
 
 def test_call_view_not_in_dex(client):
@@ -150,6 +194,8 @@ def test_bird_detail(client):
     resp = client.get("/bird/bewicks_wren?day=2026-05-30")
     assert resp.status_code == 200
     assert b"Bewick" in resp.data
+    assert b"nav-group call" in resp.data
+    assert b"nav-group bird" in resp.data
 
 
 def test_bird_detail_unknown_slug(client):
