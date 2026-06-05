@@ -24,6 +24,12 @@ DEFAULTS: dict[str, Any] = {
     "db": "birdid.db",
     "recordings_dir": "recordings",
     "retention_days": 30,   # drop kept segment wavs after N days; 0 = keep forever
+    "clip_format": "mp3",   # mp3 | wav — per-window clips written by the monitor
+    "clip_mp3_bitrate": "64k",
+    "proactive_cleanup": True,       # trim non-dashboard audio during monitor/deploy cleanup
+    "dashboard_cleanup_hours": 6,    # how often the monitor runs dashboard trim (0 = every segment)
+    "dashboard_live_hours": 24,      # live-feed window protected from trim
+    "drop_segment_after_clips": True,  # delete full segment wav once clips exist (or no hits)
 }
 
 

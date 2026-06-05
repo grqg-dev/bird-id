@@ -13,6 +13,8 @@ def test_defaults_include_min_conf():
     assert config.DEFAULTS["min_conf"] == 0.3
     assert config.DEFAULTS["segment_minutes"] == 1.0
     assert config.DEFAULTS["retention_days"] == 30
+    assert config.DEFAULTS["clip_format"] == "mp3"
+    assert config.DEFAULTS["proactive_cleanup"] is True
 
 
 def test_load_merges_over_defaults(tmp_path):

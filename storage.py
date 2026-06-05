@@ -795,6 +795,175 @@ def hourly_aggregate(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def protected_dashboard_detection_ids(
+    conn: sqlite3.Connection, *, live_hours: int = 24
+) -> set[int]:
+    """Detection rows whose audio the dashboard can surface."""
+    ids: set[int] = set()
+    for row in conn.execute(
+        """
+        SELECT id FROM (
+          SELECT d.id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY d.common_name ORDER BY d.confidence DESC
+                 ) AS rn
+          FROM detections d
+        ) WHERE rn = 1
+        """
+    ):
+        ids.add(row["id"])
+
+    for (day,) in conn.execute("SELECT DISTINCT date(heard_at) FROM detections"):
+        for row in conn.execute(
+            """
+            SELECT id FROM (
+              SELECT d.id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY d.common_name ORDER BY d.confidence DESC
+                     ) AS rn
+              FROM detections d
+              WHERE date(d.heard_at) = ?
+            ) WHERE rn = 1
+            """,
+            (day,),
+        ):
+            ids.add(row["id"])
+
+    for row in conn.execute(
+        """
+        SELECT id FROM (
+          SELECT d.id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY d.common_name
+                   ORDER BY d.confidence DESC, d.heard_at DESC
+                 ) AS rn
+          FROM detections d
+        ) WHERE rn <= 200
+        """
+    ):
+        ids.add(row["id"])
+
+    cutoff = (datetime.now() - timedelta(hours=live_hours)).isoformat(
+        timespec="seconds"
+    )
+    for row in conn.execute(
+        "SELECT id FROM detections WHERE heard_at >= ?",
+        (cutoff,),
+    ):
+        ids.add(row["id"])
+    return ids
+
+
+def _protected_dashboard_tracks(
+    conn: sqlite3.Connection, protected_detections: set[int]
+) -> set[int]:
+    tracks: set[int] = set()
+    for row in conn.execute(
+        "SELECT id, track_id FROM detections WHERE track_id IS NOT NULL"
+    ):
+        if row["id"] in protected_detections:
+            tracks.add(row["track_id"])
+    return tracks
+
+
+def _protected_dashboard_segments(
+    conn: sqlite3.Connection, protected_detections: set[int]
+) -> set[int]:
+    segments: set[int] = set()
+    for row in conn.execute("SELECT segment_id, id FROM detections"):
+        if row["id"] in protected_detections:
+            segments.add(row["segment_id"])
+    return segments
+
+
+def clear_segment_wav(conn: sqlite3.Connection, segment_id: int) -> bool:
+    """Remove a segment's on-disk wav and clear wav_path. Returns True if dropped."""
+    row = conn.execute(
+        "SELECT wav_path FROM segments WHERE id = ?", (segment_id,)
+    ).fetchone()
+    if not row or not row["wav_path"]:
+        return False
+    path = Path(row["wav_path"])
+    if path.is_file():
+        path.unlink()
+    conn.execute("UPDATE segments SET wav_path = NULL WHERE id = ?", (segment_id,))
+    conn.commit()
+    return True
+
+
+def cleanup_dashboard_audio(
+    conn: sqlite3.Connection,
+    recordings_dir: str | Path,
+    *,
+    dry_run: bool = False,
+    live_hours: int = 24,
+) -> dict[str, int]:
+    """Drop segment wavs and clips not needed by the dashboard.
+
+    Also purges orphan files under recordings_dir. Returns byte/count stats.
+    """
+    recordings_dir = Path(recordings_dir).expanduser()
+    protected_dets = protected_dashboard_detection_ids(conn, live_hours=live_hours)
+    protected_track_ids = _protected_dashboard_tracks(conn, protected_dets)
+    protected_segment_ids = _protected_dashboard_segments(conn, protected_dets)
+
+    seg_rows = conn.execute(
+        "SELECT id, wav_path FROM segments WHERE wav_path IS NOT NULL"
+    ).fetchall()
+    seg_drop = [row for row in seg_rows if row["id"] not in protected_segment_ids]
+
+    track_rows = conn.execute(
+        "SELECT id, clip_path FROM tracks WHERE clip_path IS NOT NULL"
+    ).fetchall()
+    clip_drop = [row for row in track_rows if row["id"] not in protected_track_ids]
+
+    seg_freed = sum(
+        Path(row["wav_path"]).stat().st_size
+        for row in seg_drop
+        if row["wav_path"] and Path(row["wav_path"]).is_file()
+    )
+    clip_freed = sum(
+        Path(row["clip_path"]).stat().st_size
+        for row in clip_drop
+        if row["clip_path"] and Path(row["clip_path"]).is_file()
+    )
+
+    stats = {
+        "protected_detections": len(protected_dets),
+        "protected_segments": len(protected_segment_ids),
+        "protected_tracks": len(protected_track_ids),
+        "segments_dropped": len(seg_drop),
+        "clips_dropped": len(clip_drop),
+        "bytes_freed": seg_freed + clip_freed,
+    }
+    if dry_run:
+        return stats
+
+    for row in seg_drop:
+        path = Path(row["wav_path"]) if row["wav_path"] else None
+        if path and path.is_file():
+            path.unlink()
+        conn.execute("UPDATE segments SET wav_path = NULL WHERE id = ?", (row["id"],))
+
+    for row in clip_drop:
+        path = Path(row["clip_path"]) if row["clip_path"] else None
+        if path and path.is_file():
+            path.unlink()
+        conn.execute("UPDATE tracks SET clip_path = NULL WHERE id = ?", (row["id"],))
+
+    if seg_drop or clip_drop:
+        conn.commit()
+
+    orphans, orphan_freed = purge_orphan_recordings(conn, recordings_dir)
+    clip_orphans, clip_orphan_freed = purge_orphan_clips(
+        conn, recordings_dir / "clips"
+    )
+    stats["bytes_freed"] += orphan_freed + clip_orphan_freed
+    stats["orphan_segments"] = orphans
+    stats["orphan_clips"] = clip_orphans
+    return stats
+
+
 def expire_segment_audio(
     conn: sqlite3.Connection,
     *,

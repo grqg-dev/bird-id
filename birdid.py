@@ -85,11 +85,63 @@ def _retention_days(args) -> int:
     return int(config.resolve(getattr(args, "retention_days", None), "retention_days", args.cfg) or 0)
 
 
-def _run_audio_cleanup(conn, rec_dir: Path, args, *, label: str = "retention") -> None:
-    """Expire old kept wavs and drop unreferenced files in recordings_dir."""
+def _clip_format(cfg: dict) -> str:
+    fmt = str(config.resolve(None, "clip_format", cfg) or "wav").lower()
+    return "mp3" if fmt == "mp3" else "wav"
+
+
+def _proactive_cleanup(cfg: dict) -> bool:
+    return bool(config.resolve(None, "proactive_cleanup", cfg))
+
+
+def _dashboard_cleanup_due(state: dict | None, cfg: dict) -> bool:
+    hours = float(config.resolve(None, "dashboard_cleanup_hours", cfg) or 6)
+    if hours <= 0:
+        return True
+    if state is None:
+        return True
+    return time.monotonic() - state["last"] >= hours * 3600
+
+
+def _run_dashboard_cleanup(
+    conn, rec_dir: Path, cfg: dict, *, label: str, state: dict | None = None
+) -> None:
+    if not _proactive_cleanup(cfg):
+        return
+    if not _dashboard_cleanup_due(state, cfg):
+        return
+    live_hours = int(config.resolve(None, "dashboard_live_hours", cfg) or 24)
+    stats = storage.cleanup_dashboard_audio(
+        conn, rec_dir, dry_run=False, live_hours=live_hours
+    )
+    if state is not None:
+        state["last"] = time.monotonic()
+    freed = stats["bytes_freed"]
+    if (
+        stats["segments_dropped"]
+        or stats["clips_dropped"]
+        or stats.get("orphan_segments")
+        or stats.get("orphan_clips")
+    ):
+        print(
+            f"[{label}] dashboard trim: {stats['segments_dropped']} seg, "
+            f"{stats['clips_dropped']} clip(s), freed {freed / 1e6:.1f} MB"
+        )
+
+
+def _run_audio_cleanup(
+    conn,
+    rec_dir: Path,
+    args,
+    *,
+    label: str = "retention",
+    dash_state: dict | None = None,
+) -> None:
+    """Expire old kept wavs, trim non-dashboard audio, drop orphans."""
     days = _retention_days(args)
     expired, freed = storage.expire_segment_audio(conn, retention_days=days)
     clip_expired, clip_freed = storage.expire_track_clips(conn, retention_days=days)
+    _run_dashboard_cleanup(conn, rec_dir, args.cfg, label=label, state=dash_state)
     orphans, orphan_freed = storage.purge_orphan_recordings(conn, rec_dir)
     clip_orphans, clip_orphan_freed = storage.purge_orphan_clips(conn, rec_dir / "clips")
     if expired:
@@ -109,17 +161,44 @@ def _run_audio_cleanup(conn, rec_dir: Path, args, *, label: str = "retention") -
 
 
 def _clip_paths_for_detections(
-    src_wav: Path, clips_dir: Path, started_at: datetime, detections
+    src_wav: Path,
+    clips_dir: Path,
+    started_at: datetime,
+    detections,
+    *,
+    cfg: dict,
 ) -> dict[tuple[float, float], str]:
     """Write per-window clip files; return map for storage.record_segment."""
     clips_dir.mkdir(parents=True, exist_ok=True)
+    fmt = _clip_format(cfg)
+    bitrate = str(config.resolve(None, "clip_mp3_bitrate", cfg) or "64k")
     clip_paths: dict[tuple[float, float], str] = {}
     for start, end in {(d.start_time, d.end_time) for d in detections}:
-        dst = clips.clip_dst_path(clips_dir, started_at, start, end)
-        path = clips.write_clip(src_wav, dst, start, end)
+        dst = clips.clip_dst_path(clips_dir, started_at, start, end, fmt=fmt)
+        path = clips.write_clip(
+            src_wav, dst, start, end, fmt=fmt, mp3_bitrate=bitrate
+        )
         if path:
             clip_paths[(start, end)] = path
     return clip_paths
+
+
+def _maybe_drop_segment_wav(
+    conn,
+    segment_id: int,
+    wav_path: Path,
+    detections,
+    clip_paths: dict[tuple[float, float], str],
+    cfg: dict,
+) -> None:
+    """Drop the full segment wav once clips exist (or the segment had no hits)."""
+    if not config.resolve(None, "drop_segment_after_clips", cfg):
+        return
+    if detections:
+        windows = {(d.start_time, d.end_time) for d in detections}
+        if not windows.issubset(clip_paths.keys()):
+            return
+    storage.clear_segment_wav(conn, segment_id)
 
 
 def _fmt_mmss(seconds: float) -> str:
@@ -229,7 +308,7 @@ def cmd_identify(args) -> int:
         kept_path = _import_to_wav(src, rec_dir, started_at)
 
         clip_paths = _clip_paths_for_detections(
-            kept_path, rec_dir / "clips", started_at, detections
+            kept_path, rec_dir / "clips", started_at, detections, cfg=args.cfg
         )
         conn = storage.connect(db_path)
         try:
@@ -241,6 +320,9 @@ def cmd_identify(args) -> int:
                 detections=detections,
                 wav_path=str(kept_path),
                 clip_paths=clip_paths,
+            )
+            _maybe_drop_segment_wav(
+                conn, seg_id, kept_path, detections, clip_paths, args.cfg
             )
         finally:
             conn.close()
@@ -292,7 +374,8 @@ def cmd_monitor(args) -> int:
         f"Monitoring: {minutes:g}-min segments -> {db_path} "
         f"(min_conf={min_conf}{loc}{retention_note}). Ctrl-C to stop.\n"
     )
-    _run_audio_cleanup(conn, rec_dir, args)
+    dash_state: dict = {"last": 0.0}
+    _run_audio_cleanup(conn, rec_dir, args, dash_state=dash_state)
     segment_no = 0
     try:
         while True:
@@ -332,9 +415,9 @@ def cmd_monitor(args) -> int:
                 spinner.join(timeout=1)
 
             clip_paths = _clip_paths_for_detections(
-                rec.path, rec_dir / "clips", started_at, detections
+                rec.path, rec_dir / "clips", started_at, detections, cfg=args.cfg
             )
-            storage.record_segment(
+            seg_id = storage.record_segment(
                 conn,
                 started_at=started_at,
                 ended_at=ended_at,
@@ -345,6 +428,9 @@ def cmd_monitor(args) -> int:
                 max_dbfs=rec.max_volume_dbfs,
                 clip_paths=clip_paths,
             )
+            _maybe_drop_segment_wav(
+                conn, seg_id, rec.path, detections, clip_paths, args.cfg
+            )
 
             if detections:
                 species = sorted({d.common_name for d in detections})
@@ -354,7 +440,7 @@ def cmd_monitor(args) -> int:
                 )
             else:
                 progress.finish(f"[{stamp}] seg {segment_no}: nothing detected")
-            _run_audio_cleanup(conn, rec_dir, args)
+            _run_audio_cleanup(conn, rec_dir, args, dash_state=dash_state)
     except KeyboardInterrupt:
         print("\nStopping. Final tally:")
         cmd_stats(args, conn=conn)
@@ -426,11 +512,11 @@ def cmd_dashboard(args) -> int:
 
 
 def cmd_cleanup(args) -> int:
-    """Drop expired segment wavs and unreferenced files in recordings_dir."""
+    """Drop expired segment wavs, trim non-dashboard audio, and purge orphans."""
     db_path, rec_dir = _db_paths(args)
     conn = storage.connect(db_path)
     try:
-        _run_audio_cleanup(conn, rec_dir, args, label="cleanup")
+        _run_audio_cleanup(conn, rec_dir, args, label="cleanup", dash_state={"last": 0.0})
     finally:
         conn.close()
     return 0

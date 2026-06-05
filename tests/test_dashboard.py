@@ -7,6 +7,26 @@ from datetime import date
 import dashboard
 
 
+def test_audio_mimetype():
+    assert dashboard._audio_mimetype("/a/clip.mp3") == "audio/mpeg"
+    assert dashboard._audio_mimetype("/a/clip.wav") == "audio/wav"
+
+
+def test_audio_serves_track_clip_without_segment_wav(client, seeded_conn, tmp_path):
+    import storage
+
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"RIFF" + b"\x00" * 100)
+    track = storage.get_track(seeded_conn, 1, 0.0, 3.0)
+    storage.set_track_clip_path(seeded_conn, track["id"], str(clip))
+    seeded_conn.execute("UPDATE segments SET wav_path = NULL WHERE id = 1")
+    seeded_conn.commit()
+
+    resp = client.get("/audio/1?start=0.0&end=3.0")
+    assert resp.status_code == 200
+    assert resp.mimetype == "audio/wav"
+
+
 def test_spec_cache_path_windowed(tmp_path):
     base = tmp_path / "recordings"
     p = dashboard._spec_cache_path(42, 0.0, 3.0, base)

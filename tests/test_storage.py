@@ -545,6 +545,60 @@ def test_migrate_backfills_tracks_and_track_id(tmp_path):
         upgraded.close()
 
 
+def test_clear_segment_wav(db_conn, tmp_path):
+    wav = tmp_path / "seg.wav"
+    wav.write_bytes(b"wav" * 100)
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[],
+        wav_path=str(wav),
+    )
+    assert storage.clear_segment_wav(db_conn, 1) is True
+    assert not wav.exists()
+    row = db_conn.execute("SELECT wav_path FROM segments WHERE id = 1").fetchone()
+    assert row["wav_path"] is None
+
+
+def test_cleanup_dashboard_audio_drops_unprotected(db_conn, tmp_path):
+    started = datetime(2026, 6, 5, 12, 0, 0)
+    keep_wav = tmp_path / "keep.wav"
+    drop_wav = tmp_path / "drop.wav"
+    keep_wav.write_bytes(b"k" * 500)
+    drop_wav.write_bytes(b"d" * 800)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[
+            identifier.Detection("Keeper", "Sp k", 0.95, 0.0, 3.0),
+        ],
+        wav_path=str(keep_wav),
+    )
+    storage.record_segment(
+        db_conn,
+        started_at=started + timedelta(minutes=1),
+        ended_at=started + timedelta(minutes=2),
+        duration=60.0,
+        detections=[],
+        wav_path=str(drop_wav),
+    )
+    stats = storage.cleanup_dashboard_audio(
+        db_conn, tmp_path, dry_run=False, live_hours=24
+    )
+    assert stats["segments_dropped"] == 1
+    assert keep_wav.exists()
+    assert not drop_wav.exists()
+    row = db_conn.execute(
+        "SELECT wav_path FROM segments WHERE id = 2"
+    ).fetchone()
+    assert row["wav_path"] is None
+
+
 def test_recent_feed_skips_no_audio(db_conn, tmp_path):
     now = datetime(2026, 6, 1, 14, 0, 0)
     started = now - timedelta(minutes=5)

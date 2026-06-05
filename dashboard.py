@@ -132,6 +132,13 @@ def _spec_cache_path(
     return base / name
 
 
+def _audio_mimetype(path: str) -> str:
+    ext = Path(path).suffix.lower()
+    if ext == ".mp3":
+        return "audio/mpeg"
+    return "audio/wav"
+
+
 def _clip_wav_bytes(wav_path: str, start: float, end: float) -> bytes:
     """Return a wav containing only [start, end) seconds of the source file."""
     import soundfile as sf
@@ -2346,24 +2353,37 @@ def sprite(slug: str):
 
 @app.route("/audio/<int:segment_id>")
 def audio(segment_id: int):
+    start = request.args.get("start", type=float)
+    end = request.args.get("end", type=float)
+    has_window = start is not None and end is not None and end > start
+
     conn = _db()
     try:
         seg = storage.get_segment(conn, segment_id)
+        track = (
+            storage.get_track(conn, segment_id, start, end) if has_window else None
+        )
     finally:
         conn.close()
+
+    if track and track["clip_path"] and os.path.exists(track["clip_path"]):
+        return send_file(
+            track["clip_path"], mimetype=_audio_mimetype(track["clip_path"])
+        )
+
     if not seg or not seg["wav_path"] or not os.path.exists(seg["wav_path"]):
         abort(404)
 
-    start = request.args.get("start", type=float)
-    end = request.args.get("end", type=float)
-    if start is not None and end is not None and end > start:
+    if has_window:
         try:
             clip = _clip_wav_bytes(seg["wav_path"], start, end)
         except ValueError:
             abort(404)
         return Response(clip, mimetype="audio/wav")
 
-    return send_file(seg["wav_path"], mimetype="audio/wav")
+    return send_file(
+        seg["wav_path"], mimetype=_audio_mimetype(seg["wav_path"])
+    )
 
 
 @app.route("/spectrogram/<int:segment_id>.png")

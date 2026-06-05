@@ -5,5 +5,11 @@
   "segment_minutes": 1,
   "db": "birdid.db",
   "recordings_dir": "recordings",
-  "retention_days": 30
+  "retention_days": 30,
+  "clip_format": "mp3",
+  "clip_mp3_bitrate": "64k",
+  "proactive_cleanup": true,
+  "dashboard_cleanup_hours": 6,
+  "dashboard_live_hours": 24,
+  "drop_segment_after_clips": true
 }
