@@ -312,7 +312,7 @@ PAGE = """
         {% elif mode == 'gallery' %}
         <div class="art-box no-art lbl">NO ILLUSTRATION</div>
         {% endif %}
-        {% if mode != 'gallery' and e.wav_path %}
+        {% if mode != 'gallery' and e.has_audio %}
         <div class="spectro">
           <img loading="lazy" src="/spectrogram/{{ e.segment_id }}.png{{ clip_qs }}" alt="call spectrogram">
         </div>
@@ -560,7 +560,7 @@ BIRD_PAGE = """
           <span>#{{ loop.index + clip_offset }} · {{ c.heard_at[11:19] }} · seg {{ c.segment_id }}</span>
           <span class="conf">{{ "%.3f"|format(c.confidence) }}</span>
         </div>
-        {% if c.wav_path %}
+        {% if c.has_audio %}
         <div class="spectro">
           <img loading="lazy" src="/spectrogram/{{ c.segment_id }}.png{{ clip_qs }}" alt="spectrogram">
         </div>

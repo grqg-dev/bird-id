@@ -174,6 +174,32 @@ def _seed_recent_detection(conn, *, minutes_ago: float = 5, name: str = "Live Bi
     )
 
 
+def test_live_feed_clip_only(client, seeded_conn, tmp_path):
+    from datetime import datetime, timedelta
+
+    import identifier
+    import storage
+
+    clip = tmp_path / "live.mp3"
+    clip.write_bytes(b"mp3")
+    now = datetime.now()
+    started = now - timedelta(minutes=5)
+    storage.record_segment(
+        seeded_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[
+            identifier.Detection("Clip Feed Bird", "Sp", 0.88, 0.0, 3.0),
+        ],
+        wav_path=None,
+        clip_paths={(0.0, 3.0): str(clip)},
+    )
+    resp = client.get("/live")
+    assert resp.status_code == 200
+    assert b"Clip Feed Bird" in resp.data
+
+
 def test_live_feed_page(client, seeded_conn):
     _seed_recent_detection(seeded_conn, name="Feed Test Bird")
     resp = client.get("/live")

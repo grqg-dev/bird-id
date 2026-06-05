@@ -613,3 +613,45 @@ def test_recent_feed_skips_no_audio(db_conn, tmp_path):
         wav_path=None,
     )
     assert storage.recent_feed(db_conn, now=now) == []
+
+
+def test_recent_feed_includes_clip_without_segment_wav(db_conn, tmp_path):
+    clip = tmp_path / "clip.mp3"
+    clip.write_bytes(b"mp3")
+    now = datetime(2026, 6, 1, 14, 0, 0)
+    started = now - timedelta(minutes=5)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[
+            identifier.Detection("Clip Bird", "Sp clip", 0.9, 0.0, 3.0),
+        ],
+        wav_path=None,
+        clip_paths={(0.0, 3.0): str(clip)},
+    )
+    rows = storage.recent_feed(db_conn, now=now)
+    assert len(rows) == 1
+    assert rows[0]["common_name"] == "Clip Bird"
+    assert rows[0]["has_audio"] == 1
+
+
+def test_species_detections_has_audio_from_clip(db_conn, tmp_path):
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"wav")
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[
+            identifier.Detection("Clipper", "Sp c", 0.9, 0.0, 3.0),
+        ],
+        wav_path=None,
+        clip_paths={(0.0, 3.0): str(clip)},
+    )
+    rows = storage.species_detections(db_conn, "Clipper")
+    assert len(rows) == 1
+    assert rows[0]["has_audio"] == 1

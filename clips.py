@@ -9,6 +9,17 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _ffmpeg_path() -> str | None:
+    """Resolve ffmpeg on PATH or ~/bin (launchd on the Mac mini omits the latter)."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    home_bin = Path.home() / "bin" / "ffmpeg"
+    if home_bin.is_file():
+        return str(home_bin)
+    return None
+
+
 def clip_dst_path(
     clips_dir: str | Path,
     started_at: datetime,
@@ -51,7 +62,7 @@ def _write_wav(dst_wav: Path, data, sr: int) -> str:
 
 
 def _write_mp3(dst_mp3: Path, data, sr: int, *, bitrate: str = "64k") -> str | None:
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = _ffmpeg_path()
     if not ffmpeg:
         return None
 
@@ -83,6 +94,39 @@ def _write_mp3(dst_mp3: Path, data, sr: int, *, bitrate: str = "64k") -> str | N
     if proc.returncode != 0 or not dst_mp3.is_file():
         return None
     return str(dst_mp3)
+
+
+def transcode_to_mp3(
+    src: str | Path,
+    dst: str | Path,
+    *,
+    bitrate: str = "64k",
+) -> str | None:
+    """Convert an existing audio file to mp3. Returns dst path, or None on failure."""
+    ffmpeg = _ffmpeg_path()
+    src = Path(src).expanduser()
+    dst = Path(dst).expanduser()
+    if not ffmpeg or not src.is_file():
+        return None
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(src),
+            "-b:a",
+            bitrate,
+            "-y",
+            str(dst),
+        ],
+        capture_output=True,
+    )
+    if proc.returncode != 0 or not dst.is_file() or dst.stat().st_size == 0:
+        return None
+    return str(dst)
 
 
 def write_clip(

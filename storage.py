@@ -321,19 +321,27 @@ def new_species_on(conn: sqlite3.Connection, day: str) -> list[str]:
     return [r["common_name"] for r in rows]
 
 
-_DEX_SELECT = """
+_HAS_AUDIO = (
+    "CASE WHEN s.wav_path IS NOT NULL OR t.clip_path IS NOT NULL "
+    "THEN 1 ELSE 0 END"
+)
+
+_DEX_SELECT = f"""
         SELECT common_name, scientific_name, confidence AS peak_conf,
-               segment_id, start_time, end_time, wav_path,
+               segment_id, start_time, end_time, has_audio,
                windows, first_heard, last_heard
         FROM (
             SELECT d.common_name, d.scientific_name, d.confidence,
-                   d.segment_id, d.start_time, d.end_time, s.wav_path,
+                   d.segment_id, d.start_time, d.end_time,
+                   {_HAS_AUDIO} AS has_audio,
                    ROW_NUMBER() OVER (PARTITION BY d.common_name ORDER BY d.confidence DESC) AS rn,
                    COUNT(*)      OVER (PARTITION BY d.common_name) AS windows,
                    MIN(d.heard_at) OVER (PARTITION BY d.common_name) AS first_heard,
                    MAX(d.heard_at) OVER (PARTITION BY d.common_name) AS last_heard
-            FROM detections d JOIN segments s ON s.id = d.segment_id
-            {where}
+            FROM detections d
+            JOIN segments s ON s.id = d.segment_id
+            LEFT JOIN tracks t ON t.id = d.track_id
+            {{where}}
         )
         WHERE rn = 1
         ORDER BY peak_conf DESC
@@ -442,8 +450,10 @@ def species_detections(
     return conn.execute(
         f"""
         SELECT d.id, d.confidence, d.heard_at, d.start_time, d.end_time,
-               d.segment_id, s.wav_path
-        FROM detections d JOIN segments s ON s.id = d.segment_id
+               d.segment_id, {_HAS_AUDIO} AS has_audio
+        FROM detections d
+        JOIN segments s ON s.id = d.segment_id
+        LEFT JOIN tracks t ON t.id = d.track_id
         WHERE d.common_name = ?{extra}
         ORDER BY d.confidence DESC, d.heard_at DESC
         LIMIT ? OFFSET ?
@@ -452,24 +462,26 @@ def species_detections(
     ).fetchall()
 
 
-_RECENT_FEED_SELECT = """
+_RECENT_FEED_SELECT = f"""
         SELECT common_name, scientific_name,
                segment_id, confidence AS peak_conf,
-               heard_at, start_time, end_time, wav_path
+               heard_at, start_time, end_time, has_audio
         FROM (
             SELECT d.common_name, d.scientific_name,
                    d.segment_id, d.confidence, d.heard_at,
-                   d.start_time, d.end_time, s.wav_path,
+                   d.start_time, d.end_time,
+                   {_HAS_AUDIO} AS has_audio,
                    ROW_NUMBER() OVER (
                        PARTITION BY d.segment_id, d.common_name
                        ORDER BY d.confidence DESC, d.heard_at DESC
                    ) AS rn
             FROM detections d
             JOIN segments s ON s.id = d.segment_id
+            LEFT JOIN tracks t ON t.id = d.track_id
             WHERE d.heard_at >= ?
               AND d.confidence >= ?
-              AND s.wav_path IS NOT NULL
-              {since_clause}
+              AND (s.wav_path IS NOT NULL OR t.clip_path IS NOT NULL)
+              {{since_clause}}
         )
         WHERE rn = 1
         ORDER BY heard_at DESC
