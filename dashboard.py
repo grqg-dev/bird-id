@@ -404,7 +404,7 @@ PAGE = """
         <div class="top-right">
           {% if e.has_audio and mode != 'gallery' %}
           <a class="viz-btn mono" title="3D call view"
-             href="{{ call_href(e.segment_id, e.start_time, e.end_time, e.bird_slug) }}">◳ 3D</a>
+             href="{{ call_href(e.segment_id, e.start_time, e.end_time, e.bird_slug) }}">◳ Viz</a>
           {% endif %}
           <span class="peak-conf mono">{{ "%.3f"|format(e.peak_conf) }}</span>
         </div>
@@ -512,7 +512,7 @@ VISUALIZE_PAGE = """
   <div class="controls">
     <audio id="chamber-audio" controls preload="metadata"
            src="/audio/{{ segment_id }}?start={{ start }}&end={{ end }}"></audio>
-    <p class="hint mono">Drag to orbit · scroll to zoom · play audio to sweep the playhead through the frequency poles</p>
+    <p class="hint mono">Drag to orbit · scroll to zoom · press play to animate the call through time</p>
   </div>
 </div>
 <script>
@@ -525,15 +525,15 @@ VISUALIZE_PAGE = """
     fallback.style.display='flex';
     return;
   }
-  var gl=canvas.getContext('webgl')||canvas.getContext('experimental-webgl');
-  if(!gl){
-    fallback.style.display='flex';
-    return;
-  }
   fetch(vizUrl).then(function(r){
     if(!r.ok)throw new Error('viz');
     return r.json();
-  }).then(function(data){initScene(data);}).catch(function(){
+  }).then(function(data){
+    try{initScene(data);}catch(e){
+      fallback.style.display='flex';
+      fallback.textContent='WebGL unavailable — audio playback still works below.';
+    }
+  }).catch(function(){
     fallback.style.display='flex';
     fallback.textContent='Visualization data unavailable — audio playback still works below.';
   });
@@ -585,7 +585,6 @@ VISUALIZE_PAGE = """
         idx++;
       }
     }
-    mesh.instanceColor=true;
     scene.add(mesh);
     var playheadGeo=new THREE.PlaneGeometry(gridW+2,maxH+3);
     var playheadMat=new THREE.MeshBasicMaterial({
@@ -633,7 +632,7 @@ VISUALIZE_PAGE = """
         var boost=near?1.35:1.0;
         mesh.setColorAt(inst.idx,magColor(inst.mag,boost));
       });
-      mesh.instanceColor.needsUpdate=true;
+      if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;
       if(pitch.length&&data.freqs){
         var hz=pitch[playCol];
         if(hz&&hz>0){
