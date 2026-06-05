@@ -544,8 +544,10 @@ VISUALIZE_PAGE = """
     var duration=data.duration||1;
     var renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true});
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    renderer.setClearColor(0x03060f,1);
     var scene=new THREE.Scene();
-    scene.fog=new THREE.FogExp2(0x060a0e,0.028);
+    scene.background = new THREE.Color(0x03060f);
+    scene.fog=new THREE.FogExp2(0x03060f,0.032);
     var camera=new THREE.PerspectiveCamera(45,1,0.1,200);
     camera.position.set(12,14,16);
     var controls=new THREE.OrbitControls(camera,canvas);
@@ -556,16 +558,16 @@ VISUALIZE_PAGE = """
     controls.target.set(0,2,0);
     var gridW=10,gridD=14,maxH=4;
     var count=rows*cols;
-    var geometry=new THREE.CylinderGeometry(0.07,0.09,1,6);
+    var geometry=new THREE.CylinderGeometry(0.06,0.08,1,6);
     geometry.translate(0,0.5,0);
-    var material=new THREE.MeshStandardMaterial({
-      color:0xf3efe2,metalness:0.35,roughness:0.45,vertexColors:THREE.VertexColors
+    var material=new THREE.MeshPhongMaterial({
+      color:0xffffff,shininess:100,specular:0xffffff,flatShading:true
     });
     var mesh=new THREE.InstancedMesh(geometry,material,count);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     var dummy=new THREE.Object3D();
     var color=new THREE.Color();
-    var cLow=new THREE.Color(0xf3efe2),cMid=new THREE.Color(0xffcf3f),cHi=new THREE.Color(0xd83a36);
+    var cLow=new THREE.Color(0x181a30),cMid=new THREE.Color(0xff007f),cHi=new THREE.Color(0xffcf3f);
     var instances=[];
     var idx=0;
     for(var c=0;c<cols;c++){
@@ -588,25 +590,55 @@ VISUALIZE_PAGE = """
     scene.add(mesh);
     var playheadGeo=new THREE.PlaneGeometry(gridW+2,maxH+3);
     var playheadMat=new THREE.MeshBasicMaterial({
-      color:0xd83a36,transparent:true,opacity:0.14,side:THREE.DoubleSide
+      color:0xd83a36,transparent:true,opacity:0.12,side:THREE.DoubleSide
     });
     var playhead=new THREE.Mesh(playheadGeo,playheadMat);
     playhead.rotation.y=Math.PI/2;
     playhead.position.set(0,(maxH+3)/2,-gridD/2);
     scene.add(playhead);
-    var pitchGeom=new THREE.SphereGeometry(0.22,16,16);
-    var pitchMat=new THREE.MeshBasicMaterial({color:0xffcf3f});
+    var laser=new THREE.Mesh(
+      new THREE.BoxGeometry(gridW+0.4,0.06,0.1),
+      new THREE.MeshBasicMaterial({color:0xd83a36})
+    );
+    laser.position.set(0,0.03,-gridD/2);
+    scene.add(laser);
+    var pitchGeom=new THREE.SphereGeometry(0.25,16,16);
+    var pitchMat=new THREE.MeshPhongMaterial({color:0xffcf3f,emissive:0xffcf3f,emissiveIntensity:0.5});
     var pitchMarker=new THREE.Mesh(pitchGeom,pitchMat);
     pitchMarker.visible=false;
     scene.add(pitchMarker);
-    scene.add(new THREE.AmbientLight(0x304050,0.55));
-    var key=new THREE.DirectionalLight(0xfff0d8,0.95);
+    var pitchLight=new THREE.PointLight(0xffcf3f,1.8,6);
+    pitchLight.visible=false;
+    scene.add(pitchLight);
+    var partCount=140;
+    var partGeo=new THREE.BufferGeometry();
+    var partPos=new Float32Array(partCount*3);
+    var partVels=[];
+    for(var i=0;i<partCount;i++){
+      partPos[i*3]=(Math.random()-0.5)*12;
+      partPos[i*3+1]=Math.random()*8;
+      partPos[i*3+2]=(Math.random()-0.5)*16;
+      partVels.push({
+        y:0.02+Math.random()*0.03,
+        x:(Math.random()-0.5)*0.01,
+        z:(Math.random()-0.5)*0.01
+      });
+    }
+    partGeo.setAttribute('position',new THREE.BufferAttribute(partPos,3));
+    var partMat=new THREE.PointsMaterial({
+      color:0xffcf3f,size:0.12,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending
+    });
+    var particles=new THREE.Points(partGeo,partMat);
+    scene.add(particles);
+    scene.add(new THREE.AmbientLight(0x203045,0.7));
+    var key=new THREE.DirectionalLight(0xfff0d8,1.1);
     key.position.set(6,16,10);
     scene.add(key);
-    var rim=new THREE.DirectionalLight(0xd83a36,0.3);
+    var rim=new THREE.DirectionalLight(0xff007f,0.5);
     rim.position.set(-10,5,-8);
     scene.add(rim);
-    var gridHelper=new THREE.GridHelper(gridW+4,14,0x1e3040,0x142028);
+    var gridHelper=new THREE.GridHelper(gridW+4,14,0x432060,0x1a1030);
+    gridHelper.position.y=0.01;
     scene.add(gridHelper);
     function resize(){
       var w=canvas.clientWidth,h=canvas.clientHeight;
@@ -617,20 +649,22 @@ VISUALIZE_PAGE = """
     }
     window.addEventListener('resize',resize);
     resize();
-    function magColor(m,boost){
-      var t=Math.min(1,m*boost);
-      if(t<0.5)return cLow.clone().lerp(cMid,t*2);
-      return cMid.clone().lerp(cHi,(t-0.5)*2);
+    function magColor(m,near){
+      var baseColor;
+      if(m<0.5)baseColor=cLow.clone().lerp(cMid,m*2);
+      else baseColor=cMid.clone().lerp(cHi,(m-0.5)*2);
+      if(near)return baseColor.clone().multiplyScalar(1.6).addScalar(0.08);
+      return baseColor.clone().multiplyScalar(0.35);
     }
     function updatePlayhead(){
       var t=(audio.duration&&!isNaN(audio.duration))?audio.currentTime/audio.duration:0;
       var z=(t-0.5)*gridD;
       playhead.position.z=z;
+      laser.position.z=z;
       var playCol=Math.min(cols-1,Math.max(0,Math.floor(t*(cols-1))));
       instances.forEach(function(inst){
         var near=Math.abs(inst.col-playCol)<=1;
-        var boost=near?1.35:1.0;
-        mesh.setColorAt(inst.idx,magColor(inst.mag,boost));
+        mesh.setColorAt(inst.idx,magColor(inst.mag,near));
       });
       if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;
       if(pitch.length&&data.freqs){
@@ -643,9 +677,15 @@ VISUALIZE_PAGE = """
           }
           var px=(bestR/(rows-1)-0.5)*gridW;
           var pm=(mag[bestR]&&mag[bestR][playCol]!=null)?mag[bestR][playCol]:0;
-          pitchMarker.position.set(px,0.12+pm*maxH+0.45,z);
+          var py=0.12+pm*maxH+0.45;
+          pitchMarker.position.set(px,py,z);
           pitchMarker.visible=true;
-        }else pitchMarker.visible=false;
+          pitchLight.position.set(px,py,z);
+          pitchLight.visible=true;
+        }else{
+          pitchMarker.visible=false;
+          pitchLight.visible=false;
+        }
       }
     }
     audio.addEventListener('timeupdate',updatePlayhead);
@@ -654,6 +694,20 @@ VISUALIZE_PAGE = """
     audio.addEventListener('ended',function(){controls.autoRotate=true;});
     function animate(){
       requestAnimationFrame(animate);
+      if(particles){
+        var posAttr=particles.geometry.attributes.position;
+        for(var i=0;i<partCount;i++){
+          posAttr.array[i*3+1]+=partVels[i].y;
+          posAttr.array[i*3]+=partVels[i].x;
+          posAttr.array[i*3+2]+=partVels[i].z;
+          if(posAttr.array[i*3+1]>8){
+            posAttr.array[i*3+1]=0;
+            posAttr.array[i*3]=(Math.random()-0.5)*12;
+            posAttr.array[i*3+2]=(Math.random()-0.5)*16;
+          }
+        }
+        posAttr.needsUpdate=true;
+      }
       controls.update();
       renderer.render(scene,camera);
     }
