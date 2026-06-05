@@ -71,7 +71,11 @@ Key invariants:
 - **Dashboard is offline-friendly.** No CDN / JS chart libraries — charts are
   server-rendered CSS. It must work on a headless Pi with no internet. **`/live`**
   is the exception: ~40 lines of inline JS poll `/api/recent` every 5s (pauses when
-  the tab is hidden) for the rolling 24h companion feed.
+  the tab is hidden) for the rolling 24h companion feed. **`/call`** is the second
+  JS-heavy route: a Three.js “Call Chamber” 3D frequency-pole view driven by server-
+  precomputed JSON (`/callviz/…`). **`static/three.min.js`** and **`static/OrbitControls.js`**
+  are **vendored** (pinned three.js r134 UMD build) — download once in dev, never a
+  runtime CDN.
 
 ## Setup
 
@@ -122,7 +126,7 @@ pytest + Flask only; CI does not install `requirements.txt`):
 | `tests/test_storage.py` | Schema, tracks/clips, `record_segment`, rollups, retention, `recent_feed` |
 | `tests/test_config.py` | `load`, `resolve`, bad JSON |
 | `tests/test_identifier_summarize.py` | `summarize()`, default `min_conf` |
-| `tests/test_dashboard.py` | Helpers + `/`, `/bird/…`, `/data`, `/live`, `/api/recent` via `test_client` |
+| `tests/test_dashboard.py` | Helpers + `/`, `/bird/…`, `/call`, `/data`, `/live`, `/api/recent` via `test_client` |
 | `tests/test_birdid.py` | `cmd_stats`, `_resolve_id_params` |
 
 **Dashboard test seam:** every route uses `dashboard._db()`. Tests monkeypatch it to

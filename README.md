@@ -81,9 +81,11 @@ set for Santa Barbara, CA.
 ```
 
 The dashboard works offline — no internet required once it's running. Browse by day
-or all-time, open a species for clips and spectrograms, open **Live feed** (`/live`)
-for a rolling 24-hour timeline that auto-updates while you monitor, or open **Data report**
-(`/data`) for detection counts and confidence charts.
+or all-time, open a species for clips and spectrograms, click **◳ 3D** on a dex card
+for the **Call Chamber** (`/call`) — an orbitable 3D frequency-pole visualization
+synced to clip playback — open **Live feed** (`/live`) for a rolling 24-hour timeline
+that auto-updates while you monitor, or open **Data report** (`/data`) for detection
+counts and confidence charts.
 
 Gallery mode (`/?mode=gallery`) is a lighter grid of illustrations and stats — no
 spectrograms or audio:

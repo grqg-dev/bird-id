@@ -39,6 +39,26 @@ def test_spec_cache_path_full_segment(tmp_path):
     assert p == base / "cache" / "spectrograms" / "spec_7_full.png"
 
 
+def test_callviz_cache_path_windowed(tmp_path):
+    base = tmp_path / "recordings"
+    p = dashboard._callviz_cache_path(42, 0.0, 3.0, base)
+    assert p == base / "cache" / "callviz" / "viz_42_0_3000.json"
+
+
+def test_call_href_preserves_day_and_sort():
+    href = dashboard._call_href(
+        1,
+        0.0,
+        3.0,
+        "bewicks_wren",
+        show_all=False,
+        selected_day="2026-05-30",
+        sort="peak",
+        hide_low=True,
+    )
+    assert href == "/call/1?start=0.0&end=3.0&slug=bewicks_wren&day=2026-05-30&sort=peak&hide_low=1"
+
+
 def test_parse_day_arg_defaults_to_today():
     show_all, day = dashboard._parse_day_arg(None)
     assert show_all is False
@@ -89,6 +109,36 @@ def test_index_renders_species(client):
     assert resp.status_code == 200
     assert b"Bewick" in resp.data
     assert b"Oak Titmouse" in resp.data
+
+
+def test_index_renders_viz_btn(client):
+    resp = client.get("/?day=2026-05-30")
+    assert resp.status_code == 200
+    assert b"viz-btn" in resp.data
+    assert b"/call/1?" in resp.data
+    assert b"slug=bewicks_wren" in resp.data
+
+
+def test_call_view(client):
+    resp = client.get(
+        "/call/1?start=0.0&end=3.0&slug=bewicks_wren&day=2026-05-30"
+    )
+    assert resp.status_code == 200
+    assert b"Call Chamber" in resp.data
+    assert b"chamber-canvas" in resp.data
+    assert b"/static/three.min.js" in resp.data
+    assert b"Bewick" in resp.data
+    assert b"Oak Titmouse" in resp.data  # next bird nav
+
+
+def test_call_view_not_in_dex(client):
+    resp = client.get("/call/1?start=9.0&end=12.0&slug=not_a_bird&day=2026-05-30")
+    assert resp.status_code == 404
+
+
+def test_callviz_json_missing_audio(client):
+    resp = client.get("/callviz/1.json?start=0.0&end=3.0")
+    assert resp.status_code == 404
 
 
 def test_index_gallery_mode(client):

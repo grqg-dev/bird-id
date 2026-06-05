@@ -107,6 +107,8 @@ _CLIPS_PER_PAGE = 50
 PEAK_CONF_FLOOR = 0.7  # Bird-Dex "hide low confidence" cutoff (peak conf per species)
 TIMELINE_CONF_FLOOR = 0.7  # Timeline only plots detections at/above this confidence
 TIMELINE_BINS = 96  # Per-lane histogram buckets across 24h (15-minute bars)
+_CALLVIZ_ROWS = 48
+_CALLVIZ_COLS = 96
 
 
 def _db():
@@ -130,6 +132,98 @@ def _spec_cache_path(
     else:
         name = f"spec_{segment_id}_full.png"
     return base / name
+
+
+def _callviz_cache_path(
+    segment_id: int,
+    start: float | None,
+    end: float | None,
+    base_dir: str | Path,
+) -> Path:
+    """Disk path for a cached call-viz JSON matrix (pure path logic for tests)."""
+    base = Path(base_dir).expanduser() / "cache" / "callviz"
+    if start is not None and end is not None and end > start:
+        name = f"viz_{segment_id}_{int(start * 1000)}_{int(end * 1000)}.json"
+    else:
+        name = f"viz_{segment_id}_full.json"
+    return base / name
+
+
+def _resample_cols(matrix, target_cols: int):
+    """Resample a 2-D array along the time (column) axis."""
+    import numpy as np
+
+    mat = np.asarray(matrix, dtype=np.float32)
+    rows, cols = mat.shape
+    if cols == target_cols:
+        return mat
+    x_old = np.linspace(0.0, 1.0, cols)
+    x_new = np.linspace(0.0, 1.0, target_cols)
+    out = np.zeros((rows, target_cols), dtype=np.float32)
+    for i in range(rows):
+        out[i] = np.interp(x_new, x_old, mat[i])
+    return out
+
+
+def _compute_callviz(audio_path: str, start: float | None, end: float | None) -> dict:
+    """Downsampled mel magnitude matrix + per-frame pitch for the 3D call view."""
+    import librosa
+    import numpy as np
+
+    has_window = start is not None and end is not None and end > start
+    is_clip = Path(audio_path).name.startswith("clip_")
+    if is_clip or not has_window:
+        y, sr = librosa.load(audio_path, sr=None)
+    elif has_window:
+        y, sr = librosa.load(audio_path, sr=None, offset=start, duration=end - start)
+        if y.size == 0:
+            y, sr = librosa.load(audio_path, sr=None)
+    else:
+        y, sr = librosa.load(audio_path, sr=None)
+
+    duration = float(len(y) / sr) if sr else 0.0
+    n_mels = _CALLVIZ_ROWS
+    S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels, fmax=sr // 2)
+    S_db = librosa.power_to_db(S, ref=np.max)
+    mag = _resample_cols(S_db, _CALLVIZ_COLS)
+    lo, hi = float(mag.min()), float(mag.max())
+    mag_norm = (mag - lo) / (hi - lo + 1e-8)
+
+    fmin = librosa.note_to_hz("C2")
+    fmax = librosa.note_to_hz("C7")
+    pitch = librosa.yin(y, fmin=fmin, fmax=fmax, sr=sr, frame_length=2048)
+    pitch = _resample_cols(pitch.reshape(1, -1), _CALLVIZ_COLS).reshape(-1)
+
+    freqs = librosa.mel_frequencies(n_mels=n_mels, fmax=sr // 2).tolist()
+    times = np.linspace(0.0, duration, _CALLVIZ_COLS).tolist()
+    return {
+        "sr": int(sr),
+        "duration": duration,
+        "freqs": freqs,
+        "times": times,
+        "rows": _CALLVIZ_ROWS,
+        "cols": _CALLVIZ_COLS,
+        "mag": mag_norm.tolist(),
+        "pitch": [float(p) if p > 0 else 0.0 for p in pitch],
+    }
+
+
+def _resolve_call_audio(
+    conn,
+    segment_id: int,
+    start: float | None,
+    end: float | None,
+) -> str | None:
+    """Return playable audio path for a detection window (mirrors spectrogram route)."""
+    has_window = start is not None and end is not None and end > start
+    seg = storage.get_segment(conn, segment_id)
+    track = storage.get_track(conn, segment_id, start, end) if has_window else None
+
+    if track and track["clip_path"] and os.path.exists(track["clip_path"]):
+        return track["clip_path"]
+    if seg and seg["wav_path"] and os.path.exists(seg["wav_path"]):
+        return seg["wav_path"]
+    return None
 
 
 def _audio_mimetype(path: str) -> str:
@@ -190,6 +284,11 @@ PAGE = """
               background:#f7f6f2;border-bottom:1px solid #eceae3}
   .no{font-weight:800;color:var(--ink);letter-spacing:1px}
   .peak-conf{font-weight:700;color:var(--red-deep);letter-spacing:.3px}
+  .top-right{display:flex;align-items:center;gap:8px}
+  .viz-btn{font-size:10px;font-weight:700;letter-spacing:.4px;text-decoration:none;
+           padding:3px 7px;border-radius:6px;border:1px solid var(--red-dark);color:var(--red-dark);
+           background:#fff;line-height:1.2}
+  .viz-btn:hover{background:var(--surface);color:var(--red-deep);border-color:var(--red-deep)}
   .sprite{background:#fff;border-bottom:1px solid #eceae3}
   .sprite img.art{display:block;width:200px;height:200px;margin:0 auto;object-fit:contain;padding:10px 14px 6px}
   .spectro{background:#0d1b14}
@@ -302,7 +401,13 @@ PAGE = """
     <div class="entry{{ ' low-conf' if not hide_low and e.peak_conf < peak_floor else '' }}">
       <div class="top">
         <span class="no mono">Nº {{ "%03d"|format(loop.index) }}</span>
-        <span class="peak-conf mono">{{ "%.3f"|format(e.peak_conf) }}</span>
+        <div class="top-right">
+          {% if e.has_audio and mode != 'gallery' %}
+          <a class="viz-btn mono" title="3D call view"
+             href="{{ call_href(e.segment_id, e.start_time, e.end_time, e.bird_slug) }}">◳ 3D</a>
+          {% endif %}
+          <span class="peak-conf mono">{{ "%.3f"|format(e.peak_conf) }}</span>
+        </div>
       </div>
       <div class="sprite">
         {% if e.sprite_slug %}
@@ -335,6 +440,228 @@ PAGE = """
   <div class="empty">{{ empty_msg }}</div>
   {% endif %}
 </div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
+"""
+
+
+VISUALIZE_PAGE = """
+<!doctype html><html><head><meta charset="utf-8"><title>{{ common_name }} · Call Chamber</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/static/three.min.js"></script>
+<script src="/static/OrbitControls.js"></script>
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;--cream:#f3efe2;--ink:#21232a;
+        --gold:#ffcf3f;--surface:#f7f6f2;--border:#e2e0d8}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Helvetica Neue",Arial,sans-serif;color:var(--cream);background:#060a0e;min-height:100vh}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .lbl{font-size:11px;letter-spacing:1.5px;color:#7a8a94;text-transform:uppercase}
+  .wrap{max-width:1280px;margin:0 auto;padding:18px 20px 28px}
+  .hdr{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;margin-bottom:14px}
+  .hdr a{color:#9ab0bc;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:.4px}
+  .hdr a:hover{color:var(--cream)}
+  .hdr .spacer{flex:1}
+  .hdr .pos{font-size:12px;color:#7a8a94}
+  .title{margin:0;font-size:22px;font-weight:800;letter-spacing:.2px}
+  .latin{margin:2px 0 0;font-style:italic;color:#8a9aa4;font-size:13px}
+  .conf{font-size:18px;font-weight:800;color:var(--red)}
+  .nav{display:flex;gap:8px}
+  .nav a{padding:7px 12px;border:1px solid #243038;border-radius:8px;background:#0c1218;color:#b8c8d0;
+         text-decoration:none;font-size:12px;font-weight:700}
+  .nav a:hover{border-color:#3a4a54;color:var(--cream)}
+  .nav a.off{opacity:.35;pointer-events:none}
+  .stage{position:relative;border:1px solid #1a2830;border-radius:14px;overflow:hidden;
+         background:radial-gradient(ellipse at 50% 20%,#12202a 0%,#060a0e 70%);min-height:420px}
+  #chamber-canvas{display:block;width:100%;height:min(62vh,520px)}
+  #chamber-fallback{display:none;position:absolute;inset:0;align-items:center;justify-content:center;
+                    color:#7a8a94;font-size:14px;padding:24px;text-align:center}
+  .controls{margin-top:14px;padding:12px 14px;border:1px solid #1a2830;border-radius:12px;background:#0a1016}
+  .controls audio{display:block;width:100%;height:36px}
+  .hint{margin-top:10px;font-size:11px;color:#5a6a74;letter-spacing:.3px}
+  .sprite-sm{width:48px;height:48px;object-fit:contain;border-radius:8px;background:#0c1218;
+             border:1px solid #1a2830;padding:4px}
+</style></head><body>
+<div class="wrap">
+  <div class="hdr mono">
+    <a href="{{ back_href }}">← Bird-Dex</a>
+    <span class="pos">Nº {{ "%03d"|format(dex_no) }} of {{ "%03d"|format(dex_total) }}</span>
+    <span class="spacer"></span>
+    <div class="nav">
+      {% if prev_call %}
+      <a href="{{ call_href(prev_call) }}">← {{ prev_call.name }}</a>
+      {% else %}<a class="off" href="#">← Prev</a>{% endif %}
+      {% if next_call %}
+      <a href="{{ call_href(next_call) }}">{{ next_call.name }} →</a>
+      {% else %}<a class="off" href="#">Next →</a>{% endif %}
+    </div>
+  </div>
+  <div class="hdr" style="margin-bottom:10px">
+    {% if sprite_slug %}<img class="sprite-sm" src="/sprite/{{ sprite_slug }}.png" alt="">{% endif %}
+    <div>
+      <h1 class="title">{{ common_name }}</h1>
+      {% if scientific_name %}<p class="latin">{{ scientific_name }}</p>{% endif %}
+    </div>
+    <span class="spacer"></span>
+    <span class="conf mono">{{ "%.3f"|format(peak_conf) }}</span>
+  </div>
+  <div class="stage">
+    <canvas id="chamber-canvas"></canvas>
+    <div id="chamber-fallback">WebGL unavailable — audio playback still works below.</div>
+  </div>
+  <div class="controls">
+    <audio id="chamber-audio" controls preload="metadata"
+           src="/audio/{{ segment_id }}?start={{ start }}&end={{ end }}"></audio>
+    <p class="hint mono">Drag to orbit · scroll to zoom · play audio to sweep the playhead through the frequency poles</p>
+  </div>
+</div>
+<script>
+(function(){
+  var canvas=document.getElementById('chamber-canvas');
+  var fallback=document.getElementById('chamber-fallback');
+  var audio=document.getElementById('chamber-audio');
+  var vizUrl='/callviz/{{ segment_id }}.json?start={{ start }}&end={{ end }}';
+  if(!canvas||!window.THREE){
+    fallback.style.display='flex';
+    return;
+  }
+  var gl=canvas.getContext('webgl')||canvas.getContext('experimental-webgl');
+  if(!gl){
+    fallback.style.display='flex';
+    return;
+  }
+  fetch(vizUrl).then(function(r){
+    if(!r.ok)throw new Error('viz');
+    return r.json();
+  }).then(function(data){initScene(data);}).catch(function(){
+    fallback.style.display='flex';
+    fallback.textContent='Visualization data unavailable — audio playback still works below.';
+  });
+
+  function initScene(data){
+    var THREE=window.THREE;
+    var rows=data.rows,cols=data.cols,mag=data.mag,pitch=data.pitch||[];
+    var duration=data.duration||1;
+    var renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    var scene=new THREE.Scene();
+    scene.fog=new THREE.FogExp2(0x060a0e,0.028);
+    var camera=new THREE.PerspectiveCamera(45,1,0.1,200);
+    camera.position.set(12,14,16);
+    var controls=new THREE.OrbitControls(camera,canvas);
+    controls.enableDamping=true;
+    controls.dampingFactor=0.06;
+    controls.autoRotate=true;
+    controls.autoRotateSpeed=0.35;
+    controls.target.set(0,2,0);
+    var gridW=10,gridD=14,maxH=4;
+    var count=rows*cols;
+    var geometry=new THREE.CylinderGeometry(0.07,0.09,1,6);
+    geometry.translate(0,0.5,0);
+    var material=new THREE.MeshStandardMaterial({
+      color:0xf3efe2,metalness:0.35,roughness:0.45,vertexColors:THREE.VertexColors
+    });
+    var mesh=new THREE.InstancedMesh(geometry,material,count);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    var dummy=new THREE.Object3D();
+    var color=new THREE.Color();
+    var cLow=new THREE.Color(0xf3efe2),cMid=new THREE.Color(0xffcf3f),cHi=new THREE.Color(0xd83a36);
+    var instances=[];
+    var idx=0;
+    for(var c=0;c<cols;c++){
+      var z=(c/(cols-1)-0.5)*gridD;
+      for(var r=0;r<rows;r++){
+        var x=(r/(rows-1)-0.5)*gridW;
+        var m=(mag[r]&&mag[r][c]!=null)?mag[r][c]:0;
+        var h=0.12+m*maxH;
+        dummy.position.set(x,0,z);
+        dummy.scale.set(1,h,1);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(idx,dummy.matrix);
+        if(m<0.5)color.copy(cLow).lerp(cMid,m*2);
+        else color.copy(cMid).lerp(cHi,(m-0.5)*2);
+        mesh.setColorAt(idx,color);
+        instances.push({idx:idx,col:c,row:r,mag:m,z:z,h:h});
+        idx++;
+      }
+    }
+    mesh.instanceColor=true;
+    scene.add(mesh);
+    var playheadGeo=new THREE.PlaneGeometry(gridW+2,maxH+3);
+    var playheadMat=new THREE.MeshBasicMaterial({
+      color:0xd83a36,transparent:true,opacity:0.14,side:THREE.DoubleSide
+    });
+    var playhead=new THREE.Mesh(playheadGeo,playheadMat);
+    playhead.rotation.y=Math.PI/2;
+    playhead.position.set(0,(maxH+3)/2,-gridD/2);
+    scene.add(playhead);
+    var pitchGeom=new THREE.SphereGeometry(0.22,16,16);
+    var pitchMat=new THREE.MeshBasicMaterial({color:0xffcf3f});
+    var pitchMarker=new THREE.Mesh(pitchGeom,pitchMat);
+    pitchMarker.visible=false;
+    scene.add(pitchMarker);
+    scene.add(new THREE.AmbientLight(0x304050,0.55));
+    var key=new THREE.DirectionalLight(0xfff0d8,0.95);
+    key.position.set(6,16,10);
+    scene.add(key);
+    var rim=new THREE.DirectionalLight(0xd83a36,0.3);
+    rim.position.set(-10,5,-8);
+    scene.add(rim);
+    var gridHelper=new THREE.GridHelper(gridW+4,14,0x1e3040,0x142028);
+    scene.add(gridHelper);
+    function resize(){
+      var w=canvas.clientWidth,h=canvas.clientHeight;
+      if(!w||!h)return;
+      renderer.setSize(w,h,false);
+      camera.aspect=w/h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize',resize);
+    resize();
+    function magColor(m,boost){
+      var t=Math.min(1,m*boost);
+      if(t<0.5)return cLow.clone().lerp(cMid,t*2);
+      return cMid.clone().lerp(cHi,(t-0.5)*2);
+    }
+    function updatePlayhead(){
+      var t=(audio.duration&&!isNaN(audio.duration))?audio.currentTime/audio.duration:0;
+      var z=(t-0.5)*gridD;
+      playhead.position.z=z;
+      var playCol=Math.min(cols-1,Math.max(0,Math.floor(t*(cols-1))));
+      instances.forEach(function(inst){
+        var near=Math.abs(inst.col-playCol)<=1;
+        var boost=near?1.35:1.0;
+        mesh.setColorAt(inst.idx,magColor(inst.mag,boost));
+      });
+      mesh.instanceColor.needsUpdate=true;
+      if(pitch.length&&data.freqs){
+        var hz=pitch[playCol];
+        if(hz&&hz>0){
+          var freqs=data.freqs,bestR=0,bestD=Infinity;
+          for(var i=0;i<freqs.length;i++){
+            var d=Math.abs(freqs[i]-hz);
+            if(d<bestD){bestD=d;bestR=i;}
+          }
+          var px=(bestR/(rows-1)-0.5)*gridW;
+          var pm=(mag[bestR]&&mag[bestR][playCol]!=null)?mag[bestR][playCol]:0;
+          pitchMarker.position.set(px,0.12+pm*maxH+0.45,z);
+          pitchMarker.visible=true;
+        }else pitchMarker.visible=false;
+      }
+    }
+    audio.addEventListener('timeupdate',updatePlayhead);
+    audio.addEventListener('play',function(){controls.autoRotate=false;});
+    audio.addEventListener('pause',function(){controls.autoRotate=true;});
+    audio.addEventListener('ended',function(){controls.autoRotate=true;});
+    function animate(){
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene,camera);
+    }
+    animate();
+  }
+})();
+</script>
 {% if dev %}{{ dev_script|safe }}{% endif %}
 </body></html>
 """
@@ -1679,6 +2006,59 @@ def _sorted_dex_birds(
     ]
 
 
+def _call_href(
+    segment_id: int,
+    start: float,
+    end: float,
+    slug: str,
+    *,
+    show_all: bool,
+    selected_day: str,
+    sort: str,
+    hide_low: bool,
+) -> str:
+    """URL for the 3D call chamber view, preserving dex navigation context."""
+    parts = [
+        f"start={start:.1f}",
+        f"end={end:.1f}",
+        f"slug={slug}",
+    ]
+    if show_all:
+        parts.append("day=all")
+    elif selected_day != _today():
+        parts.append(f"day={selected_day}")
+    if sort != "discovered":
+        parts.append(f"sort={sort}")
+    if hide_low:
+        parts.append("hide_low=1")
+    return f"/call/{segment_id}?" + "&".join(parts)
+
+
+def _dex_call_order(
+    conn,
+    *,
+    show_all: bool,
+    selected_day: str,
+    sort: str,
+    hide_low: bool = False,
+) -> list[dict]:
+    """Ordered peak-clip entries for prev/next navigation in the call chamber."""
+    slugs = _slug_map()
+    rows = storage.species_dex(conn) if show_all else storage.species_dex_day(conn, selected_day)
+    rows = _filter_dex_rows(rows, hide_low=hide_low)
+    return [
+        {
+            "slug": slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
+            "name": r["common_name"],
+            "segment_id": r["segment_id"],
+            "start": r["start_time"],
+            "end": r["end_time"],
+            "peak_conf": r["peak_conf"],
+        }
+        for r in _sort_dex_rows(rows, sort)
+    ]
+
+
 def _split_segments_am_pm(
     segments: list,
 ) -> tuple[list[int], list[int], float]:
@@ -2080,6 +2460,18 @@ def index():
         sel = date.fromisoformat(selected_day)
         prev_day = (sel - timedelta(days=1)).isoformat()
         next_day = (sel + timedelta(days=1)).isoformat()
+        def call_href(seg_id: int, start: float, end: float, bird_slug: str) -> str:
+            return _call_href(
+                seg_id,
+                start,
+                end,
+                bird_slug,
+                show_all=show_all,
+                selected_day=selected_day,
+                sort=sort,
+                hide_low=hide_low,
+            )
+
         return render_template_string(
             PAGE,
             today=today,
@@ -2106,6 +2498,7 @@ def index():
             bird_qs=_qs(
                 show_all=show_all, day=selected_day, mode=mode, sort=sort, hide_low=hide_low
             ),
+            call_href=call_href,
             data_qs=_qs(day=selected_day, show_all=show_all, include_mode_sort=False),
             timeline_qs=_timeline_qs(day=selected_day, show_all=show_all),
             dev=_dev_mode(),
@@ -2341,6 +2734,126 @@ def data_view():
         )
     finally:
         conn.close()
+
+
+@app.route("/call/<int:segment_id>")
+def call_view(segment_id: int):
+    start = request.args.get("start", type=float)
+    end = request.args.get("end", type=float)
+    slug = request.args.get("slug", "")
+    show_all, selected_day = _parse_day_arg(request.args.get("day"))
+    sort = _normalize_sort(request.args.get("sort"))
+    hide_low = _parse_hide_low(request.args.get("hide_low"))
+
+    conn = _db()
+    try:
+        seg = storage.get_segment(conn, segment_id)
+        if not seg:
+            abort(404)
+
+        call_order = _dex_call_order(
+            conn,
+            show_all=show_all,
+            selected_day=selected_day,
+            sort=sort,
+            hide_low=hide_low,
+        )
+        dex_idx = None
+        entry = None
+        if slug:
+            for i, e in enumerate(call_order):
+                if e["slug"] == slug:
+                    dex_idx = i
+                    entry = e
+                    break
+        if entry is None and start is not None and end is not None:
+            for i, e in enumerate(call_order):
+                if (
+                    e["segment_id"] == segment_id
+                    and abs(e["start"] - start) < 0.05
+                    and abs(e["end"] - end) < 0.05
+                ):
+                    dex_idx = i
+                    entry = e
+                    break
+        if entry is None:
+            abort(404)
+
+        common_name = entry["name"]
+        meta = storage.species_meta(conn, common_name)
+        prev_call = call_order[dex_idx - 1] if dex_idx and dex_idx > 0 else None
+        next_call = (
+            call_order[dex_idx + 1]
+            if dex_idx is not None and dex_idx < len(call_order) - 1
+            else None
+        )
+
+        def call_href(e: dict) -> str:
+            return _call_href(
+                e["segment_id"],
+                e["start"],
+                e["end"],
+                e["slug"],
+                show_all=show_all,
+                selected_day=selected_day,
+                sort=sort,
+                hide_low=hide_low,
+            )
+
+        back_href = "/" + _qs(
+            show_all=show_all,
+            day=selected_day,
+            sort=sort,
+            hide_low=hide_low,
+            mode="dex",
+        )
+
+        return render_template_string(
+            VISUALIZE_PAGE,
+            segment_id=segment_id,
+            start=start,
+            end=end,
+            slug=slug or entry["slug"],
+            common_name=common_name,
+            scientific_name=meta["scientific_name"] if meta else "",
+            peak_conf=entry["peak_conf"],
+            dex_no=(dex_idx + 1) if dex_idx is not None else 0,
+            dex_total=len(call_order),
+            prev_call=prev_call,
+            next_call=next_call,
+            call_href=call_href,
+            back_href=back_href,
+            sprite_slug=_sprite_slug(common_name, _slug_map()),
+            dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/callviz/<int:segment_id>.json")
+def callviz_json(segment_id: int):
+    start = request.args.get("start", type=float)
+    end = request.args.get("end", type=float)
+    cache_path = _callviz_cache_path(
+        segment_id, start, end, _CFG["recordings_dir"]
+    )
+    if cache_path.is_file():
+        return Response(cache_path.read_text(), mimetype="application/json")
+
+    conn = _db()
+    try:
+        audio_path = _resolve_call_audio(conn, segment_id, start, end)
+    finally:
+        conn.close()
+
+    if not audio_path:
+        abort(404)
+
+    payload = _compute_callviz(audio_path, start, end)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(payload))
+    return Response(json.dumps(payload), mimetype="application/json")
 
 
 @app.route("/sprite/<slug>.png")
