@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Chop missing realistic sprites from Gemini supplement sheets.
 
+June 2026 — 4×4 grid (Gemini_Generated_Image_yt57rqyt57rqyt57.png): prod
+detections still missing sprites — cells 1–13 below (blue-gray gnatcatcher …
+willet).
+
 June 2026 — 4×5 grid (Gemini_Generated_Image_169vmp169vmp169v.png): common SB
-supplement — cells 1–20 below (ruby-crowned kinglet … ring-billed gull).
+supplement — cells 1–20 (ruby-crowned kinglet … ring-billed gull; already in
+realistic-sprites/).
 
 June 2026 — 4×5 grid (Gemini_Generated_Image_qhxn18qhxn18qhxn.png): prod
 detections — huttons_vireo … wild_turkey (already in realistic-sprites/).
@@ -22,36 +27,29 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = Path("/Users/mattdennis/Downloads/Gemini_Generated_Image_169vmp169vmp169v.png")
+SOURCE = Path("/Users/mattdennis/Downloads/Gemini_Generated_Image_yt57rqyt57rqyt57.png")
 OUT_DIR = ROOT / "realistic-sprites"
 
-COLS = 5
+COLS = 4
 ROWS = 4
 INSET = 2
 SPRITE_SIZE = 254
 
 # slug → 1-based cell
 REMAP: dict[str, int] = {
-    "ruby_crowned_kinglet": 1,
-    "yellow_rumped_warbler": 2,
-    "american_robin": 3,
-    "northern_flicker": 4,
-    "california_thrasher": 5,
-    "hooded_oriole": 6,
-    "golden_crowned_sparrow": 7,
-    "townsends_warbler": 8,
-    "says_phoebe": 9,
-    "cassins_kingbird": 10,
-    "belted_kingfisher": 11,
-    "phainopepla": 12,
-    "warbling_vireo": 13,
-    "lark_sparrow": 14,
-    "hermit_thrush": 15,
-    "white_tailed_kite": 16,
-    "tree_swallow": 17,
-    "brandts_cormorant": 18,
-    "heermanns_gull": 19,
-    "ring_billed_gull": 20,
+    "blue_gray_gnatcatcher": 1,
+    "red_breasted_nuthatch": 2,
+    "chipping_sparrow": 3,
+    "black_throated_gray_warbler": 4,
+    "greater_yellowlegs": 5,
+    "hairy_woodpecker": 6,
+    "pygmy_nuthatch": 7,
+    "black_bellied_plover": 8,
+    "cassins_vireo": 9,
+    "pine_siskin": 10,
+    "violet_green_swallow": 11,
+    "western_wood_pewee": 12,
+    "willet": 13,
 }
 
 
