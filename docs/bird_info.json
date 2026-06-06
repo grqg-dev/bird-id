@@ -568,5 +568,124 @@
     "sound": "The male's loud, echoing 'gobble-gobble-gobble,' plus dry, sharp 'clucks' and 'putts' given by both sexes.",
     "habitat": "Oak savannas, grasslands, and foothill ranchlands.",
     "note": "A massive, heavy-bodied bird introduced to California for hunting. While common in the Santa Ynez Valley and backcountry, they are rare on the coastal side of the mountains. With only a single low-confidence detection on record, backyard mic IDs near the coast can be noisy, and this was likely a misidentified loud noise or a rare foothill wanderer."
+  },
+  "blue_gray_gnatcatcher": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident",
+    "sound": "High-pitched, thin, nasal, buzzy 'pzee' or 'spee' call notes. The song is a quiet, complex, squeaky series of chips and whistles.",
+    "habitat": "Chaparral, coastal sage scrub, oak woodlands, and brushy canyons.",
+    "note": "A tiny, active, long-tailed songbird with blue-gray upperparts, a white eye-ring, and a black tail with white outer feathers that it frequently flicks. They are active insect-gleaners. With 8 detections on record and a peak confidence of 0.592, they are a regular but quiet presence in Santa Barbara's brushy habitats."
+  },
+  "red_breasted_nuthatch": {
+    "group": "Oak woodland & chaparral",
+    "season": "Winter visitor & irruptive resident",
+    "sound": "A high, nasal, tinny 'yank-yank-yank' call, resembling a toy tin horn.",
+    "habitat": "Coniferous forests in the mountains; mature pine, cypress, and cedar trees in coastal residential areas during winter.",
+    "note": "A small, compact nuthatch with a blue-gray back, rusty-orange underparts, and a bold black eye-stripe. Famous for crawling down tree trunks headfirst, they are irruptive winter visitors to the coastal lowlands when montane cone crops fail. With 5 detections on record and a peak confidence of 0.734, these represent clear winter or migration-period records."
+  },
+  "chipping_sparrow": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident (mountains); winter visitor to coast",
+    "sound": "A long, rapid, dry, mechanical trill on a single pitch, resembling a sewing machine.",
+    "habitat": "Open woodlands, pine-oak groves, parks, and grassy yards.",
+    "note": "A small, slender sparrow with a bright rufous cap, a crisp black line through the eye, and an unstreaked gray breast. While they breed in the nearby mountains, they are primarily winter visitors to coastal Santa Barbara. With 3 detections on record and a peak confidence of 0.540, coastal backyard detections are uncommon but highly plausible."
+  },
+  "black_throated_gray_warbler": {
+    "group": "Migrant & seasonal",
+    "season": "Spring/fall migrant & summer breeder",
+    "sound": "A buzzy, rhythmic song of several notes ending in a sharp upward or downward slur: 'zee-zee-zee-zee-bzy-wit.'",
+    "habitat": "Oak woodlands, chaparral, and mixed pine-oak forests; found in leafy suburban canopies during migration.",
+    "note": "A striking, crisp black-and-white warbler with a gray back and a tiny, bright yellow spot in front of the eye. They breed in dry oak and pine-oak woodlands of the Santa Ynez Mountains and are common migrants throughout the coastal slope. With 2 detections on record and a peak confidence of 0.541, they are regular seasonal visitors."
+  },
+  "greater_yellowlegs": {
+    "group": "Water & shore",
+    "season": "Winter visitor & migrant",
+    "sound": "A loud, clear, ringing, three-note whistle: 'dear, dear, dear!' or 'tew-tew-tew!'",
+    "habitat": "Estuaries, salt marshes, lagoons, mudflats, and flooded fields.",
+    "note": "A large, elegant shorebird with long, bright yellow legs and a long, slender, slightly upturned bill. They are common wintering shorebirds along the Santa Barbara coast, especially at the Goleta Slough and Devereux Slough. With 2 detections on record and a peak confidence of 0.747, these are highly confident records of birds flying over or foraging in nearby wet areas."
+  },
+  "hairy_woodpecker": {
+    "group": "Woodpecker",
+    "season": "Year-round resident",
+    "sound": "A sharp, loud, metallic 'peek' call, higher and stronger than a Downy Woodpecker's. Also a rapid, even rattle that doesn't descend. Drums in loud, rapid bursts.",
+    "habitat": "Conifer forests and mature oak woodlands, primarily at higher elevations.",
+    "note": "Very similar to the Downy Woodpecker but larger with a much longer, chisel-like bill. They are uncommon residents of Santa Barbara's montane forests and higher oak woodlands, rarely descending to coastal suburbs. With 2 detections on record and a peak confidence of 0.604, these represent rare coastal wanderers or potential acoustic confusion with the common Nuttall's Woodpecker."
+  },
+  "pygmy_nuthatch": {
+    "group": "Oak woodland & chaparral",
+    "season": "Year-round resident (mountains); rare coastal visitor",
+    "sound": "A high-pitched, staccato, metallic 'peep-peep-peep' or 'pip-pip-pip' call, often given in rapid, continuous chatter by flocks.",
+    "habitat": "Montane pine forests (especially ponderosa pine); occasionally mature pine plantings in coastal parks or yards.",
+    "note": "A tiny, highly social nuthatch with a blue-gray back, a brown cap, and a very short tail. They are almost always found in noisy family groups in the pine canopy. They are rare on the coastal side of the Santa Ynez Mountains. With 2 low-confidence detections on record (peak 0.398), these are likely acoustic misidentifications or rare coastal wanderers."
+  },
+  "townsends_warbler": {
+    "group": "Migrant & seasonal",
+    "season": "Common winter visitor & migrant",
+    "sound": "A buzzy, wheezy song: 'weazy-weazy-weazy-tsee,' rising in pitch. Call is a sharp, dry 'tsip.'",
+    "habitat": "Conifer canopies, oak woodlands, and mature residential trees.",
+    "note": "A gorgeous warbler with a striking black-and-yellow patterned face, a yellow breast, and a dark olive back. They are very common winter residents in Santa Barbara, especially in tall pines, eucalyptus, and oaks. With 2 detections on record and a peak confidence of 0.527, they are a regular winter presence that is more often seen high in the canopy than recorded on low-perched mics."
+  },
+  "black_bellied_plover": {
+    "group": "Water & shore",
+    "season": "Winter visitor & migrant",
+    "sound": "A plaintive, high-pitched, three-note whistled 'plee-oo-ee' or 'pee-u-wee,' with the middle note lower.",
+    "habitat": "Sandy beaches, rocky shores, mudflats, and estuaries.",
+    "note": "A medium-sized, chunky plover. In breeding plumage, they show a striking jet-black face and belly contrasted with a speckled silver back. They are abundant wintering shorebirds along the Santa Barbara shoreline. With only 1 low-confidence detection on record (0.386), this likely represents a bird calling in flight along the coast."
+  },
+  "cassins_vireo": {
+    "group": "Migrant & seasonal",
+    "season": "Spring/fall migrant",
+    "sound": "A series of short, raspy, whistled phrases, alternating rising and falling questions: 'chiree? chiroo.' Similar to a Warbling Vireo but rougher and more paused.",
+    "habitat": "Oak woodlands, riparian corridors, and leafy suburban yards during migration.",
+    "note": "A small, sluggish songbird with a gray head, olive back, and bold white 'spectacles' around its eyes. They are common migrants through Santa Barbara in spring (April–May) and fall (September–October). With only 1 low-confidence detection on record (0.359), they are quiet migrants that are easily overlooked by acoustic monitors."
+  },
+  "pine_siskin": {
+    "group": "Migrant & seasonal",
+    "season": "Irruptive winter visitor & migrant",
+    "sound": "A coarse, dry, rising buzzy 'zreeeeet' (like a zipper pulling up) is highly diagnostic. Also sharp, chattering 'chlip' notes.",
+    "habitat": "Conifer groves, alder and birch trees, and weedy fields; occasionally visits backyard thistle feeders.",
+    "note": "A small, heavily streaked finch with a sharp, pointed bill and subtle yellow flashes in the wings and tail. They are highly irruptive, visiting Santa Barbara in large numbers some winters and being completely absent in others. With only 1 low-confidence detection on record (0.338), they are highly seasonal and sporadic local visitors."
+  },
+  "says_phoebe": {
+    "group": "Urban & open space",
+    "season": "Winter visitor & migrant",
+    "sound": "A plaintive, down-slurred, whistled 'phee-eur' call. The song is a soft, fast 'phee-eur, ee-phee.'",
+    "habitat": "Open fields, agricultural areas, coastal bluffs, and parks; often perches on fences or low bushes.",
+    "note": "A slender flycatcher with a grayish-brown back and a warm, cinnamon-apricot belly. Unlike the resident Black Phoebe, Say's Phoebe is primarily a winter visitor to the Santa Barbara coast, arriving in September and departing by March. With only 1 low-confidence detection on record (0.374), they are quiet and less vocal in winter than on their breeding grounds."
+  },
+  "violet_green_swallow": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder & migrant",
+    "sound": "Rapid, high-pitched, squeaky 'tsip' or 'chee-chee' notes given in flight.",
+    "habitat": "Open sky over canyons, oak woodlands, lakes, and coastal cliffs; often nests in oak cavities or cliff crevices.",
+    "note": "An elegant, streamlined swallow with iridescent violet-green upperparts and brilliant white underparts that wrap around the eye and rump. They are common spring and summer residents in the Santa Barbara foothills. With 1 detection on record at a confident 0.676, they are highly active aerial insectivores that are frequently heard overhead."
+  },
+  "warbling_vireo": {
+    "group": "Mimic & songster",
+    "season": "Spring–summer breeder & migrant",
+    "sound": "A long, cheerful, rolling, warbling song that rises and falls, typically ending on a high, questioning note.",
+    "habitat": "Riparian woodlands, sycamore canyons, and leafy suburban gardens.",
+    "note": "A plain, olive-gray songbird with a pale eyebrow and a dark eye-stripe, lacking the bold spectacles of Cassin's Vireo. They are common summer breeders in Santa Barbara's wet canyons and are abundant migrants. With only 1 low-confidence detection on record (0.393), they are common but their song can be acoustically confused with other warbling species."
+  },
+  "western_wood_pewee": {
+    "group": "Migrant & seasonal",
+    "season": "Spring–summer breeder & migrant",
+    "sound": "A nasal, down-slurred, buzzy 'pee-eeer' or 'breeer' whistle, given from an open perch.",
+    "habitat": "Oak woodlands, riparian corridors, and canyon bottoms.",
+    "note": "A medium-sized flycatcher with dark olive-gray plumage, a slightly peaked crown, and pale wing bars. They perch conspicuously on dead branches, sallying out to catch insects. They are common summer breeders in the Santa Barbara foothills. With only 1 low-confidence detection on record (0.392), they are quiet outside of the breeding season and easily missed."
+  },
+  "willet": {
+    "group": "Water & shore",
+    "season": "Winter visitor & migrant",
+    "sound": "A loud, ringing, repeated 'pill-will-willet!' or a sharp 'kleek' call.",
+    "habitat": "Sandy beaches, rocky shores, mudflats, and estuaries.",
+    "note": "A large, stout shorebird. Plain gray-brown when resting, but in flight it reveals a spectacular, high-contrast black-and-white wing stripe. They are abundant and noisy winter residents along the Santa Barbara coast. With only 1 low-confidence detection on record (0.331), backyard mics are generally too far from the beach to record them clearly, but they are highly plausible near the coast."
+  },
+  "yellow_rumped_warbler": {
+    "group": "Migrant & seasonal",
+    "season": "Abundant winter visitor & migrant",
+    "sound": "A soft, dry, flat 'chek' or 'chip' call note is heard constantly in winter. The song is a quiet, sweet, warbling trill.",
+    "habitat": "Found in almost every habitat in winter, from coastal dunes and suburban gardens to oak woodlands.",
+    "note": "Affectionately known as 'Butterbutts' due to their bright yellow rump patch. The western 'Audubon's' subspecies is incredibly abundant in Santa Barbara from October to April, foraging in active flocks. With only 1 low-confidence detection on record (0.344), their quiet winter chips are often ignored by automated classifiers or masked by louder backyard birds, despite being one of the most numerous winter birds in the area."
   }
 }
