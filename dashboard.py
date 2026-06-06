@@ -107,9 +107,19 @@ _CLIPS_PER_PAGE = 50
 PEAK_CONF_FLOOR = 0.7  # Bird-Dex "hide low confidence" cutoff (peak conf per species)
 TIMELINE_CONF_FLOOR = 0.7  # Timeline only plots detections at/above this confidence
 TIMELINE_BINS = 96  # Per-lane histogram buckets across 24h (15-minute bars)
-_CALLVIZ_ROWS = 48
-_CALLVIZ_COLS = 96
+_CALLVIZ_ROWS = 96
+_CALLVIZ_COLS = 192
 _CALLVIZ_HSCALE = 8  # horizontal upscale for scrolling spectrogram + scope
+
+# --- Vibe page (3D point-network sculpture) ---------------------------------
+_VIBEVIZ_VERSION = 1  # bump to invalidate cached payloads when features change
+_VIBE_NFFT = 2048
+_VIBE_HOP = 512
+_VIBE_FMIN = 700.0  # ignore sub-bass rumble (wind/handling) below this (Hz)
+_VIBE_FMAX = 10000.0  # ceiling for nodes + legend (Hz); legend auto-shrinks
+_VIBE_MAX_NODES = 2600  # cap total points so the browser stays smooth
+_VIBE_PEAKS_PER_FRAME = 6  # spectral peaks kept per analysed time frame
+_VIBE_NOISE_MARGIN = 1.6  # per-bin floor multiplier for the viz-only denoise
 
 
 def _db():
@@ -147,6 +157,22 @@ def _callviz_cache_path(
         name = f"viz_{segment_id}_{int(start * 1000)}_{int(end * 1000)}.json"
     else:
         name = f"viz_{segment_id}_full.json"
+    return base / name
+
+
+def _vibeviz_cache_path(
+    segment_id: int,
+    start: float | None,
+    end: float | None,
+    base_dir: str | Path,
+) -> Path:
+    """Disk path for a cached vibe-viz JSON payload (pure path logic for tests)."""
+    base = Path(base_dir).expanduser() / "cache" / "vibeviz"
+    v = _VIBEVIZ_VERSION
+    if start is not None and end is not None and end > start:
+        name = f"vibe_v{v}_{segment_id}_{int(start * 1000)}_{int(end * 1000)}.json"
+    else:
+        name = f"vibe_v{v}_{segment_id}_full.json"
     return base / name
 
 
@@ -213,6 +239,135 @@ def _compute_callviz(audio_path: str, start: float | None, end: float | None) ->
         "mag": mag_norm.tolist(),
         "wave": wave_norm,
         "pitch": [float(p) if p > 0 else 0.0 for p in pitch],
+    }
+
+
+def _denoised_magnitude(y, sr):
+    """STFT magnitude with a per-clip spectral gate (viz-only, never rewrites files).
+
+    Estimates a per-frequency-bin noise floor from the quietest frames in this
+    clip, then applies a soft Wiener-style mask so steady background hum/wind is
+    suppressed and only genuine song peaks survive into the point cloud.
+    """
+    import librosa
+    import numpy as np
+
+    S = np.abs(librosa.stft(y, n_fft=_VIBE_NFFT, hop_length=_VIBE_HOP))
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=_VIBE_NFFT)
+    if S.size == 0:
+        return S, freqs
+    energy = S.sum(axis=0)
+    thresh = np.percentile(energy, 25)
+    quiet = S[:, energy <= thresh]
+    floor = (
+        quiet.mean(axis=1, keepdims=True)
+        if quiet.shape[1] >= 3
+        else S.min(axis=1, keepdims=True)
+    )
+    fl = (_VIBE_NOISE_MARGIN * floor) ** 2
+    mask = S**2 / (S**2 + fl + 1e-12)
+    return S * mask, freqs
+
+
+def _compute_vibeviz(audio_path: str, start: float | None, end: float | None) -> dict:
+    """Nodes, edges, and amplitude for the 3D point-network 'vibe' sculpture.
+
+    Each analysed time frame contributes a few spectral peaks; every peak is a
+    node at (time, frequency, amplitude). Nodes are linked to the nearest-pitch
+    nodes in the following frame so the song reads as a flowing network.
+    """
+    import librosa
+    import numpy as np
+    from scipy.signal import find_peaks
+
+    has_window = start is not None and end is not None and end > start
+    is_clip = Path(audio_path).name.startswith("clip_")
+    if is_clip or not has_window:
+        y, sr = librosa.load(audio_path, sr=None)
+    else:
+        y, sr = librosa.load(audio_path, sr=None, offset=start, duration=end - start)
+        if y.size == 0:
+            y, sr = librosa.load(audio_path, sr=None)
+
+    duration = float(len(y) / sr) if sr else 0.0
+    Sd, freqs = _denoised_magnitude(y, sr)
+    empty = {
+        "version": _VIBEVIZ_VERSION,
+        "duration": round(duration, 4),
+        "sr": int(sr or 0),
+        "fmax": _VIBE_FMAX,
+        "nodes": [],
+        "edges": [],
+        "amp": [],
+        "ampTimes": [],
+    }
+    if Sd.size == 0 or duration <= 0:
+        return empty
+
+    n_frames = Sd.shape[1]
+    frame_times = librosa.frames_to_time(
+        np.arange(n_frames), sr=sr, hop_length=_VIBE_HOP
+    )
+    fbins = np.where((freqs >= _VIBE_FMIN) & (freqs <= _VIBE_FMAX))[0]
+    fvals = freqs[fbins]
+    Sf = Sd[fbins, :]
+    smax = float(Sf.max()) or 1e-8
+    Sn = Sf / smax  # normalise magnitudes to 0..1
+
+    target_frames = max(1, _VIBE_MAX_NODES // _VIBE_PEAKS_PER_FRAME)
+    stride = max(1, n_frames // target_frames)
+
+    nodes: list[list[float]] = []  # [t, f, a]
+    frame_nodes: list[list[tuple[int, float]]] = []  # (node_index, freq) per frame
+    for fi in range(0, n_frames, stride):
+        col = Sn[:, fi]
+        peaks, props = find_peaks(col, height=0.06, prominence=0.03)
+        if peaks.size == 0:
+            frame_nodes.append([])
+            continue
+        order = np.argsort(props["peak_heights"])[::-1][:_VIBE_PEAKS_PER_FRAME]
+        t = float(frame_times[fi]) if fi < frame_times.size else 0.0
+        this: list[tuple[int, float]] = []
+        for p in peaks[order]:
+            f = float(fvals[p])
+            this.append((len(nodes), f))
+            nodes.append([round(t, 4), round(f, 1), round(float(col[p]), 4)])
+        frame_nodes.append(this)
+
+    edges: list[list[int]] = []
+    for k in range(len(frame_nodes) - 1):
+        a_nodes, b_nodes = frame_nodes[k], frame_nodes[k + 1]
+        if not a_nodes or not b_nodes:
+            continue
+        b_f = np.array([bf for (_, bf) in b_nodes])
+        for ai, af in a_nodes:
+            for nb in np.argsort(np.abs(b_f - af))[:2]:
+                edges.append([ai, b_nodes[int(nb)][0]])
+
+    rms = librosa.feature.rms(y=y, frame_length=_VIBE_NFFT, hop_length=_VIBE_HOP)[0]
+    rmax = float(rms.max()) or 1e-8
+    rms_n = rms / rmax
+    amp_times = librosa.frames_to_time(
+        np.arange(rms_n.size), sr=sr, hop_length=_VIBE_HOP
+    )
+    step = max(1, rms_n.size // 240)
+    amp = [round(float(v), 4) for v in rms_n[::step]]
+    amp_t = [round(float(v), 3) for v in amp_times[::step]]
+
+    node_fmax = max((n[1] for n in nodes), default=2000.0)
+    legend_fmax = float(
+        min(_VIBE_FMAX, max(4000.0, np.ceil(node_fmax / 1000.0) * 1000.0))
+    )
+
+    return {
+        "version": _VIBEVIZ_VERSION,
+        "duration": round(duration, 4),
+        "sr": int(sr),
+        "fmax": legend_fmax,
+        "nodes": nodes,
+        "edges": edges,
+        "amp": amp,
+        "ampTimes": amp_t,
     }
 
 
@@ -562,6 +717,8 @@ VISUALIZE_PAGE = """
   <div class="top mono">
     <a href="{{ back_href }}">← Bird-Dex</a>
     <span class="spacer"></span>
+    <a href="/vibe/{{ segment_id }}?start={{ start }}&end={{ end }}&slug={{ slug }}"
+       style="margin-right:14px">Vibe ↗</a>
     <span class="pos">Dex #{{ "%03d"|format(dex_no) }} / {{ "%03d"|format(dex_total) }}</span>
   </div>
   <div class="hero-card">
@@ -957,6 +1114,262 @@ VISUALIZE_PAGE = """
       updateProgress(t);
     }
     draw();
+  }
+})();
+</script>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
+"""
+
+
+VIBE_PAGE = """
+<!doctype html><html><head><meta charset="utf-8"><title>{{ common_name }} · Vibe</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#000;color:#e8ece9;overflow:hidden;
+    font-family:"Helvetica Neue",Arial,sans-serif}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  #scene{position:fixed;inset:0;z-index:0}
+  #scene canvas{display:block;width:100%;height:100%;cursor:grab}
+  #scene canvas:active{cursor:grabbing}
+  .vibe-top{position:fixed;top:0;left:0;right:0;z-index:3;display:flex;align-items:center;
+    gap:14px;padding:12px 16px;pointer-events:none}
+  .vibe-top a{pointer-events:auto;color:#cdd6d1;text-decoration:none;font-size:11px;
+    font-weight:600;letter-spacing:.4px;background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.12);padding:6px 11px;border-radius:7px}
+  .vibe-top a:hover{background:rgba(255,255,255,.13);color:#fff}
+  .vibe-top .spacer{flex:1}
+  .hud{position:fixed;inset:0;z-index:2;pointer-events:none}
+  .hud-tr{position:absolute;top:52px;right:18px;text-align:right;font-size:12px;
+    letter-spacing:.4px;color:#f1f4f2;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  .hud-tr b{font-weight:600}
+  .legend{position:absolute;right:18px;top:50%;transform:translateY(-50%);
+    width:12px;height:min(58vh,460px);border-radius:6px;border:1px solid rgba(255,255,255,.14)}
+  .legend .ticks{position:absolute;inset:0;left:-46px;width:40px}
+  .legend .tick{position:absolute;right:0;transform:translateY(-50%);font-size:9px;
+    letter-spacing:.5px;color:#b9c2bd;text-align:right;white-space:nowrap}
+  .species{position:absolute;left:0;right:0;bottom:22px;text-align:center;pointer-events:none}
+  .species .nm{font-style:italic;font-size:20px;letter-spacing:.2px;
+    text-shadow:0 2px 8px rgba(0,0,0,.9)}
+  .species .sci{display:block;font-size:11px;color:#9fb0a8;margin-top:2px;letter-spacing:.5px}
+  .inset{position:absolute;left:18px;bottom:18px;width:168px;height:120px;border-radius:10px;
+    overflow:hidden;background:#0c0c0c;border:1px solid rgba(255,255,255,.12);
+    display:flex;align-items:center;justify-content:center}
+  .inset img{max-width:92%;max-height:92%;object-fit:contain;
+    filter:drop-shadow(0 2px 6px rgba(0,0,0,.6))}
+  .hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    font-size:12px;letter-spacing:1px;color:#dfe7e3;background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.16);padding:10px 18px;border-radius:999px;
+    transition:opacity .3s;pointer-events:none}
+  .hint.hide{opacity:0}
+  .fallback{position:fixed;inset:0;z-index:5;display:none;align-items:center;
+    justify-content:center;text-align:center;padding:30px;color:#9fb0a8;font-size:14px}
+  audio{display:none}
+</style></head><body>
+  <div class="vibe-top mono">
+    <a href="{{ back_href }}">← Bird-Dex</a>
+    <span class="spacer"></span>
+    <a href="{{ call_href }}">Call Chamber ↗</a>
+  </div>
+  <div id="scene"></div>
+  <div class="hud mono">
+    <div class="hud-tr">
+      <div>Amplitude: <b id="amp">0.0000</b></div>
+      <div>Time: <b id="tm">0.00</b></div>
+    </div>
+    <div class="legend" id="legend"><div class="ticks" id="ticks"></div></div>
+    <div class="species">
+      <span class="nm">{{ common_name }}</span>
+      {% if scientific_name %}<span class="sci">{{ scientific_name }}</span>{% endif %}
+    </div>
+    {% if sprite_slug %}
+    <div class="inset"><img src="/sprite/{{ sprite_slug }}.png" alt=""></div>
+    {% endif %}
+    <div class="hint" id="hint">click / space to play</div>
+  </div>
+  <div class="fallback mono" id="fallback">WebGL unavailable — your browser can't render the vibe.</div>
+  <audio id="audio" preload="metadata"
+         src="/audio/{{ segment_id }}?start={{ start }}&end={{ end }}"></audio>
+<script src="/static/three.min.js"></script>
+<script src="/static/OrbitControls.js"></script>
+<script>
+(function(){
+  var audio=document.getElementById('audio');
+  var ampEl=document.getElementById('amp');
+  var tmEl=document.getElementById('tm');
+  var hint=document.getElementById('hint');
+  var fallback=document.getElementById('fallback');
+  var sceneEl=document.getElementById('scene');
+
+  // Frequency -> colour, matching the right-edge legend (low violet -> high white).
+  var STOPS=[
+    [0.00,[0.40,0.00,0.65]],[0.18,[0.15,0.20,1.00]],[0.36,[1.00,0.10,0.65]],
+    [0.54,[1.00,0.35,0.05]],[0.70,[1.00,0.90,0.10]],[0.82,[0.30,1.00,0.35]],
+    [0.92,[0.20,1.00,1.00]],[1.00,[1.00,1.00,1.00]]
+  ];
+  function freqColor(u){
+    u=Math.max(0,Math.min(1,u));
+    for(var i=0;i<STOPS.length-1;i++){
+      if(u<=STOPS[i+1][0]){
+        var a=STOPS[i],b=STOPS[i+1];
+        var f=(u-a[0])/((b[0]-a[0])||1);
+        return [a[1][0]+(b[1][0]-a[1][0])*f,
+                a[1][1]+(b[1][1]-a[1][1])*f,
+                a[1][2]+(b[1][2]-a[1][2])*f];
+      }
+    }
+    return STOPS[STOPS.length-1][1];
+  }
+  // Paint the legend gradient + ticks from the same stops.
+  var legendEl=document.getElementById('legend');
+  var grad=STOPS.map(function(s){
+    var c=s[1];return 'rgb('+Math.round(c[0]*255)+','+Math.round(c[1]*255)+','+
+      Math.round(c[2]*255)+') '+Math.round(s[0]*100)+'%';
+  }).join(',');
+  legendEl.style.background='linear-gradient(to top,'+grad+')';
+
+  if(!window.WebGLRenderingContext||!window.THREE){
+    fallback.style.display='flex';return;
+  }
+
+  function togglePlay(){
+    if(audio.paused)audio.play().catch(function(){});else audio.pause();
+  }
+  audio.addEventListener('play',function(){hint.classList.add('hide');});
+  audio.addEventListener('pause',function(){hint.classList.remove('hide');});
+  document.addEventListener('keydown',function(e){
+    if(e.code==='Space'){e.preventDefault();togglePlay();}
+  });
+
+  var vizUrl='/vibeviz/{{ segment_id }}.json?start={{ start }}&end={{ end }}';
+  fetch(vizUrl).then(function(r){
+    if(!r.ok)throw new Error('viz');return r.json();
+  }).then(build).catch(function(){fallback.style.display='flex';
+    fallback.textContent='Vibe data unavailable.';});
+
+  function build(data){
+    var nodes=data.nodes||[],edges=data.edges||[];
+    var DUR=data.duration||1,FMAX=data.fmax||10000;
+    var ampArr=data.amp||[],ampT=data.ampTimes||[];
+
+    // Build legend ticks now that FMAX is known.
+    var ticks=document.getElementById('ticks');
+    for(var hz=2000;hz<=FMAX+1;hz+=2000){
+      var sp=document.createElement('div');
+      sp.className='tick';
+      sp.style.top=(100-(hz/FMAX)*100)+'%';
+      sp.textContent=(hz/1000)+'K Hz';
+      ticks.appendChild(sp);
+    }
+
+    var w=sceneEl.clientWidth,h=sceneEl.clientHeight;
+    var renderer=new THREE.WebGLRenderer({antialias:true});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    renderer.setSize(w,h);
+    sceneEl.appendChild(renderer.domElement);
+    var scene=new THREE.Scene();
+    scene.background=new THREE.Color(0x000000);
+    var camera=new THREE.PerspectiveCamera(55,w/h,0.1,3000);
+    camera.position.set(0,6,168);
+    var controls=new THREE.OrbitControls(camera,renderer.domElement);
+    controls.enableDamping=true;controls.dampingFactor=0.08;
+    controls.enablePan=false;controls.autoRotate=true;controls.autoRotateSpeed=0.55;
+    controls.minDistance=70;controls.maxDistance=520;
+    renderer.domElement.addEventListener('click',togglePlay);
+
+    var SPANX=158,SPANY=84,SPANZ=44;
+    var N=nodes.length;
+    var pos=new Float32Array(N*3),col=new Float32Array(N*3);
+    var siz=new Float32Array(N),glow=new Float32Array(N),tArr=new Float32Array(N);
+    for(var i=0;i<N;i++){
+      var t=nodes[i][0],f=nodes[i][1],a=nodes[i][2];
+      var nx=DUR>0?t/DUR:0,nf=FMAX>0?Math.min(1,f/FMAX):0;
+      pos[i*3]=(nx-0.5)*SPANX;
+      pos[i*3+1]=(nf-0.5)*SPANY;
+      pos[i*3+2]=SPANZ*Math.sin(nf*Math.PI*1.5+t*1.2)*(0.3+0.7*a);
+      var c=freqColor(nf);
+      col[i*3]=c[0];col[i*3+1]=c[1];col[i*3+2]=c[2];
+      siz[i]=1.8+a*6.5;tArr[i]=t;glow[i]=0;
+    }
+    var geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    geo.setAttribute('aColor',new THREE.BufferAttribute(col,3));
+    geo.setAttribute('aSize',new THREE.BufferAttribute(siz,1));
+    var glowAttr=new THREE.BufferAttribute(glow,1);glowAttr.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aGlow',glowAttr);
+    var mat=new THREE.ShaderMaterial({
+      uniforms:{uPixelRatio:{value:renderer.getPixelRatio()}},
+      transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+      vertexShader:[
+        'attribute float aSize;attribute vec3 aColor;attribute float aGlow;',
+        'varying vec3 vColor;varying float vGlow;uniform float uPixelRatio;',
+        'void main(){vColor=aColor;vGlow=aGlow;',
+        'vec4 mv=modelViewMatrix*vec4(position,1.0);',
+        'gl_PointSize=aSize*(1.0+aGlow*2.4)*uPixelRatio*(300.0/-mv.z);',
+        'gl_Position=projectionMatrix*mv;}'
+      ].join(''),
+      fragmentShader:[
+        'varying vec3 vColor;varying float vGlow;',
+        'void main(){vec2 p=gl_PointCoord-0.5;',
+        'float d=max(abs(p.x),abs(p.y));if(d>0.5)discard;',
+        'float edge=smoothstep(0.5,0.34,d);',
+        'vec3 c=mix(vColor,vec3(1.0),clamp(vGlow,0.0,1.0)*0.9);',
+        'float it=(0.35+0.65*edge)*(0.5+vGlow*1.9);',
+        'gl_FragColor=vec4(c*it,1.0);}'
+      ].join('')
+    });
+    scene.add(new THREE.Points(geo,mat));
+
+    // Edges: thin translucent network lines.
+    if(edges.length){
+      var E=edges.length;
+      var epos=new Float32Array(E*6),ecol=new Float32Array(E*6);
+      for(var k=0;k<E;k++){
+        var ai=edges[k][0],bi=edges[k][1];
+        for(var d2=0;d2<3;d2++){
+          epos[k*6+d2]=pos[ai*3+d2];epos[k*6+3+d2]=pos[bi*3+d2];
+          var cc=(col[ai*3+d2]+col[bi*3+d2])*0.5*0.6;
+          ecol[k*6+d2]=cc;ecol[k*6+3+d2]=cc;
+        }
+      }
+      var egeo=new THREE.BufferGeometry();
+      egeo.setAttribute('position',new THREE.BufferAttribute(epos,3));
+      egeo.setAttribute('color',new THREE.BufferAttribute(ecol,3));
+      var emat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,
+        opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false});
+      scene.add(new THREE.LineSegments(egeo,emat));
+    }
+
+    var ap=0;
+    function sampleAmp(t){
+      if(!ampT.length)return 0;
+      while(ap<ampT.length-1&&ampT[ap+1]<t)ap++;
+      while(ap>0&&ampT[ap]>t)ap--;
+      return ampArr[ap]||0;
+    }
+    function resize(){
+      var nw=sceneEl.clientWidth,nh=sceneEl.clientHeight;
+      if(!nw||!nh)return;
+      camera.aspect=nw/nh;camera.updateProjectionMatrix();
+      renderer.setSize(nw,nh);
+      mat.uniforms.uPixelRatio.value=renderer.getPixelRatio();
+    }
+    window.addEventListener('resize',resize);
+
+    var WIN=0.075,WIN2=WIN*WIN;
+    function animate(){
+      requestAnimationFrame(animate);
+      var t=audio.currentTime||0;
+      for(var i=0;i<N;i++){var dt=tArr[i]-t;glow[i]=Math.exp(-(dt*dt)/WIN2);}
+      glowAttr.needsUpdate=true;
+      ampEl.textContent=sampleAmp(t).toFixed(4);
+      tmEl.textContent=t.toFixed(2);
+      controls.update();
+      renderer.render(scene,camera);
+    }
+    animate();
+    audio.play().catch(function(){});
   }
 })();
 </script>
@@ -3339,6 +3752,88 @@ def callviz_json(segment_id: int):
     return Response(json.dumps(payload), mimetype="application/json")
 
 
+@app.route("/vibeviz/<int:segment_id>.json")
+def vibeviz_json(segment_id: int):
+    start = request.args.get("start", type=float)
+    end = request.args.get("end", type=float)
+    cache_path = _vibeviz_cache_path(segment_id, start, end, _CFG["recordings_dir"])
+    if cache_path.is_file():
+        try:
+            cached = json.loads(cache_path.read_text())
+            if cached.get("version") == _VIBEVIZ_VERSION:
+                return Response(json.dumps(cached), mimetype="application/json")
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    conn = _db()
+    try:
+        audio_path = _resolve_call_audio(conn, segment_id, start, end)
+    finally:
+        conn.close()
+    if not audio_path:
+        abort(404)
+
+    payload = _compute_vibeviz(audio_path, start, end)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(payload))
+    return Response(json.dumps(payload), mimetype="application/json")
+
+
+@app.route("/vibe/<int:segment_id>")
+def vibe_view(segment_id: int):
+    start = request.args.get("start", type=float)
+    end = request.args.get("end", type=float)
+    slug = request.args.get("slug", "")
+    show_all, selected_day = _parse_day_arg(request.args.get("day"))
+    sort = _normalize_sort(request.args.get("sort"))
+    hide_low = _parse_hide_low(request.args.get("hide_low"))
+
+    conn = _db()
+    try:
+        seg = storage.get_segment(conn, segment_id)
+        if not seg:
+            abort(404)
+        entry = _resolve_call_clip(conn, segment_id, start, end)
+        if entry is None:
+            abort(404)
+        common_name = entry["name"]
+        bird_slug = slug or entry["slug"]
+        meta = storage.species_meta(conn, common_name)
+        call_href = _call_href(
+            segment_id,
+            start,
+            end,
+            bird_slug,
+            show_all=show_all,
+            selected_day=selected_day,
+            sort=sort,
+            hide_low=hide_low,
+        )
+        back_href = "/" + _qs(
+            show_all=show_all,
+            day=selected_day,
+            sort=sort,
+            hide_low=hide_low,
+            mode="dex",
+        )
+        return render_template_string(
+            VIBE_PAGE,
+            segment_id=segment_id,
+            start=start,
+            end=end,
+            slug=bird_slug,
+            common_name=common_name,
+            scientific_name=meta["scientific_name"] if meta else "",
+            sprite_slug=_sprite_slug(common_name, _slug_map()),
+            call_href=call_href,
+            back_href=back_href,
+            dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
+        )
+    finally:
+        conn.close()
+
+
 @app.route("/sprite/<slug>.png")
 def sprite(slug: str):
     path = _SPRITES_DIR / f"{slug}.png"
@@ -3429,10 +3924,12 @@ def spectrogram(segment_id: int):
     else:
         y, sr = librosa.load(audio_path, sr=None)
 
-    S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=sr // 2)
+    S = librosa.feature.melspectrogram(
+        y=y, sr=sr, n_fft=2048, hop_length=256, n_mels=256, fmax=sr // 2
+    )
     S_db = librosa.power_to_db(S, ref=np.max)
 
-    fig, ax = plt.subplots(figsize=(6, 2.2), dpi=100)
+    fig, ax = plt.subplots(figsize=(6, 2.2), dpi=300)
     librosa.display.specshow(
         S_db, sr=sr, x_axis="time", y_axis="mel", fmax=sr // 2, ax=ax
     )
