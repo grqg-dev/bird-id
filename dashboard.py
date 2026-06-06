@@ -388,7 +388,7 @@ PAGE = """
     <a href="{{ qs(mode='dex') }}" class="{{ 'on' if mode == 'dex' else '' }}">Full dex</a>
     <a href="{{ qs(mode='gallery') }}" class="{{ 'on' if mode == 'gallery' else '' }}">Gallery</a>
     <span style="flex:1"></span>
-    <a href="{{ qs(sort='discovered') }}" class="{{ 'on' if sort == 'discovered' else '' }}">Discovered</a>
+    <a href="{{ qs(day='all', sort='discovered') }}" class="{{ 'on' if sort == 'discovered' and show_all else '' }}">Discovered</a>
     <a href="{{ qs(sort='heard') }}" class="{{ 'on' if sort == 'heard' else '' }}">Most heard</a>
     <a href="{{ qs(sort='peak') }}" class="{{ 'on' if sort == 'peak' else '' }}">Peak conf</a>
     <a href="{{ qs(hide_low=not hide_low) }}" class="{{ 'on' if hide_low else '' }}">Peak ≥ {{ "%.1f"|format(peak_floor) }}</a>
@@ -1967,7 +1967,7 @@ def _parse_day_arg(raw: str | None) -> tuple[bool, str]:
             return False, raw
         except ValueError:
             pass
-    return False, _today()
+    return True, _today()
 
 
 def _parse_hide_low(raw: str | None) -> bool:

@@ -61,10 +61,17 @@ def test_call_href_preserves_day_and_sort():
     assert href == "/call/1?start=0.0&end=3.0&slug=bewicks_wren&day=2026-05-30&sort=peak&hide_low=1"
 
 
-def test_parse_day_arg_defaults_to_today():
+def test_parse_day_arg_defaults_to_all_time():
     show_all, day = dashboard._parse_day_arg(None)
-    assert show_all is False
+    assert show_all is True
     assert day == date.today().isoformat()
+
+
+def test_index_defaults_all_time_discovered(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert b"Species discovered (all time)" in resp.data
+    assert b"Discovered" in resp.data
 
 
 def test_parse_day_arg_all():
