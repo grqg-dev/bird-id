@@ -45,7 +45,8 @@ project testable and portable.
 
 | Module | Responsibility | Depends on mic? | Platform-specific? |
 |---|---|---|---|
-| `recorder.py` | mic → wav (48kHz mono) + silence guard | **yes** | **yes — macOS AVFoundation** |
+| `recorder.py` | mic → wav (48kHz mono) + `stream_pcm()` continuous pipe | **yes** | **yes — macOS AVFoundation** |
+| `segmenter.py` | adaptive DSP: PCM hops → variable-length `Segment` objects | no | no |
 | `identifier.py` | `identify(wav)` → detections via BirdNET | no | no |
 | `storage.py` | SQLite: segments, tracks, detections, queries | no | no |
 | `clips.py` | slice segment wav → per-window clip files | no | no |
@@ -61,6 +62,9 @@ Key invariants:
 - **The monitor loop stays in one process** so it reuses the cached `_ANALYZER`
   in `identifier.py`. Never shell out to `birdid.py identify` per segment — that
   reloads the whole TF model every time. Verify: "Model loaded" prints once.
+- **Monitor is streaming (two-thread).** `recorder.stream_pcm()` + `segmenter.segment_stream()`
+  run in a capture thread; the main thread processes segments. The mic pipe is never
+  blocked by BirdNET analysis. Segments are ~8–12s, adapting to quiet boundaries.
 - **Store raw, aggregate at query.** Write one row per 3s-window detection; roll
   up with `GROUP BY` at read time (see `species_summary`, `day_species`).
 - **Tracks + clips.** Each distinct `(start_time, end_time)` window within a
@@ -99,10 +103,10 @@ The fixed dev fixture is `~/Desktop/bird.wav` (a 3s clip → Bewick's Wren ~0.92
 # mic-free identify loop — fastest check
 ./.venv/bin/python birdid.py identify ~/Desktop/bird.wav -c 0.1
 
-# monitor smoke test (6s segments); confirm model loads once, seg lines appear,
-# rows land in the CONFIGURED db (audio kept for all segments)
+# monitor smoke test; confirm model loads once, seg lines appear every ~8-12s,
+# rows land in the CONFIGURED db
 rm -f birdid.db && rm -rf recordings
-(./.venv/bin/python birdid.py monitor -m 0.05 > /tmp/m.log 2>&1 &)
+(./.venv/bin/python birdid.py monitor > /tmp/m.log 2>&1 &)
 until [ "$(grep -c 'seg ' /tmp/m.log)" -ge 2 ]; do sleep 1; done
 ./.venv/bin/python birdid.py stats          # WAL: reads while monitor writes
 pkill -INT -f "birdid.py monitor"

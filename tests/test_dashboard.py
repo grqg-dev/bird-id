@@ -360,3 +360,24 @@ def test_api_recent_since_filters(client, seeded_conn):
 def test_format_heard_clock():
     assert dashboard._format_heard_clock("2026-06-01T14:32:05") == "2:32 PM"
     assert dashboard._format_heard_clock("2026-06-01T08:05:00") == "8:05 AM"
+
+
+def test_realtime_page_loads(client):
+    resp = client.get("/realtime")
+    assert resp.status_code == 200
+    assert b"Real time" in resp.data
+    assert b"Listening" in resp.data
+
+
+def test_realtime_page_shows_recent_birds(client, seeded_conn):
+    _seed_recent_detection(seeded_conn, name="Realtime Bird", minutes_ago=5)
+    resp = client.get("/realtime")
+    assert resp.status_code == 200
+    assert b"Realtime Bird" in resp.data
+
+
+def test_realtime_page_has_nav_links(client):
+    resp = client.get("/realtime")
+    assert resp.status_code == 200
+    assert b'href="/live"' in resp.data
+    assert b'href="/"' in resp.data

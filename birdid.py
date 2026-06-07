@@ -13,17 +13,22 @@ The identify path is mic-free, so the dev test loop is just:
 from __future__ import annotations
 
 import argparse
+import queue
 import shutil
 import subprocess
 import sys
 import threading
 import time
+import wave
 from datetime import datetime, timedelta
 from pathlib import Path
+
+import numpy as np
 
 import clips
 import config
 import recorder
+import segmenter
 import identifier
 import storage
 
@@ -347,15 +352,30 @@ def cmd_listen(args) -> int:
     return 0
 
 
-def cmd_monitor(args) -> int:
-    """Continuous loop: every interval, record -> identify -> store to the DB.
+def _write_segment_wav(seg: segmenter.Segment, path: Path) -> None:
+    """Write a segmenter.Segment to a 16-bit mono PCM wav file."""
+    samples_i16 = (seg.samples * 32767.0).clip(-32768, 32767).astype(np.int16)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(seg.sr)
+        wf.writeframes(samples_i16.tobytes())
 
-    Sequential by design (no threading): a few seconds of processing gap between
-    segments is fine, and a plain loop self-heals across laptop sleep. The cached
-    BirdNET model is reused across iterations because we stay in one process.
+
+# Sentinel placed on the segment queue to signal capture-thread exit.
+class _CaptureError:
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+
+def cmd_monitor(args) -> int:
+    """Always-on streaming monitor: continuous capture → adaptive segmentation → identify → store.
+
+    Two-thread design (one process so _ANALYZER stays cached):
+      capture thread  — streams PCM from ffmpeg, segments adaptively, writes wavs, enqueues paths
+      processor (main) — pulls paths from queue, identifies, stores, cleans up
     """
-    # Line-buffer stdout so per-segment progress shows immediately even when the
-    # monitor's output is redirected to a file (block-buffered by default).
     try:
         sys.stdout.reconfigure(line_buffering=True)
     except AttributeError:
@@ -365,86 +385,118 @@ def cmd_monitor(args) -> int:
     db_path, rec_dir = _db_paths(args)
     conn = storage.connect(db_path)
     rec_dir.mkdir(parents=True, exist_ok=True)
-    minutes = float(config.resolve(args.minutes, "segment_minutes", args.cfg))
-    interval_s = minutes * 60.0
     retention = _retention_days(args)
     retention_note = f", audio retention {retention}d" if retention > 0 else ""
 
+    cfg = args.cfg
+    hop_ms = int(config.resolve(None, "hop_ms", cfg))
+    seg_cfg = dict(
+        hop_ms=hop_ms,
+        seg_target_seconds=float(config.resolve(None, "seg_target_seconds", cfg)),
+        seg_max_seconds=float(config.resolve(None, "seg_max_seconds", cfg)),
+        floor_window_seconds=float(config.resolve(None, "floor_window_seconds", cfg)),
+        activity_margin_db=float(config.resolve(None, "activity_margin_db", cfg)),
+        quiet_hold_ms=float(config.resolve(None, "quiet_hold_ms", cfg)),
+        tail_carry_seconds=float(config.resolve(None, "tail_carry_seconds", cfg)),
+        mic_dead_dbfs=float(config.resolve(None, "mic_dead_dbfs", cfg)),
+        mic_dead_window_seconds=float(config.resolve(None, "mic_dead_window_seconds", cfg)),
+    )
+
     print(
-        f"Monitoring: {minutes:g}-min segments -> {db_path} "
+        f"Monitoring (streaming): segments ~{seg_cfg['seg_target_seconds']:.0f}–"
+        f"{seg_cfg['seg_max_seconds']:.0f}s → {db_path} "
         f"(min_conf={min_conf}{loc}{retention_note}). Ctrl-C to stop.\n"
     )
+
+    # Bounded queue — capture thread uses put_nowait; never blocks on processor.
+    seg_queue: queue.Queue = queue.Queue(maxsize=20)
+    stop_event = threading.Event()
     dash_state: dict = {"last": 0.0}
     _run_audio_cleanup(conn, rec_dir, args, dash_state=dash_state)
+
+    def _capture() -> None:
+        seg_no = 0
+        try:
+            hops = recorder.stream_pcm(args.device, hop_ms=hop_ms)
+            for seg in segmenter.segment_stream(
+                hops,
+                recorder.TARGET_SAMPLE_RATE,
+                datetime.now(),
+                **seg_cfg,
+            ):
+                if stop_event.is_set():
+                    return
+                seg_no += 1
+                duration = len(seg.samples) / seg.sr
+                wav_path = rec_dir / f"seg_{seg.started_at:%Y%m%d_%H%M%S}_{seg_no:05d}.wav"
+                _write_segment_wav(seg, wav_path)
+                item = (wav_path, seg.started_at, duration, seg.mean_dbfs, seg.max_dbfs)
+                try:
+                    seg_queue.put_nowait(item)
+                except queue.Full:
+                    print(
+                        f"[capture] queue full — dropping segment {wav_path.name}",
+                        file=sys.stderr,
+                    )
+        except segmenter.MicDead as exc:
+            seg_queue.put(_CaptureError(exc))
+        except recorder.RecordingError as exc:
+            seg_queue.put(_CaptureError(exc))
+        except Exception as exc:  # noqa: BLE001
+            seg_queue.put(_CaptureError(exc))
+        finally:
+            seg_queue.put(None)  # EOF sentinel
+
+    capture_thread = threading.Thread(target=_capture, daemon=True, name="bird-capture")
+    capture_thread.start()
+
     segment_no = 0
     try:
         while True:
+            item = seg_queue.get()
+            if item is None:
+                # Capture thread exited (shouldn't happen in normal operation)
+                print("\n[monitor] capture thread ended unexpectedly.", file=sys.stderr)
+                break
+            if isinstance(item, _CaptureError):
+                print(f"\n[monitor] {item.exc}", file=sys.stderr)
+                return 1
+            wav_path, started_at, duration, mean_dbfs, max_dbfs = item
             segment_no += 1
-            started_at = datetime.now()
             stamp = started_at.strftime("%H:%M:%S")
-            wav_path = rec_dir / f"seg_{started_at:%Y%m%d_%H%M%S}.wav"
-            progress = _MonitorProgress(stamp, segment_no, interval_s)
-            try:
-                rec = recorder.record(
-                    interval_s, wav_path, device=args.device, progress=progress.recording,
-                )
-            except recorder.RecordingError as e:
-                if progress.interactive:
-                    progress.finish("")
-                print(f"[{stamp}] recording failed: {e}", file=sys.stderr)
-                return 1  # a recording failure is persistent (mic/permission) — stop
-            ended_at = datetime.now()
 
-            analyze_done = threading.Event()
-
-            def _analyze_spinner() -> None:
-                progress.start_analyzing()
-                while not analyze_done.wait(0.15):
-                    progress.analyzing()
-
-            if progress.interactive:
-                spinner = threading.Thread(target=_analyze_spinner, daemon=True)
-                spinner.start()
-            else:
-                progress.start_analyzing()
-
-            detections = identifier.identify(rec.path, min_conf=min_conf,
-                                             lat=lat, lon=lon)
-            analyze_done.set()
-            if progress.interactive:
-                spinner.join(timeout=1)
+            detections = identifier.identify(wav_path, min_conf=min_conf, lat=lat, lon=lon)
+            ended_at = started_at + timedelta(seconds=duration)
 
             clip_paths = _clip_paths_for_detections(
-                rec.path, rec_dir / "clips", started_at, detections, cfg=args.cfg
+                wav_path, rec_dir / "clips", started_at, detections, cfg=cfg
             )
             seg_id = storage.record_segment(
                 conn,
                 started_at=started_at,
                 ended_at=ended_at,
-                duration=rec.seconds,
+                duration=duration,
                 detections=detections,
-                wav_path=str(rec.path),
-                mean_dbfs=rec.mean_volume_dbfs,
-                max_dbfs=rec.max_volume_dbfs,
+                wav_path=str(wav_path),
+                mean_dbfs=mean_dbfs,
+                max_dbfs=max_dbfs,
                 clip_paths=clip_paths,
             )
-            _maybe_drop_segment_wav(
-                conn, seg_id, rec.path, detections, clip_paths, args.cfg
-            )
+            _maybe_drop_segment_wav(conn, seg_id, wav_path, detections, clip_paths, cfg)
 
             if detections:
                 species = sorted({d.common_name for d in detections})
-                progress.finish(
-                    f"[{stamp}] seg {segment_no}: {len(detections)} hit(s) — "
-                    f"{', '.join(species)}"
-                )
+                print(f"[{stamp}] seg {segment_no} ({duration:.0f}s): {', '.join(species)}")
             else:
-                progress.finish(f"[{stamp}] seg {segment_no}: nothing detected")
+                print(f"[{stamp}] seg {segment_no} ({duration:.0f}s): nothing detected")
+
             _run_audio_cleanup(conn, rec_dir, args, dash_state=dash_state)
     except KeyboardInterrupt:
+        stop_event.set()
         print("\nStopping. Final tally:")
         cmd_stats(args, conn=conn)
     finally:
+        stop_event.set()
         conn.close()
     return 0
 
@@ -559,11 +611,7 @@ def main(argv=None) -> int:
     p_listen.add_argument("--lon", type=float)
     p_listen.set_defaults(func=cmd_listen)
 
-    p_mon = sub.add_parser("monitor", help="continuously record N-min segments and store results")
-    p_mon.add_argument(
-        "-m", "--minutes", type=float, default=None,
-        help="segment length in minutes (overrides config)",
-    )
+    p_mon = sub.add_parser("monitor", help="continuously record and identify bird sounds (streaming)")
     p_mon.add_argument("-d", "--device", default="0")
     p_mon.add_argument("-c", "--min-conf", type=float, help="min confidence (overrides config)")
     p_mon.add_argument("--db", help="SQLite database path (overrides config)")

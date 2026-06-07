@@ -20,7 +20,17 @@ DEFAULTS: dict[str, Any] = {
     "lat": None,        # e.g. 37.77  -> enables BirdNET's location/season filter
     "lon": None,        # e.g. -122.42
     "min_conf": 0.3,
-    "segment_minutes": 1.0,
+    "segment_minutes": 1.0,       # retired — ignored by streaming monitor
+    # Streaming monitor (cmd_monitor)
+    "hop_ms": 100,                # PCM read size: 100 ms per hop
+    "seg_target_seconds": 8,      # flush near this length at a quiet boundary
+    "seg_max_seconds": 12,        # hard flush even if never quiet
+    "floor_window_seconds": 30,   # EMA-min window for adaptive noise floor
+    "activity_margin_db": 6,      # dB above floor = "active" hop
+    "quiet_hold_ms": 300,         # consecutive quiet time required before flush
+    "tail_carry_seconds": 1.0,    # overlap prepended to next segment
+    "mic_dead_dbfs": -85.0,       # RMS at or below this = "silent" hop
+    "mic_dead_window_seconds": 60, # sustained silence window → mic-dead error
     "db": "birdid.db",
     "recordings_dir": "recordings",
     "retention_days": 30,   # drop kept segment wavs after N days; 0 = keep forever

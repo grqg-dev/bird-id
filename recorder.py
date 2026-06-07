@@ -15,7 +15,11 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from typing import Iterator
+
+import numpy as np
 
 # BirdNET runs on 48 kHz mono. Recording natively at this rate avoids resampling.
 TARGET_SAMPLE_RATE = 48_000
@@ -31,6 +35,16 @@ SILENCE_DBFS_THRESHOLD = -70.0
 
 class RecordingError(RuntimeError):
     """Raised when recording fails or produces unusable (silent) audio."""
+
+
+@dataclass
+class Respawn:
+    """Sentinel yielded by stream_pcm when ffmpeg exits and is restarted.
+
+    Carries the wall-clock time of the restart so segmenter.segment_stream
+    can reset its timestamps correctly.
+    """
+    wall_time: datetime
 
 
 @dataclass
@@ -168,6 +182,70 @@ def record(
         mean_volume_dbfs=mean_dbfs,
         max_volume_dbfs=max_dbfs,
     )
+
+
+def stream_pcm(
+    device: str = "0",
+    *,
+    hop_ms: int = 100,
+) -> Iterator[np.ndarray | Respawn]:
+    """Yield np.int16 arrays (one per hop_ms) from the mic, indefinitely.
+
+    Yields Respawn sentinels when ffmpeg exits and before restarting, so
+    callers (e.g. segmenter.segment_stream) can reset their state.
+
+    Raises RecordingError after too many consecutive immediate failures,
+    which indicates a permanent problem (missing mic permission, bad device).
+    """
+    ffmpeg = _require_ffmpeg()
+    hop_samples = int(TARGET_SAMPLE_RATE * hop_ms / 1000)
+    bytes_per_hop = hop_samples * 2  # int16 = 2 bytes/sample
+    cmd = [
+        ffmpeg, "-hide_banner", "-loglevel", "error",
+        "-f", "avfoundation", "-i", f":{device}",
+        "-ac", str(TARGET_CHANNELS),
+        "-ar", str(TARGET_SAMPLE_RATE),
+        "-f", "s16le", "pipe:1",
+    ]
+
+    backoff = 1.0
+    consecutive_quick = 0
+    _MAX_QUICK_FAILS = 5
+    _QUICK_THRESHOLD = 5.0  # seconds — anything shorter is a "quick fail"
+
+    while True:
+        started = time.monotonic()
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            while True:
+                raw = proc.stdout.read(bytes_per_hop)
+                if len(raw) < bytes_per_hop:
+                    break  # EOF or partial hop at shutdown
+                yield np.frombuffer(raw, dtype=np.int16).copy()
+                backoff = 1.0   # reset on any successful read
+        finally:
+            proc.kill()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                pass
+
+        elapsed = time.monotonic() - started
+        if elapsed < _QUICK_THRESHOLD:
+            consecutive_quick += 1
+        else:
+            consecutive_quick = 0
+
+        if consecutive_quick >= _MAX_QUICK_FAILS:
+            raise RecordingError(
+                "ffmpeg failed to start repeatedly. This is likely a microphone-permission issue:\n"
+                "  System Settings → Privacy & Security → Microphone → enable your terminal app.\n"
+                f"Attempted device: :{device}"
+            )
+
+        yield Respawn(datetime.now())
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 60.0)
 
 
 if __name__ == "__main__":
