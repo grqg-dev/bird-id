@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 import pytest
@@ -120,13 +120,15 @@ def test_all_zeros_raises_mic_dead():
 def test_started_at_from_stream_start():
     """Segment.started_at should equal stream_start + (elapsed samples / sr)."""
     hops = _hops(25, amplitude=500)
-    segs = list(segment_stream(hops, SR, _T0, **_FAST_CFG))
+    # Drift-free clock (wall tracks the audio timeline) → no resync; stamps stay
+    # purely stream-derived. 25 hops = 2.5s of audio.
+    wall_now = lambda: _T0 + timedelta(seconds=2.5)
+    segs = list(segment_stream(hops, SR, _T0, wall_now=wall_now, **_FAST_CFG))
     assert segs, "expected at least one segment"
     first = segs[0]
     # started_at should be at or after _T0 (never before stream started)
     assert first.started_at >= _T0
     # And bounded by end of stream (25 hops * 100ms = 2.5s)
-    from datetime import timedelta
     assert first.started_at <= _T0 + timedelta(seconds=2.5)
 
 
@@ -144,7 +146,10 @@ def test_respawn_resets_state():
     after = _hops(25, amplitude=500)
     hops = before + [Respawn(t1)] + after
 
-    segs = list(segment_stream(hops, SR, t0, **_FAST_CFG))
+    # Drift-free clock anchored just after the respawn so resync stays inert and
+    # this test isolates Respawn behavior (which re-anchors _stream_start to t1).
+    wall_now = lambda: t1 + timedelta(seconds=5)
+    segs = list(segment_stream(hops, SR, t0, wall_now=wall_now, **_FAST_CFG))
     # All segments should be stamped at or after t1 (pre-respawn buffer discarded)
     for s in segs:
         assert s.started_at >= t1, f"segment before respawn leaked: {s.started_at}"
@@ -160,3 +165,40 @@ def test_rms_dbfs_zero_guard():
 def test_peak_dbfs_zero_guard():
     zeros = np.zeros(HOP, dtype=np.int16)
     assert segmenter._peak_dbfs(zeros) == segmenter._SILENCE_FLOOR_DBFS
+
+
+# ── Test 8: wall-clock resync after a sleep/stall gap ────────────────────────
+
+def test_wall_clock_resync_after_sleep():
+    """Simulate the Mac sleeping mid-stream: the audio sample clock freezes while
+    wall time jumps +3h (ffmpeg never exits, so no Respawn). Segments flushed
+    after the wake should be re-stamped to wall time, not the stale audio clock.
+    """
+    # 40 hops of steady noise → several segments under _FAST_CFG (target=1s).
+    hops = _hops(40, amplitude=500)
+
+    clock = {"now": _T0}  # mutable fake wall clock
+    gen = segment_stream(
+        hops, SR, _T0, wall_now=lambda: clock["now"], **_FAST_CFG
+    )
+
+    # First segment flushes while the clock still tracks the audio timeline → no
+    # resync, audio-clock stamp near _T0.
+    first = next(gen)
+    assert first.started_at < _T0 + timedelta(minutes=1), (
+        f"pre-sleep segment should keep its audio-clock stamp, got {first.started_at}"
+    )
+
+    # "Mac wakes 3h later." Everything the generator yields from here is flushed
+    # under the jumped clock, so drift > threshold triggers a resync.
+    clock["now"] = _T0 + timedelta(hours=3)
+    rest = list(gen)
+    assert rest, "expected more segments after the sleep gap"
+
+    last = rest[-1]
+    assert last.started_at >= _T0 + timedelta(hours=3) - timedelta(seconds=5), (
+        f"post-sleep segment should track wall time (~+3h), got {last.started_at}"
+    )
+    # Timestamps must never go backwards across the resync.
+    stamps = [first.started_at] + [s.started_at for s in rest]
+    assert stamps == sorted(stamps), "segment timestamps must be monotonic"

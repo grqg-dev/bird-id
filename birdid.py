@@ -369,6 +369,20 @@ class _CaptureError:
         self.exc = exc
 
 
+def _processing_lag_note(started_at: datetime, threshold_seconds: float = 120.0) -> str:
+    """Return ' (processed Xh Ym late)' when a segment is dequeued long after its
+    capture time, else ''. A large lag means capture stalled (e.g. Mac sleep) and
+    we're draining stale audio — surfaced in the log so it's obvious at a glance.
+    """
+    lag = (datetime.now() - started_at).total_seconds()
+    if lag <= threshold_seconds:
+        return ""
+    mins = int(lag // 60)
+    if mins >= 60:
+        return f"  (processed {mins // 60}h{mins % 60:02d}m late)"
+    return f"  (processed {mins}m late)"
+
+
 def cmd_monitor(args) -> int:
     """Always-on streaming monitor: continuous capture → adaptive segmentation → identify → store.
 
@@ -464,6 +478,7 @@ def cmd_monitor(args) -> int:
             wav_path, started_at, duration, mean_dbfs, max_dbfs = item
             segment_no += 1
             stamp = started_at.strftime("%H:%M:%S")
+            late = _processing_lag_note(started_at)
 
             detections = identifier.identify(wav_path, min_conf=min_conf, lat=lat, lon=lon)
             ended_at = started_at + timedelta(seconds=duration)
@@ -486,9 +501,9 @@ def cmd_monitor(args) -> int:
 
             if detections:
                 species = sorted({d.common_name for d in detections})
-                print(f"[{stamp}] seg {segment_no} ({duration:.0f}s): {', '.join(species)}")
+                print(f"[{stamp}] seg {segment_no} ({duration:.0f}s): {', '.join(species)}{late}")
             else:
-                print(f"[{stamp}] seg {segment_no} ({duration:.0f}s): nothing detected")
+                print(f"[{stamp}] seg {segment_no} ({duration:.0f}s): nothing detected{late}")
 
             _run_audio_cleanup(conn, rec_dir, args, dash_state=dash_state)
     except KeyboardInterrupt:

@@ -65,6 +65,14 @@ Key invariants:
 - **Monitor is streaming (two-thread).** `recorder.stream_pcm()` + `segmenter.segment_stream()`
   run in a capture thread; the main thread processes segments. The mic pipe is never
   blocked by BirdNET analysis. Segments are ~8–12s, adapting to quiet boundaries.
+- **Timestamps survive sleep.** `started_at` comes from an audio-sample clock
+  (`stream_start + samples/sr`), which only equals wall time while capture runs
+  continuously. ffmpeg restarts re-anchor via `Respawn`; system sleep / pipeline
+  stalls (ffmpeg stays alive, sample clock freezes while wall time advances) are
+  caught by a drift resync in `segmenter._flush()` — when wall runs >60s ahead of
+  audio, `_stream_start` is bumped forward so new segments get correct wall time.
+  Resync is one-directional (timestamps only jump forward, never back). The monitor
+  log appends `(processed Xh Ym late)` when a dequeued segment is stale.
 - **Store raw, aggregate at query.** Write one row per 3s-window detection; roll
   up with `GROUP BY` at read time (see `species_summary`, `day_species`).
 - **Tracks + clips.** Each distinct `(start_time, end_time)` window within a

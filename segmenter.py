@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Iterator, Iterable
+from typing import Callable, Iterator, Iterable
 
 import numpy as np
 
@@ -59,13 +59,25 @@ def segment_stream(
     tail_carry_seconds: float = 1.0,
     mic_dead_dbfs: float = -85.0,
     mic_dead_window_seconds: float = 60.0,
+    drift_resync_seconds: float = 60.0,
+    wall_now: Callable[[], datetime] | None = None,
 ) -> Iterator[Segment]:
     """Consume PCM hops and emit variable-length Segment objects.
 
     Raises MicDead if the stream is permanently silent (blocked permission).
     Handles Respawn sentinels from recorder.stream_pcm by flushing/discarding
     the current buffer and resetting timestamps.
+
+    Timestamps come from an audio-sample clock (stream_start + samples/sr), which
+    only equals wall-clock time while capture runs continuously. If the machine
+    sleeps (or the audio pipeline stalls) without ffmpeg exiting, the sample clock
+    freezes while wall time advances. When that drift exceeds drift_resync_seconds
+    at flush time, _stream_start is re-anchored to wall time so subsequent segments
+    are stamped correctly. ffmpeg restarts are still handled separately via Respawn.
+
+    wall_now defaults to datetime.now; inject a fake clock in tests.
     """
+    _wall_now = wall_now or datetime.now
     target_samples = int(sr * seg_target_seconds)
     max_samples = int(sr * seg_max_seconds)
     tail_samples = int(sr * tail_carry_seconds)
@@ -105,11 +117,21 @@ def segment_stream(
         floor_ema = _SILENCE_FLOOR_DBFS
 
     def _flush() -> Segment | None:
-        nonlocal _buf, _buf_len, _seg_start_ss, _tail, _quiet_streak
+        nonlocal _buf, _buf_len, _seg_start_ss, _tail, _quiet_streak, _stream_start
         if not _buf:
             return None
         all_s = np.concatenate(_buf)
         new_tail = all_s[-tail_samples:].copy() if len(all_s) > tail_samples else all_s.copy()
+
+        # Re-anchor to wall clock if the sample clock has fallen behind (sleep/stall).
+        # Restores the invariant _stream_start + _stream_samples/sr == now, so this
+        # and future segments get correct wall time. Drift is one-directional (wall
+        # only runs ahead of audio), so timestamps only ever jump forward.
+        now = _wall_now()
+        audio_elapsed = _stream_samples / sr
+        wall_elapsed = (now - _stream_start).total_seconds()
+        if wall_elapsed - audio_elapsed > drift_resync_seconds:
+            _stream_start = now - timedelta(seconds=audio_elapsed)
 
         offset_secs = _seg_start_ss / sr
         started_at = _stream_start + timedelta(seconds=offset_secs)
