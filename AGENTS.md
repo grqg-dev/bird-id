@@ -3,6 +3,10 @@
 Guidance for AI agents (and humans) contributing to this project. Read this
 before changing code. For *usage*, see `README.md`.
 
+**Deep code reference:** [`docs/codebase-guide.md`](docs/codebase-guide.md) —
+module APIs, DB schema, config keys, dashboard routes, internal patterns, and
+file map. Start here for environment rules; go there for code details.
+
 ## Environments — dev vs prod
 
 | | **Dev (this machine)** | **Prod (Mac mini)** |

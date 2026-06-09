@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import os
 import re
 from datetime import date, datetime, timedelta
@@ -42,6 +43,15 @@ _DEV_RELOAD_SCRIPT = """<script>
 
 app = Flask(__name__)
 _CFG = config.load()
+
+
+@app.template_filter("format_int")
+def _filter_format_int(n) -> str:
+    try:
+        return f"{int(n):,}"
+    except (TypeError, ValueError):
+        return str(n)
+
 
 _SLUG_MAP_CACHE: dict[str, str] | None = None
 _SLUG_TO_NAME_CACHE: dict[str, str] | None = None
@@ -107,6 +117,12 @@ _CLIPS_PER_PAGE = 50
 PEAK_CONF_FLOOR = 0.7  # Bird-Dex "hide low confidence" cutoff (peak conf per species)
 TIMELINE_CONF_FLOOR = 0.7  # Timeline only plots detections at/above this confidence
 TIMELINE_BINS = 96  # Per-lane histogram buckets across 24h (15-minute bars)
+
+# --- Trends page ---
+# Days with known timing faults (e.g. segmenter clock was wrong). Hidden entirely.
+EXCLUDED_DAYS: set[str] = {"2026-06-08"}
+# Days with fewer detections than this are auto-excluded as startup/gap days.
+MIN_DAY_DETECTIONS = 200
 _CALLVIZ_ROWS = 96
 _CALLVIZ_COLS = 192
 _CALLVIZ_HSCALE = 8  # horizontal upscale for scrolling spectrogram + scope
@@ -529,6 +545,7 @@ PAGE = """
     <a href="/realtime">Real time</a>
     <a href="/timeline{{ timeline_qs }}">Timeline</a>
     <a href="/data{{ data_qs }}">Data report</a>
+    <a href="/trends">Trends</a>
     {% if show_all %}
     <a href="{{ qs(day=today) }}">Daily (today)</a>
     {% else %}
@@ -1493,7 +1510,7 @@ BIRD_PAGE = """
         </div>
       </div>
     </div>
-    <div class="back mono"><a href="{{ back_href }}">← Back to Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/realtime">Real time</a> · <a href="/timeline{{ timeline_qs }}">Timeline</a></div>
+    <div class="back mono"><a href="{{ back_href }}">← Back to Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/realtime">Real time</a> · <a href="/timeline{{ timeline_qs }}">Timeline</a> · <a href="/trends">Trends</a></div>
   </div>
 
   <div class="hero">
@@ -1706,7 +1723,7 @@ DATA_VIEW = """
 <body>
 <div class="topbar"></div>
 <div class="wrap">
-  <div class="nav"><a href="{{ back_href }}">← Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/realtime">Real time</a> · <a href="/timeline{{ timeline_qs }}">Timeline</a></div>
+  <div class="nav"><a href="{{ back_href }}">← Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/realtime">Real time</a> · <a href="/timeline{{ timeline_qs }}">Timeline</a> · <a href="/trends">Trends</a></div>
   <div class="day-nav">
     {% if not show_all %}
     <a href="/data?day={{ prev_day }}">← Prev</a>
@@ -2049,7 +2066,7 @@ TIMELINE_PAGE = """
   }
 </style></head><body>
 <div class="wrap">
-  <div class="nav-top mono"><a href="{{ back_href }}">← Bird-Dex</a><a href="/live">Live feed</a><a href="/realtime">Real time</a><a href="/data{{ data_qs }}">Data report</a></div>
+  <div class="nav-top mono"><a href="{{ back_href }}">← Bird-Dex</a><a href="/live">Live feed</a><a href="/realtime">Real time</a><a href="/data{{ data_qs }}">Data report</a><a href="/trends">Trends</a></div>
   <div class="day-bar mono">
     {% if not show_all %}
     <a href="/timeline?day={{ prev_day }}">← Prev</a>
@@ -2237,6 +2254,7 @@ LIVE_PAGE = """
       <a href="/realtime">Real time</a>
       <a href="/timeline">Timeline</a>
       <a href="/data">Data report</a>
+      <a href="/trends">Trends</a>
     </div>
     <div class="filters mono">
       <a href="/live{% if not hide_low %}?hide_low=1{% endif %}" class="{{ 'on' if hide_low else '' }}">Conf ≥ {{ "%.1f"|format(conf_floor) }}</a>
@@ -2409,6 +2427,7 @@ REALTIME_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Real 
       <a href="/">← Bird-Dex</a>
       <a href="/live">Live feed</a>
       <a href="/timeline">Timeline</a>
+      <a href="/trends">Trends</a>
     </div>
   </div>
   <div class="grid" id="grid">
@@ -2518,6 +2537,621 @@ REALTIME_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Real 
 {% if dev %}{{ dev_script|safe }}{% endif %}
 </body></html>
 """
+
+TRENDS_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trends · Bird-Dex</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;
+        --cream:#f3efe2;--ink:#21232a;--gold:#ffcf3f;
+        --grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8;
+        --dawn:#d98a4a;--dusk:#c0563f;--night:#1d2238;--day:#7fbfd4}
+  *{box-sizing:border-box}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);
+       background:radial-gradient(1200px 480px at 50% -8%,#fbfaf6 0,#f2f1ec 60%,#edece6 100%);
+       min-height:100vh}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .lbl{font-size:11px;letter-spacing:1.5px;color:#8a857a;text-transform:uppercase}
+  .wrap{max-width:960px;margin:0 auto;padding:26px 22px 80px}
+  .day-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px;
+           padding:10px 14px;background:rgba(255,255,255,.7);backdrop-filter:blur(6px);
+           border:1px solid var(--border);border-radius:12px}
+  .day-bar a{font-size:12px;letter-spacing:.5px;text-decoration:none;padding:6px 12px;
+             border-radius:8px;border:1px solid var(--border);color:#7a766a;background:#fff;
+             transition:.15s}
+  .day-bar a.on{border-color:var(--red);color:var(--red-deep);font-weight:700}
+  .day-bar a:hover{border-color:#c8c4ba;color:var(--ink)}
+  .day-bar .spacer{flex:1}
+  h1{font-size:32px;font-weight:800;letter-spacing:-.6px;margin:0 0 4px}
+  .subtitle{font-size:13px;color:#8a857a;margin:0 0 28px}
+  .section{margin-bottom:44px}
+  .section-head{font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
+                color:var(--red-dark);margin:0 0 14px;padding-bottom:8px;
+                border-bottom:2px solid var(--border)}
+  /* Briefing */
+  .briefing{background:#fff;border:1px solid var(--border);border-radius:14px;
+            padding:24px 28px;font-size:16px;line-height:1.7;color:#2a2a2a;
+            box-shadow:0 2px 12px rgba(0,0,0,.04)}
+  .briefing-byline{font-size:11px;letter-spacing:.8px;color:#a09890;margin-top:12px}
+  /* Clock */
+  .clock-wrap{display:flex;gap:32px;flex-wrap:wrap;align-items:flex-start}
+  .clock-legend{font-size:12px;color:#8a857a;line-height:2}
+  .clock-legend span{display:inline-block;width:10px;height:10px;border-radius:2px;
+                     margin-right:6px;vertical-align:middle}
+  /* Leaderboard */
+  .leader-cols{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media(max-width:600px){.leader-cols{grid-template-columns:1fr}}
+  .leader-list{list-style:none;margin:0;padding:0}
+  .leader-item{display:flex;align-items:center;gap:12px;padding:8px 0;
+               border-bottom:1px solid var(--border)}
+  .leader-item:last-child{border-bottom:none}
+  .leader-rank{font-size:11px;color:#a09890;font-weight:700;min-width:20px}
+  .leader-sprite{width:36px;height:36px;border-radius:50%;overflow:hidden;
+                 background:#f7f6f2;border:1px solid var(--border);flex-shrink:0;
+                 display:flex;align-items:center;justify-content:center}
+  .leader-sprite img{width:100%;height:100%;object-fit:contain}
+  .leader-sprite .ini{font-size:11px;color:#a09890;font-weight:700}
+  .leader-name{flex:1;font-size:14px;font-weight:600}
+  .leader-name a{color:inherit;text-decoration:none}
+  .leader-name a:hover{color:var(--red-deep)}
+  .leader-bar-wrap{flex:1;max-width:120px}
+  .leader-bar{height:6px;border-radius:3px;background:var(--dawn)}
+  .leader-pct{font-size:11px;color:#8a857a;margin-left:6px}
+  .night-bar{background:var(--night)}
+  /* Chronotypes */
+  .chrono-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+  .chrono-card{background:#fff;border:1px solid var(--border);border-radius:10px;
+               padding:12px 14px}
+  .chrono-name{font-size:13px;font-weight:700;margin:0 0 4px}
+  .chrono-name a{color:inherit;text-decoration:none}
+  .chrono-name a:hover{color:var(--red-deep)}
+  .chrono-type{font-size:10px;letter-spacing:.8px;text-transform:uppercase;
+               color:#8a857a;margin:0 0 8px}
+  .chrono-spark{margin-top:6px}
+  .badge{display:inline-block;font-size:9px;letter-spacing:.6px;text-transform:uppercase;
+         padding:2px 6px;border-radius:4px;font-weight:700;margin-left:6px}
+  .badge-dawn{background:#fff3e0;color:#b06010}
+  .badge-mid{background:#e3f4f9;color:#1a6a82}
+  .badge-eve{background:#f0ece0;color:#705030}
+  .badge-night{background:#e8eaf2;color:#2a3a6a}
+  .badge-all{background:#f2f0e8;color:#706858}
+  /* Risers & Fallers */
+  .rf-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media(max-width:560px){.rf-grid{grid-template-columns:1fr}}
+  .rf-list{list-style:none;margin:0;padding:0}
+  .rf-item{display:flex;align-items:center;gap:10px;padding:7px 0;
+           border-bottom:1px solid var(--border);font-size:13px}
+  .rf-item:last-child{border-bottom:none}
+  .rf-arrow{font-size:16px;font-weight:700;min-width:20px}
+  .rf-up{color:#2a7a40}
+  .rf-down{color:var(--red)}
+  .rf-new{color:var(--dawn)}
+  .rf-gone{color:#8a857a}
+  .rf-name{flex:1;font-weight:600}
+  .rf-delta{font-size:11px;color:#8a857a;font-family:"SF Mono",ui-monospace,monospace}
+  .baseline-note{background:var(--surface);border:1px solid var(--border);
+                 border-radius:10px;padding:20px 24px;color:#8a857a;font-size:14px;
+                 font-style:italic;text-align:center}
+  /* Window strip */
+  .window-strip{display:flex;gap:6px;margin-bottom:24px;flex-wrap:wrap}
+  .window-day{padding:5px 10px;border-radius:7px;background:#fff;
+              border:1px solid var(--border);font-size:12px;color:#8a857a}
+  .window-day.best{border-color:var(--dawn);color:#7a5020;font-weight:700}
+  .empty-state{padding:40px;text-align:center;color:#a09890;font-size:15px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="day-bar mono">
+    <a href="/">← Bird-Dex</a>
+    <a href="/live">Live feed</a>
+    <a href="/realtime">Real time</a>
+    <a href="/timeline">Timeline</a>
+    <a href="/data">Data report</a>
+    <span class="spacer"></span>
+    <a href="/trends" class="on">Trends</a>
+  </div>
+
+  <h1>The Week in Song</h1>
+  <p class="subtitle mono lbl">Rolling {{ span }}-day window · {{ window_label }} · {{ total_species }} species · {{ total_detections | format_int }} detections</p>
+
+  {% if not visible_days %}
+  <div class="empty-state">No usable data in the current window. Check back once recording has been running for a few days.</div>
+  {% else %}
+
+  <!-- visible day strip -->
+  <div class="window-strip mono">
+    {% for d in visible_days %}
+    <div class="window-day {% if d == busiest_day %}best{% endif %}">
+      {{ d[5:] }}{% if d == busiest_day %} ★{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- 1. The Briefing -->
+  <div class="section">
+    <p class="section-head">The Briefing</p>
+    <div class="briefing">
+      <p style="margin:0">{{ briefing }}</p>
+      <p class="briefing-byline mono">Generated from {{ total_detections | format_int }} detections · {{ visible_days | length }} clean days · {{ window_label }}</p>
+    </div>
+  </div>
+
+  <!-- 2. Activity Clock -->
+  <div class="section">
+    <p class="section-head">Activity Clock</p>
+    <div class="clock-wrap">
+      <div>{{ clock_svg | safe }}</div>
+      <div class="clock-legend mono">
+        <div><span style="background:#d98a4a"></span> Dawn (04–09)</div>
+        <div><span style="background:#7fbfd4"></span> Day (09–17)</div>
+        <div><span style="background:#a09080"></span> Dusk (18–19)</div>
+        <div><span style="background:#1d2238"></span> Night (20–03)</div>
+        <div style="margin-top:10px;font-size:11px;color:#b0aba0">
+          Bar height = detections ÷ recorded audio-seconds<br>
+          (normalised for uneven recording effort)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Dawn Chorus + Night Shift leaderboards -->
+  <div class="section">
+    <p class="section-head">Dawn Chorus &amp; Night Shift</p>
+    <div class="leader-cols">
+      <div>
+        <p class="lbl" style="margin:0 0 10px">Dawn Chorus <span style="color:#d98a4a">▲</span> — most active 05:00–08:59</p>
+        {% if dawn_leaders %}
+        <ul class="leader-list">
+          {% for s in dawn_leaders %}
+          <li class="leader-item">
+            <span class="leader-rank mono">{{ loop.index }}</span>
+            <div class="leader-sprite">
+              {% if s.sprite_slug %}
+              <img src="/sprite/{{ s.sprite_slug }}.png" alt="">
+              {% else %}
+              <span class="ini">{{ s.common_name[:2].upper() }}</span>
+              {% endif %}
+            </div>
+            <div class="leader-name">
+              <a href="/bird/{{ s.bird_slug }}">{{ s.common_name }}</a>
+            </div>
+            <div class="leader-bar-wrap">
+              <div class="leader-bar" style="width:{{ (s.morning_share * 100) | int }}%"></div>
+            </div>
+            <span class="leader-pct mono">{{ "%.0f"|format(s.morning_share * 100) }}%</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color:#a09890;font-size:13px">Not enough data yet.</p>
+        {% endif %}
+      </div>
+      <div>
+        <p class="lbl" style="margin:0 0 10px">Night Shift <span style="color:#1d2238">▼</span> — most active 20:00–00:59</p>
+        {% if night_owls %}
+        <ul class="leader-list">
+          {% for s in night_owls %}
+          <li class="leader-item">
+            <span class="leader-rank mono">{{ loop.index }}</span>
+            <div class="leader-sprite">
+              {% if s.sprite_slug %}
+              <img src="/sprite/{{ s.sprite_slug }}.png" alt="">
+              {% else %}
+              <span class="ini">{{ s.common_name[:2].upper() }}</span>
+              {% endif %}
+            </div>
+            <div class="leader-name">
+              <a href="/bird/{{ s.bird_slug }}">{{ s.common_name }}</a>
+            </div>
+            <div class="leader-bar-wrap">
+              <div class="leader-bar night-bar" style="width:{{ (s.night_share * 100) | int }}%"></div>
+            </div>
+            <span class="leader-pct mono">{{ "%.0f"|format(s.night_share * 100) }}%</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color:#a09890;font-size:13px">Not enough data yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Chronotypes -->
+  <div class="section">
+    <p class="section-head">Chronotypes</p>
+    {% if chronotypes %}
+    <div class="chrono-grid">
+      {% for c in chronotypes %}
+      <div class="chrono-card">
+        <p class="chrono-name"><a href="/bird/{{ c.bird_slug }}">{{ c.common_name }}</a>
+          {% if c.chrono_type == "Early Riser" %}<span class="badge badge-dawn">Early Riser</span>
+          {% elif c.chrono_type == "Midday" %}<span class="badge badge-mid">Midday</span>
+          {% elif c.chrono_type == "Evening" %}<span class="badge badge-eve">Evening</span>
+          {% elif c.chrono_type == "Night Owl" %}<span class="badge badge-night">Night Owl</span>
+          {% else %}<span class="badge badge-all">All-day</span>{% endif %}
+        </p>
+        <p class="chrono-type mono">{{ c.total | format_int }} detections · peak {{ c.peak_hour_label }}</p>
+        <div class="chrono-spark">{{ c.sparkline | safe }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color:#a09890;font-size:13px">Not enough data yet.</p>
+    {% endif %}
+  </div>
+
+  <!-- 5. Risers & Fallers -->
+  <div class="section">
+    <p class="section-head">Risers &amp; Fallers</p>
+    {% if has_prior_week %}
+      {% if risers_fallers %}
+      <div class="rf-grid">
+        <div>
+          <p class="lbl" style="margin:0 0 10px">Trending up ↑</p>
+          {% if risers_fallers.risers or risers_fallers.new %}
+          <ul class="rf-list">
+            {% for m in risers_fallers.risers %}
+            <li class="rf-item">
+              <span class="rf-arrow rf-up">↑</span>
+              <span class="rf-name">{{ m.name }}</span>
+              <span class="rf-delta">+{{ "%.0f"|format(m.pct) }}%</span>
+            </li>
+            {% endfor %}
+            {% for m in risers_fallers.new %}
+            <li class="rf-item">
+              <span class="rf-arrow rf-new">★</span>
+              <span class="rf-name">{{ m.name }}</span>
+              <span class="rf-delta">new arrival</span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p style="color:#a09890;font-size:13px">No significant risers this week.</p>
+          {% endif %}
+        </div>
+        <div>
+          <p class="lbl" style="margin:0 0 10px">Trending down ↓</p>
+          {% if risers_fallers.fallers or risers_fallers.gone %}
+          <ul class="rf-list">
+            {% for m in risers_fallers.fallers %}
+            <li class="rf-item">
+              <span class="rf-arrow rf-down">↓</span>
+              <span class="rf-name">{{ m.name }}</span>
+              <span class="rf-delta">{{ "%.0f"|format(m.pct) }}%</span>
+            </li>
+            {% endfor %}
+            {% for m in risers_fallers.gone %}
+            <li class="rf-item">
+              <span class="rf-arrow rf-gone">–</span>
+              <span class="rf-name">{{ m.name }}</span>
+              <span class="rf-delta">gone quiet</span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p style="color:#a09890;font-size:13px">No significant fallers this week.</p>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+    {% else %}
+    <div class="baseline-note">Collecting baseline — check back next week once the system has two full weeks of clean data to compare.</div>
+    {% endif %}
+  </div>
+
+  {% endif %}
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
+"""
+
+
+# ---------------------------------------------------------------------------
+# Trends helpers
+# ---------------------------------------------------------------------------
+
+def _visible_days(conn, end_day: str, span: int = 7) -> tuple[str, ...]:
+    """Return usable dates in the rolling window ending at end_day.
+
+    Drops days in EXCLUDED_DAYS and days with fewer than MIN_DAY_DETECTIONS
+    detections (startup / gap days). Result is sorted ascending.
+    """
+    end = date.fromisoformat(end_day)
+    candidates = [(end - timedelta(days=i)).isoformat() for i in range(span)]
+    if not candidates:
+        return ()
+    ph = ",".join("?" * len(candidates))
+    rows = conn.execute(
+        f"""
+        SELECT date(heard_at) AS day, COUNT(*) AS n
+        FROM detections WHERE date(heard_at) IN ({ph})
+        GROUP BY day
+        """,
+        candidates,
+    ).fetchall()
+    counts = {r["day"]: r["n"] for r in rows}
+    visible = sorted(
+        d for d in candidates
+        if d not in EXCLUDED_DAYS and counts.get(d, 0) >= MIN_DAY_DETECTIONS
+    )
+    return tuple(visible)
+
+
+def _build_clock_svg(hourly: dict) -> str:
+    """Radial 24-hour Activity Clock as an inline SVG string."""
+    cx, cy = 200, 200
+    r_min, r_max = 38, 158
+
+    rates = {}
+    for h, data in hourly.items():
+        sec = data.get("audio_sec") or 0
+        n = data.get("n") or 0
+        rates[h] = n / sec if sec > 0 else (n if n > 0 else 0)
+    max_rate = max(rates.values(), default=1) or 1
+    normed = {h: v / max_rate for h, v in rates.items()}
+
+    # Dawn peak: highest normalized rate in hours 04-09
+    peak_dawn = max(range(4, 10), key=lambda h: normed.get(h, 0), default=6)
+
+    parts: list[str] = []
+    parts.append(
+        '<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"'
+        ' style="max-width:320px;width:100%;display:block;margin:0 auto">'
+    )
+    # Background rings
+    parts.append(f'<circle cx="{cx}" cy="{cy}" r="{r_max}" fill="#f7f6f2" stroke="#e2e0d8" stroke-width="1"/>')
+    for pct in (0.33, 0.66):
+        r = r_min + pct * (r_max - r_min)
+        parts.append(f'<circle cx="{cx}" cy="{cy}" r="{r:.1f}" fill="none" stroke="#e8e6de" stroke-width="0.5" stroke-dasharray="3,5"/>')
+    parts.append(f'<circle cx="{cx}" cy="{cy}" r="{r_min}" fill="#f7f6f2" stroke="#e2e0d8" stroke-width="1"/>')
+
+    # Sectors
+    for h in range(24):
+        n = normed.get(h, 0)
+        a_start = math.radians(h * 15 - 90)
+        a_end = math.radians((h + 1) * 15 - 90)
+        r_outer = r_min + n * (r_max - r_min)
+        if r_outer <= r_min + 1:
+            continue
+        # Color by time of day
+        if 5 <= h <= 8:
+            color = "#d98a4a"  # dawn gold
+        elif h == peak_dawn:
+            color = "#d98a4a"
+        elif 9 <= h <= 17:
+            color = "#7fbfd4"  # day blue
+        elif h >= 20 or h <= 3:
+            color = "#1d2238"  # night dark
+        else:
+            color = "#a09080"  # dusk/transition
+        cos_s, sin_s = math.cos(a_start), math.sin(a_start)
+        cos_e, sin_e = math.cos(a_end), math.sin(a_end)
+        ix_s = cx + r_min * cos_s
+        iy_s = cy + r_min * sin_s
+        ox_s = cx + r_outer * cos_s
+        oy_s = cy + r_outer * sin_s
+        ox_e = cx + r_outer * cos_e
+        oy_e = cy + r_outer * sin_e
+        ix_e = cx + r_min * cos_e
+        iy_e = cy + r_min * sin_e
+        opacity = 0.35 + 0.65 * n
+        d = (
+            f"M {ix_s:.1f} {iy_s:.1f} L {ox_s:.1f} {oy_s:.1f} "
+            f"A {r_outer:.1f} {r_outer:.1f} 0 0 1 {ox_e:.1f} {oy_e:.1f} "
+            f"L {ix_e:.1f} {iy_e:.1f} "
+            f"A {r_min} {r_min} 0 0 0 {ix_s:.1f} {iy_s:.1f} Z"
+        )
+        parts.append(f'<path d="{d}" fill="{color}" opacity="{opacity:.2f}"/>')
+
+    # Hour labels every 3 h
+    for h in (0, 3, 6, 9, 12, 15, 18, 21):
+        angle = math.radians(h * 15 - 90)
+        r_lbl = r_max + 18
+        lx = cx + r_lbl * math.cos(angle)
+        ly = cy + r_lbl * math.sin(angle) + 4
+        lbl = f"{h:02d}"
+        parts.append(
+            f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" '
+            f'font-size="11" fill="#8a857a" '
+            f'font-family="SF Mono,ui-monospace,monospace">{lbl}</text>'
+        )
+
+    # Dawn peak annotation
+    a_mid = math.radians(peak_dawn * 15 + 7.5 - 90)
+    n_pk = normed.get(peak_dawn, 0)
+    r_tip = r_min + n_pk * (r_max - r_min)
+    ax = cx + (r_tip + 10) * math.cos(a_mid)
+    ay = cy + (r_tip + 10) * math.sin(a_mid) + 3
+    parts.append(
+        f'<text x="{ax:.1f}" y="{ay:.1f}" text-anchor="middle" '
+        f'font-size="10" fill="#d98a4a" font-weight="700">dawn</text>'
+    )
+
+    # Center label
+    parts.append(
+        f'<text x="{cx}" y="{cy + 5}" text-anchor="middle" '
+        f'font-size="12" fill="#8a857a" '
+        f'font-family="SF Mono,ui-monospace,monospace">24h</text>'
+    )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _sparkline_svg(hour_counts: dict, width: int = 72, height: int = 20) -> str:
+    """Tiny 24-bar histogram SVG for species chronotype display."""
+    max_n = max(hour_counts.values(), default=1) or 1
+    bar_w = width / 24
+    parts = [
+        f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg"'
+        f' style="width:{width}px;height:{height}px;display:inline-block;vertical-align:middle">'
+    ]
+    for h in range(24):
+        n = hour_counts.get(h, 0)
+        if not n:
+            continue
+        bar_h = max((n / max_n) * height, 1)
+        x = h * bar_w
+        y = height - bar_h
+        if 5 <= h <= 8:
+            color = "#d98a4a"
+        elif 9 <= h <= 17:
+            color = "#7fbfd4"
+        elif h >= 20 or h <= 3:
+            color = "#1d2238"
+        else:
+            color = "#a09080"
+        parts.append(f'<rect x="{x:.2f}" y="{y:.2f}" width="{bar_w:.2f}" height="{bar_h:.2f}" fill="{color}"/>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _classify_chronotype(hour_counts: dict) -> str:
+    """Classify a species as Early Riser / Midday / Evening / Night Owl / All-day."""
+    total = sum(hour_counts.values())
+    if not total:
+        return "All-day"
+    early = sum(hour_counts.get(h, 0) for h in range(4, 9)) / total
+    mid = sum(hour_counts.get(h, 0) for h in range(9, 16)) / total
+    evening = sum(hour_counts.get(h, 0) for h in range(16, 21)) / total
+    night = sum(hour_counts.get(h, 0) for h in list(range(21, 24)) + list(range(0, 4))) / total
+    dominant = max(early, mid, evening, night)
+    if dominant < 0.35:
+        return "All-day"
+    if dominant == early:
+        return "Early Riser"
+    if dominant == mid:
+        return "Midday"
+    if dominant == evening:
+        return "Evening"
+    return "Night Owl"
+
+
+def _build_briefing(conn, species_rows: list, hourly: dict, visible_days: tuple, slugs: dict) -> str:
+    """Generate warm naturalist prose summary of the visible week."""
+    if not visible_days or not species_rows:
+        return "No data available for this period yet — check back once the system has been running for a few days."
+
+    total_detections = sum(r["total"] for r in species_rows)
+    total_species = len(species_rows)
+
+    # Busiest day from daily_rates, filtered to visible window
+    dr = storage.daily_rates(conn)
+    day_counts = {r["day"]: r["detections"] for r in dr if r["day"] in visible_days}
+    if day_counts:
+        busiest_day = max(day_counts, key=day_counts.get)
+        busiest_n = day_counts[busiest_day]
+        try:
+            bd = date.fromisoformat(busiest_day)
+            busiest_label = bd.strftime("%A, %B %-d")
+        except ValueError:
+            busiest_label = busiest_day
+    else:
+        busiest_label = "the peak day"
+        busiest_n = 0
+
+    # Dawn chorus peak hour (04–09, normalized by audio if possible)
+    dawn_rates = {}
+    for h in range(4, 10):
+        data = hourly.get(h, {"n": 0, "audio_sec": 0})
+        sec = data.get("audio_sec") or 0
+        n = data.get("n") or 0
+        dawn_rates[h] = n / sec if sec > 0 else n
+    peak_dawn_h = max(dawn_rates, key=dawn_rates.get) if dawn_rates else 6
+    peak_dawn_label = f"{peak_dawn_h:02d}:00"
+
+    # Star species (most detections)
+    star = species_rows[0] if species_rows else None
+    star_name = star["common_name"] if star else "Unknown"
+    star_count = star["total"] if star else 0
+
+    # Newcomer: species whose all-time first detection falls within visible window
+    window_start = min(visible_days)
+    first_seen_rows = conn.execute(
+        "SELECT common_name, MIN(date(heard_at)) AS first FROM detections GROUP BY common_name"
+    ).fetchall()
+    newcomer_set = {
+        r["common_name"] for r in first_seen_rows
+        if r["first"] and r["first"] >= window_start
+    }
+    # Sort newcomers by activity this week (species_rows is already DESC by total)
+    newcomers_sorted = [r["common_name"] for r in species_rows if r["common_name"] in newcomer_set]
+    # Append any newcomers with zero detections this week (shouldn't happen, but guard)
+    newcomers_sorted += [n for n in newcomer_set if n not in newcomers_sorted]
+
+    try:
+        ws = date.fromisoformat(min(visible_days)).strftime("%B %-d")
+        we = date.fromisoformat(max(visible_days)).strftime("%B %-d")
+    except ValueError:
+        ws, we = min(visible_days), max(visible_days)
+
+    sentences: list[str] = []
+    sentences.append(
+        f"The yard was alive this week — {total_species} species contributed "
+        f"{total_detections:,} detections across {len(visible_days)} days ({ws}–{we})."
+    )
+    if busiest_n:
+        sentences.append(
+            f"The soundscape peaked on {busiest_label} with {busiest_n:,} calls logged."
+        )
+    sentences.append(
+        f"The dawn chorus crested around {peak_dawn_label}, "
+        f"when the yard was at its most vocal."
+    )
+    if star:
+        sentences.append(
+            f"The week's standout performer was the {star_name}, "
+            f"which accounted for {star_count:,} detections — the loudest voice in the canopy."
+        )
+    if newcomers_sorted:
+        first_new = newcomers_sorted[0]
+        others = len(newcomers_sorted) - 1
+        if others > 0:
+            sentences.append(
+                f"New arrivals this week: the {first_new} "
+                f"(and {others} other{'s' if others > 1 else ''}) heard for the first time "
+                f"in the recording history."
+            )
+        else:
+            sentences.append(
+                f"New to the yard this week: the {first_new}, "
+                f"heard for the first time in the recording history."
+            )
+
+    return " ".join(sentences)
+
+
+def _build_risers_fallers(this_counts: dict, prior_counts: dict) -> dict:
+    all_species = set(this_counts) | set(prior_counts)
+    movers: list[dict] = []
+    for name in all_species:
+        this = this_counts.get(name, 0)
+        prior = prior_counts.get(name, 0)
+        if prior == 0 and this > 0:
+            movers.append({"name": name, "this": this, "prior": 0, "kind": "new", "pct": None})
+        elif prior > 0 and this == 0:
+            movers.append({"name": name, "this": 0, "prior": prior, "kind": "gone", "pct": None})
+        elif prior > 0:
+            pct = (this - prior) / prior * 100
+            movers.append({"name": name, "this": this, "prior": prior, "kind": "move", "pct": pct})
+    risers = sorted(
+        [m for m in movers if m["kind"] == "move" and (m["pct"] or 0) > 20],
+        key=lambda m: -(m["pct"] or 0),
+    )[:5]
+    fallers = sorted(
+        [m for m in movers if m["kind"] == "move" and (m["pct"] or 0) < -20],
+        key=lambda m: (m["pct"] or 0),
+    )[:5]
+    return {
+        "risers": risers,
+        "fallers": fallers,
+        "new": [m for m in movers if m["kind"] == "new"][:5],
+        "gone": [m for m in movers if m["kind"] == "gone"][:5],
+    }
 
 
 _SORT_KEYS = {
@@ -3793,6 +4427,150 @@ def data_view():
             tentative=report.get("tentative", []),
             report_json=json.dumps(report) if not empty else "{}",
             timeline_qs=_timeline_qs(day=selected_day, show_all=show_all),
+            dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/trends")
+def trends_view():
+    today = _today()
+    conn = _db()
+    try:
+        visible = _visible_days(conn, today, span=7)
+        prior_end = (date.fromisoformat(today) - timedelta(days=7)).isoformat()
+        prior_visible = _visible_days(conn, prior_end, span=7)
+
+        if not visible:
+            return render_template_string(
+                TRENDS_PAGE,
+                visible_days=visible,
+                span=7,
+                window_label="no usable days",
+                total_species=0,
+                total_detections=0,
+                busiest_day=None,
+                briefing="No usable data in the current window.",
+                clock_svg="",
+                dawn_leaders=[],
+                night_owls=[],
+                chronotypes=[],
+                has_prior_week=False,
+                risers_fallers=None,
+                dev=_dev_mode(),
+                dev_script=_DEV_RELOAD_SCRIPT,
+            )
+
+        hourly_rows = storage.hourly_in_range(conn, visible)
+        species_rows = storage.species_in_range(conn, visible)
+        hour_matrix_rows = storage.species_hour_matrix(conn, visible)
+        slugs = _slug_map()
+
+        # Hourly dict {h: {n, audio_sec}}, all 24 hours filled
+        hourly: dict[int, dict] = {h: {"n": 0, "audio_sec": 0.0} for h in range(24)}
+        for r in hourly_rows:
+            hourly[int(r["hour"])] = {"n": r["n"], "audio_sec": r["audio_sec"] or 0.0}
+
+        # Per-species hour matrix
+        matrix: dict[str, dict[int, int]] = {}
+        for r in hour_matrix_rows:
+            matrix.setdefault(r["common_name"], {})[int(r["hour"])] = r["n"]
+
+        total_detections = sum(r["total"] for r in species_rows)
+        total_species = len(species_rows)
+
+        # Busiest day
+        dr = storage.daily_rates(conn)
+        day_counts = {r["day"]: r["detections"] for r in dr if r["day"] in visible}
+        busiest_day = max(day_counts, key=day_counts.get) if day_counts else (visible[-1] if visible else None)
+
+        # Window label
+        try:
+            ws = date.fromisoformat(min(visible)).strftime("%b %-d")
+            we = date.fromisoformat(max(visible)).strftime("%b %-d")
+            window_label = f"{ws}–{we}"
+        except (ValueError, TypeError):
+            window_label = f"{len(visible)} days"
+
+        # Activity Clock SVG
+        clock_svg = _build_clock_svg(hourly)
+
+        # Dawn Chorus leaderboard (morning_share = morning/total, min 5 detections)
+        dawn_leaders = []
+        for r in sorted(
+            (r for r in species_rows if r["total"] >= 5),
+            key=lambda r: r["morning"] / max(r["total"], 1),
+            reverse=True,
+        )[:10]:
+            dawn_leaders.append({
+                "common_name": r["common_name"],
+                "bird_slug": slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
+                "sprite_slug": _sprite_slug(r["common_name"], slugs),
+                "morning_share": r["morning"] / max(r["total"], 1),
+                "total": r["total"],
+            })
+
+        # Night Shift leaderboard
+        night_owls = []
+        for r in sorted(
+            (r for r in species_rows if r["total"] >= 5),
+            key=lambda r: r["night"] / max(r["total"], 1),
+            reverse=True,
+        )[:8]:
+            night_owls.append({
+                "common_name": r["common_name"],
+                "bird_slug": slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
+                "sprite_slug": _sprite_slug(r["common_name"], slugs),
+                "night_share": r["night"] / max(r["total"], 1),
+                "total": r["total"],
+            })
+
+        # Chronotypes — top 24 species by total
+        chronotypes = []
+        for r in species_rows[:24]:
+            name = r["common_name"]
+            hcounts = matrix.get(name, {})
+            chrono_type = _classify_chronotype(hcounts)
+            peak_h = max(hcounts, key=hcounts.get) if hcounts else None
+            peak_hour_label = f"{peak_h:02d}:00" if peak_h is not None else "n/a"
+            chronotypes.append({
+                "common_name": name,
+                "bird_slug": slugs.get(name) or _common_to_slug(name),
+                "chrono_type": chrono_type,
+                "peak_hour_label": peak_hour_label,
+                "total": r["total"],
+                "sparkline": _sparkline_svg(hcounts),
+            })
+
+        # Briefing prose
+        briefing = _build_briefing(conn, species_rows, hourly, visible, slugs)
+
+        # Risers & Fallers
+        has_prior_week = len(prior_visible) >= 3
+        risers_fallers = None
+        if has_prior_week:
+            prior_raw = storage.species_range_counts(conn, prior_visible)
+            this_counts = {r["common_name"]: r["total"] for r in species_rows}
+            prior_counts = {r["common_name"]: r["total"] for r in prior_raw}
+            risers_fallers = _build_risers_fallers(this_counts, prior_counts)
+
+        return render_template_string(
+            TRENDS_PAGE,
+            visible_days=visible,
+            span=7,
+            window_label=window_label,
+            total_species=total_species,
+            total_detections=total_detections,
+            busiest_day=busiest_day,
+            briefing=briefing,
+            clock_svg=clock_svg,
+            dawn_leaders=dawn_leaders,
+            night_owls=night_owls,
+            chronotypes=chronotypes,
+            has_prior_week=has_prior_week,
+            risers_fallers=risers_fallers,
             dev=_dev_mode(),
             dev_script=_DEV_RELOAD_SCRIPT,
         )

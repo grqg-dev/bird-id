@@ -1121,6 +1121,111 @@ def purge_orphan_clips(
     return removed, freed
 
 
+def hourly_in_range(
+    conn: sqlite3.Connection, days: tuple[str, ...]
+) -> list[sqlite3.Row]:
+    """Detection counts + audio-seconds per hour 0–23 across the given visible days.
+
+    Audio-seconds is summed per start-hour of each segment (an approximation good
+    enough for normalizing the Activity Clock). Hours with no activity are omitted;
+    fill 0–23 in the caller.
+    """
+    if not days:
+        return []
+    ph = ",".join("?" * len(days))
+    return conn.execute(
+        f"""
+        WITH det AS (
+            SELECT CAST(strftime('%H', heard_at) AS INTEGER) AS hour,
+                   COUNT(*) AS n
+            FROM detections
+            WHERE date(heard_at) IN ({ph})
+            GROUP BY 1
+        ), seg AS (
+            SELECT CAST(strftime('%H', started_at) AS INTEGER) AS hour,
+                   SUM(duration) AS audio_sec
+            FROM segments
+            WHERE date(started_at) IN ({ph})
+            GROUP BY 1
+        )
+        SELECT COALESCE(d.hour, s.hour) AS hour,
+               COALESCE(d.n, 0) AS n,
+               COALESCE(s.audio_sec, 0.0) AS audio_sec
+        FROM det d LEFT JOIN seg s ON d.hour = s.hour
+        ORDER BY hour
+        """,
+        days + days,
+    ).fetchall()
+
+
+def species_in_range(
+    conn: sqlite3.Connection, days: tuple[str, ...]
+) -> list[sqlite3.Row]:
+    """Per-species: total, morning (h05–08 inclusive), night (h20–23 + h00), first_in_window.
+
+    Morning window deliberately matches the verification query in the plan (BETWEEN '05' AND '08').
+    """
+    if not days:
+        return []
+    ph = ",".join("?" * len(days))
+    return conn.execute(
+        f"""
+        SELECT common_name,
+               COUNT(*) AS total,
+               SUM(CASE WHEN CAST(strftime('%H', heard_at) AS INTEGER) BETWEEN 5 AND 8
+                        THEN 1 ELSE 0 END) AS morning,
+               SUM(CASE WHEN CAST(strftime('%H', heard_at) AS INTEGER) IN (20,21,22,23,0)
+                        THEN 1 ELSE 0 END) AS night,
+               MIN(date(heard_at)) AS first_in_window
+        FROM detections
+        WHERE date(heard_at) IN ({ph})
+        GROUP BY common_name
+        ORDER BY total DESC
+        """,
+        days,
+    ).fetchall()
+
+
+def species_range_counts(
+    conn: sqlite3.Connection, days: tuple[str, ...]
+) -> list[sqlite3.Row]:
+    """Per-species total detection count for a given window (used for Risers & Fallers)."""
+    if not days:
+        return []
+    ph = ",".join("?" * len(days))
+    return conn.execute(
+        f"""
+        SELECT common_name, COUNT(*) AS total
+        FROM detections
+        WHERE date(heard_at) IN ({ph})
+        GROUP BY common_name
+        ORDER BY total DESC
+        """,
+        days,
+    ).fetchall()
+
+
+def species_hour_matrix(
+    conn: sqlite3.Connection, days: tuple[str, ...]
+) -> list[sqlite3.Row]:
+    """Per-species per-hour detection counts across visible days (for sparklines)."""
+    if not days:
+        return []
+    ph = ",".join("?" * len(days))
+    return conn.execute(
+        f"""
+        SELECT common_name,
+               CAST(strftime('%H', heard_at) AS INTEGER) AS hour,
+               COUNT(*) AS n
+        FROM detections
+        WHERE date(heard_at) IN ({ph})
+        GROUP BY common_name, hour
+        ORDER BY common_name, hour
+        """,
+        days,
+    ).fetchall()
+
+
 def longest_heard_streak(heard_times: list[str], *, max_gap_sec: float = 6.0) -> int:
     """Longest run of detections with gaps no larger than max_gap_sec."""
     if not heard_times:
