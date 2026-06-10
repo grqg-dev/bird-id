@@ -1145,14 +1145,14 @@ VIBE_PAGE = """
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:#0d0a09;color:#f0eee6;overflow:hidden;
+  html,body{margin:0;height:100%;background:#000;color:#e8ece9;overflow:hidden;
     font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
   .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
   #scene{position:fixed;inset:0;z-index:0}
   #scene canvas{display:block;width:100%;height:100%;cursor:grab}
   #scene canvas:active{cursor:grabbing}
   .vignette{position:fixed;inset:0;z-index:1;pointer-events:none;
-    background:radial-gradient(ellipse at 50% 42%,rgba(0,0,0,0) 44%,rgba(10,6,4,.6) 100%)}
+    background:radial-gradient(ellipse at 50% 42%,rgba(0,0,0,0) 44%,rgba(0,0,0,.6) 100%)}
   .grain{position:fixed;inset:-60%;z-index:1;pointer-events:none;opacity:.045;
     background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.7'/></svg>");
     animation:grain 9s steps(10) infinite}
@@ -1165,40 +1165,40 @@ VIBE_PAGE = """
 
   .bar{position:fixed;top:0;left:0;right:0;z-index:3;display:flex;align-items:center;
     gap:14px;padding:13px 16px;pointer-events:none}
-  .bar a{pointer-events:auto;color:#cdbfae;text-decoration:none;font-size:10px;
-    font-weight:600;letter-spacing:.14em;background:rgba(240,238,230,.04);
-    border:1px solid rgba(240,238,230,.14);padding:6px 12px;border-radius:999px;
+  .bar a{pointer-events:auto;color:#cdd6d1;text-decoration:none;font-size:10px;
+    font-weight:600;letter-spacing:.14em;background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.14);padding:6px 12px;border-radius:999px;
     transition:color .2s,border-color .2s}
-  .bar a:hover{color:#d97757;border-color:rgba(217,119,87,.6)}
+  .bar a:hover{color:#fff;border-color:rgba(255,255,255,.5)}
   .bar .spacer{flex:1}
 
   .wordmark{position:fixed;top:13px;left:50%;transform:translateX(-50%);z-index:3;
     text-align:center;pointer-events:none;animation:rise .9s .15s ease both}
-  .wordmark .fb{font-size:12px;letter-spacing:.55em;padding-left:.55em;font-weight:600;color:#f0eee6}
-  .wordmark .ast{color:#d97757;letter-spacing:0}
+  .wordmark .fb{font-size:12px;letter-spacing:.55em;padding-left:.55em;font-weight:600;color:#e8ece9}
+  .wordmark .ast{color:#cdd6d1;letter-spacing:0}
   .wordmark .tag{display:block;margin-top:3px;font-style:italic;font-size:11px;
-    color:#9c8b7e;letter-spacing:.04em}
+    color:#8a9590;letter-spacing:.04em}
 
   .hud{position:fixed;inset:0;z-index:2;pointer-events:none}
   .hud-tr{position:absolute;top:54px;right:18px;text-align:right;animation:rise .9s .35s ease both}
-  .hud-tr .meta{font-size:10px;letter-spacing:.12em;color:#b7a99c;line-height:1.7;
+  .hud-tr .meta{font-size:10px;letter-spacing:.12em;color:#9fb0a8;line-height:1.7;
     text-shadow:0 1px 3px rgba(0,0,0,.8)}
-  .vu{width:124px;height:2px;background:rgba(240,238,230,.12);margin-top:7px;margin-left:auto}
-  .vu i{display:block;height:100%;background:#d97757;width:0;transition:width .08s linear}
+  .vu{width:124px;height:2px;background:rgba(255,255,255,.12);margin-top:7px;margin-left:auto}
+  .vu i{display:block;height:100%;background:linear-gradient(90deg,#7a00b8,#2633ff,#ff1aa6,#ff590d,#ffe619,#4dff59,#33ffff);width:0;transition:width .08s linear}
 
   .legend{position:absolute;right:18px;top:50%;transform:translateY(-50%);
     width:9px;height:min(54vh,420px);border-radius:5px;
-    border:1px solid rgba(240,238,230,.16);animation:rise .9s .5s ease both}
+    border:1px solid rgba(255,255,255,.16);animation:rise .9s .5s ease both}
   .legend .ticks{position:absolute;inset:0;left:-50px;width:44px}
   .legend .tick{position:absolute;right:0;transform:translateY(-50%);font-size:9px;
-    letter-spacing:.08em;color:#9c8b7e;text-align:right;white-space:nowrap}
+    letter-spacing:.08em;color:#8a9590;text-align:right;white-space:nowrap}
 
   .inset{position:absolute;left:18px;bottom:18px;width:148px;border-radius:10px;
-    overflow:hidden;background:rgba(22,16,12,.55);border:1px solid rgba(240,238,230,.13);
+    overflow:hidden;background:rgba(10,12,11,.55);border:1px solid rgba(255,255,255,.13);
     backdrop-filter:blur(4px);animation:rise .9s .6s ease both}
   .inset img{display:block;width:86%;margin:8px auto 0;object-fit:contain;
     filter:drop-shadow(0 2px 6px rgba(0,0,0,.6))}
-  .inset .cap{font-size:8px;letter-spacing:.26em;color:#9c8b7e;text-align:center;
+  .inset .cap{font-size:8px;letter-spacing:.26em;color:#8a9590;text-align:center;
     padding:6px 0 8px;text-transform:uppercase}
 
   .stage-foot{position:absolute;left:0;right:0;bottom:20px;display:flex;
@@ -1206,40 +1206,40 @@ VIBE_PAGE = """
   .species{text-align:center;pointer-events:none}
   .species .nm{font-style:italic;font-size:30px;letter-spacing:.01em;
     text-shadow:0 2px 12px rgba(0,0,0,.9)}
-  .species .sci{display:block;font-size:10px;color:#d97757;margin-top:5px;
+  .species .sci{display:block;font-size:10px;color:#9fb0a8;margin-top:5px;
     letter-spacing:.26em;text-transform:uppercase}
   .transport{display:flex;align-items:center;gap:12px;pointer-events:auto}
-  .btn{pointer-events:auto;background:rgba(240,238,230,.05);
-    border:1px solid rgba(240,238,230,.2);color:#f0eee6;border-radius:999px;
+  .btn{pointer-events:auto;background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.2);color:#e8ece9;border-radius:999px;
     width:34px;height:34px;font-size:11px;line-height:1;cursor:pointer;
     transition:color .2s,border-color .2s}
-  .btn:hover{color:#d97757;border-color:rgba(217,119,87,.7)}
-  .pill{pointer-events:auto;background:rgba(240,238,230,.04);
-    border:1px solid rgba(240,238,230,.16);color:#9c8b7e;border-radius:999px;
+  .btn:hover{color:#fff;border-color:rgba(255,255,255,.6)}
+  .pill{pointer-events:auto;background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.16);color:#8a9590;border-radius:999px;
     height:26px;padding:0 11px;font-size:9px;letter-spacing:.18em;cursor:pointer;
     transition:all .2s}
-  .pill.on{color:#d97757;border-color:rgba(217,119,87,.55);background:rgba(217,119,87,.08)}
+  .pill.on{color:#46c66b;border-color:rgba(70,198,107,.5);background:rgba(70,198,107,.08)}
   .scrub{width:min(46vw,420px);height:22px;display:flex;align-items:center;
     cursor:pointer;touch-action:none}
   .scrub .track{position:relative;width:100%;height:3px;
-    background:rgba(240,238,230,.14);border-radius:2px}
+    background:rgba(255,255,255,.14);border-radius:2px}
   .scrub .fill{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:2px;
-    background:linear-gradient(90deg,#8c3f2b,#d97757)}
+    background:linear-gradient(90deg,#7a00b8,#2633ff,#ff1aa6,#ff590d,#ffe619,#4dff59,#33ffff)}
   .scrub .dot{position:absolute;left:0;top:50%;transform:translate(-50%,-50%);
-    width:9px;height:9px;border-radius:50%;background:#f0eee6;
-    box-shadow:0 0 9px rgba(217,119,87,.95)}
-  .clock{font-size:10px;color:#b7a99c;letter-spacing:.08em;min-width:96px}
+    width:9px;height:9px;border-radius:50%;background:#e8ece9;
+    box-shadow:0 0 9px rgba(255,255,255,.85)}
+  .clock{font-size:10px;color:#9fb0a8;letter-spacing:.08em;min-width:96px}
 
   .hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-    font-size:10px;letter-spacing:.22em;color:#e8ddcf;background:rgba(20,14,11,.5);
-    border:1px solid rgba(240,238,230,.18);padding:11px 20px;border-radius:999px;
+    font-size:10px;letter-spacing:.22em;color:#dfe7e3;background:rgba(8,10,9,.5);
+    border:1px solid rgba(255,255,255,.18);padding:11px 20px;border-radius:999px;
     transition:opacity .4s;pointer-events:none;text-transform:uppercase;
     backdrop-filter:blur(3px)}
   .hint.hide{opacity:0}
   .sig{position:absolute;right:17px;bottom:15px;font-size:9px;letter-spacing:.2em;
-    color:rgba(217,119,87,.8);animation:rise .9s .8s ease both}
+    color:rgba(255,255,255,.35);animation:rise .9s .8s ease both}
   .fallback{position:fixed;inset:0;z-index:5;display:none;align-items:center;
-    justify-content:center;text-align:center;padding:30px;color:#9c8b7e;font-size:14px}
+    justify-content:center;text-align:center;padding:30px;color:#8a9590;font-size:14px}
   audio{display:none}
   @media(max-width:760px){
     .legend,.inset,.hud-tr{display:none}
@@ -1309,12 +1309,12 @@ VIBE_PAGE = """
   var dotEl=document.getElementById('dot');
   var clockEl=document.getElementById('clock');
 
-  // Frequency -> ember ramp, matching the right-edge legend
-  // (low = deep rust, high = white-hot). Claude's hearth colours.
+  // Frequency -> colour, matching the right-edge legend
+  // (low violet -> blue -> magenta -> orange -> yellow -> green -> cyan -> white).
   var STOPS=[
-    [0.00,[0.30,0.10,0.07]],[0.16,[0.55,0.16,0.10]],[0.34,[0.85,0.42,0.26]],
-    [0.52,[0.96,0.62,0.36]],[0.70,[1.00,0.81,0.55]],[0.85,[1.00,0.93,0.78]],
-    [1.00,[1.00,1.00,1.00]]
+    [0.00,[0.40,0.00,0.65]],[0.18,[0.15,0.20,1.00]],[0.36,[1.00,0.10,0.65]],
+    [0.54,[1.00,0.35,0.05]],[0.70,[1.00,0.90,0.10]],[0.82,[0.30,1.00,0.35]],
+    [0.92,[0.20,1.00,1.00]],[1.00,[1.00,1.00,1.00]]
   ];
   function freqColor(u){
     u=Math.max(0,Math.min(1,u));
@@ -1408,8 +1408,8 @@ VIBE_PAGE = """
     renderer.setSize(w,h);
     sceneEl.appendChild(renderer.domElement);
     var scene=new THREE.Scene();
-    scene.background=new THREE.Color(0x0d0a09);
-    scene.fog=new THREE.FogExp2(0x0d0a09,0.0011);
+    scene.background=new THREE.Color(0x000000);
+    scene.fog=new THREE.FogExp2(0x000000,0.0011);
     var camera=new THREE.PerspectiveCamera(55,w/h,0.1,3000);
     camera.position.set(0,30,470);
     var HOME={x:0,y:10,z:178};
@@ -1468,21 +1468,27 @@ VIBE_PAGE = """
       var m=new THREE.ShaderMaterial({
         uniforms:{
           uPR:{value:renderer.getPixelRatio()},uTime:{value:0},
-          uClock:{value:0},uReveal:{value:0},uDur:{value:DUR},uGhost:{value:ghost}
+          uClock:{value:0},uReveal:{value:0},uDur:{value:DUR},
+          uGhost:{value:ghost},uNoise:{value:0.35}
         },
         transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
         vertexShader:[
           'attribute float aSize;attribute vec3 aColor;',
           'attribute float aT;attribute float aSeed;',
           'uniform float uPR;uniform float uTime;uniform float uClock;',
-          'uniform float uReveal;uniform float uDur;',
+          'uniform float uReveal;uniform float uDur;uniform float uNoise;',
           'varying vec3 vColor;varying float vGlow;varying float vFade;',
           'void main(){',
           'float dt=aT-uTime;',
           'float glow=exp(-dt*dt*170.0);',
           'float twink=0.82+0.18*sin(uClock*(1.4+aSeed*2.2)+aSeed*40.0);',
           'float born=clamp((uReveal*1.15-aT/uDur)*6.0,0.0,1.0);',
-          'vec4 mv=modelViewMatrix*vec4(position,1.0);',
+          'float dg=exp(-dt*dt*120.0);',
+          'vec3 dp=vec3(',
+          'sin(position.y*0.21+uClock*2.1)+cos(position.z*0.17+uClock*1.3),',
+          'sin(position.x*0.15+uClock*1.7)+cos(position.z*0.23+uClock*2.4),',
+          'sin(position.x*0.19+uClock*2.6)+cos(position.y*0.13+uClock*1.5))*0.5;',
+          'vec4 mv=modelViewMatrix*vec4(position+dp*uNoise*(0.6+1.8*dg),1.0);',
           'float depth=-mv.z;',
           'vFade=(1.0-clamp((depth-120.0)/620.0,0.0,0.75))*born;',
           'vColor=aColor;vGlow=glow;',
@@ -1530,17 +1536,24 @@ VIBE_PAGE = """
       egeo.setAttribute('aColor',new THREE.BufferAttribute(ecol,3));
       egeo.setAttribute('aT',new THREE.BufferAttribute(eT,1));
       var emat=new THREE.ShaderMaterial({
-        uniforms:{uTime:{value:0},uReveal:{value:0},uDur:{value:DUR},uGhost:{value:0.55}},
+        uniforms:{uTime:{value:0},uClock:{value:0},uReveal:{value:0},
+          uDur:{value:DUR},uGhost:{value:0.55},uNoise:{value:0.35}},
         transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
         vertexShader:[
           'attribute vec3 aColor;attribute float aT;',
-          'uniform float uTime;uniform float uReveal;uniform float uDur;',
+          'uniform float uTime;uniform float uClock;uniform float uReveal;',
+          'uniform float uDur;uniform float uNoise;',
           'varying vec3 vC;',
           'void main(){',
           'float dt=aT-uTime;',
           'float glow=exp(-dt*dt*80.0);',
           'float born=clamp((uReveal*1.15-aT/uDur)*6.0,0.0,1.0);',
-          'vec4 mv=modelViewMatrix*vec4(position,1.0);',
+          'float dg=exp(-dt*dt*120.0);',
+          'vec3 dp=vec3(',
+          'sin(position.y*0.21+uClock*2.1)+cos(position.z*0.17+uClock*1.3),',
+          'sin(position.x*0.15+uClock*1.7)+cos(position.z*0.23+uClock*2.4),',
+          'sin(position.x*0.19+uClock*2.6)+cos(position.y*0.13+uClock*1.5))*0.5;',
+          'vec4 mv=modelViewMatrix*vec4(position+dp*uNoise*(0.6+1.8*dg),1.0);',
           'float depth=-mv.z;',
           'float fade=(1.0-clamp((depth-120.0)/620.0,0.0,0.8))*born;',
           'vC=aColor*(0.30+2.1*glow)*fade;',
@@ -1556,7 +1569,7 @@ VIBE_PAGE = """
     }
     scene.add(cloud);
 
-    // ---- hearth floor ------------------------------------------------------
+    // ---- ground glow ------------------------------------------------------
     function radialTex(inner,outer){
       var c=document.createElement('canvas');c.width=c.height=256;
       var g=c.getContext('2d');
@@ -1568,7 +1581,7 @@ VIBE_PAGE = """
     var floor=new THREE.Mesh(
       new THREE.CircleGeometry(180,48),
       new THREE.MeshBasicMaterial({
-        map:radialTex('rgba(217,119,87,0.14)','rgba(217,119,87,0)'),
+        map:radialTex('rgba(110,70,220,0.12)','rgba(110,70,220,0)'),
         transparent:true,depthWrite:false,blending:THREE.AdditiveBlending
       })
     );
@@ -1585,13 +1598,13 @@ VIBE_PAGE = """
     var dgeo=new THREE.BufferGeometry();
     dgeo.setAttribute('position',new THREE.BufferAttribute(dpos,3));
     var dust=new THREE.Points(dgeo,new THREE.PointsMaterial({
-      color:0x8a5a44,size:1.5,transparent:true,opacity:0.3,
+      color:0x4a5a66,size:1.5,transparent:true,opacity:0.3,
       depthWrite:false,blending:THREE.AdditiveBlending,sizeAttenuation:true
     }));
     scene.add(dust);
 
-    // ---- the playhead: a terracotta ring and a claude-spark ----------------
-    var ringMat=new THREE.MeshBasicMaterial({color:0xd97757,transparent:true,
+    // ---- the playhead: a sweep ring and a spark -----------------------------
+    var ringMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,
       opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false});
     var ring=new THREE.Mesh(new THREE.TorusGeometry(48,0.25,8,72),ringMat);
     ring.rotation.y=Math.PI/2;
@@ -1601,12 +1614,12 @@ VIBE_PAGE = """
       var c=document.createElement('canvas');c.width=c.height=256;
       var g=c.getContext('2d');g.translate(128,128);
       var grd=g.createRadialGradient(0,0,0,0,0,120);
-      grd.addColorStop(0,'rgba(255,240,228,1)');
-      grd.addColorStop(0.18,'rgba(217,119,87,0.55)');
-      grd.addColorStop(0.5,'rgba(217,119,87,0.12)');
-      grd.addColorStop(1,'rgba(217,119,87,0)');
+      grd.addColorStop(0,'rgba(255,255,255,1)');
+      grd.addColorStop(0.18,'rgba(130,200,255,0.55)');
+      grd.addColorStop(0.5,'rgba(140,120,255,0.12)');
+      grd.addColorStop(1,'rgba(140,120,255,0)');
       g.fillStyle=grd;g.fillRect(-128,-128,256,256);
-      g.strokeStyle='rgba(255,228,210,0.95)';g.lineCap='round';
+      g.strokeStyle='rgba(255,255,255,0.95)';g.lineCap='round';
       for(var ri=0;ri<9;ri++){
         var an=ri/9*Math.PI*2;
         var rr=(ri%2===0)?104:62;
@@ -1633,14 +1646,21 @@ VIBE_PAGE = """
       while(ap>0&&ampT[ap]>t)ap--;
       return ampArr[ap]||0;
     }
+    var bass=0,mid=0,treb=0;
     function liveAmp(t){
       var base=sampleAmp(t);
       if(analyser&&!audio.paused){
         analyser.getByteFrequencyData(fdata);
-        var s=0;
-        for(var bi=0;bi<fdata.length;bi++)s+=fdata[bi];
-        return Math.max(base*0.8,Math.min(1,(s/fdata.length/255)*1.9));
+        var nb=fdata.length,b=0,m=0,tr=0,bi;
+        for(bi=0;bi<10;bi++)b+=fdata[bi];
+        for(bi=10;bi<48;bi++)m+=fdata[bi];
+        for(bi=48;bi<nb;bi++)tr+=fdata[bi];
+        bass=Math.min(1,b/10/255*1.6);
+        mid=Math.min(1,m/38/255*2.0);
+        treb=Math.min(1,tr/(nb-48)/255*2.8);
+        return Math.max(base*0.8,Math.min(1,(b+m+tr)/nb/255*1.9));
       }
+      bass=mid=treb=base;
       return base;
     }
 
@@ -1695,7 +1715,7 @@ VIBE_PAGE = """
     window.addEventListener('resize',resize);
 
     // ---- the fly-in, then the long slow orbit ------------------------------
-    var t0=performance.now(),ampS=0;
+    var t0=performance.now(),ampS=0,bassS=0,midS=0,trebS=0;
     function animate(){
       requestAnimationFrame(animate);
       var now=performance.now();
@@ -1711,21 +1731,30 @@ VIBE_PAGE = """
       }
       var t=audio.currentTime||0;
       ampS+=(liveAmp(t)-ampS)*0.22;
+      bassS+=(bass-bassS)*0.18;
+      midS+=(mid-midS)*0.3;
+      trebS+=(treb-trebS)*0.4;
+      var nz=0.35+ampS*1.6+midS*1.4;
       var reveal=Math.min(1,(now-t0)/3400);
       reveal=1-Math.pow(1-reveal,2);
       for(var mi=0;mi<liveMats.length;mi++){
         var u=liveMats[mi].uniforms;
         u.uTime.value=t;u.uReveal.value=reveal;
         if(u.uClock)u.uClock.value=ck;
+        if(u.uNoise)u.uNoise.value=nz;
       }
       var px=(DUR>0?t/DUR-0.5:0)*SPANX;
       ring.position.x=px;
+      ring.scale.setScalar(1+bassS*0.22);
       ringMat.opacity=0.10+ampS*0.5;
       spark.position.set(px,50+ampS*7,0);
-      spark.material.rotation+=0.004+ampS*0.05;
+      spark.material.rotation+=0.004+ampS*0.05+trebS*0.04;
       var ss=6+ampS*15;
       spark.scale.set(ss,ss,1);
       cloud.scale.setScalar(1+ampS*0.015);
+      cloud.position.x=Math.sin(ck*31.0)*bassS*0.8;
+      cloud.position.y=Math.cos(ck*27.0)*bassS*0.55;
+      dust.material.opacity=0.18+trebS*0.45;
       dust.rotation.y=ck*0.012;
       vuEl.style.width=Math.round(ampS*100)+'%';
       var frac=adur()>0?Math.max(0,Math.min(1,t/adur())):0;
