@@ -188,35 +188,6 @@ def _clip_paths_for_detections(
     return clip_paths
 
 
-def _fingerprint_segment(conn, segment_id: int, wav_path: Path, detections) -> None:
-    """Store acoustic fingerprints for a segment's detection windows.
-
-    Runs while the segment wav is still on disk (call before
-    _maybe_drop_segment_wav). Failures are logged and swallowed — fingerprints
-    are derived data and must never take down the monitor loop.
-    """
-    if not detections:
-        return
-    try:
-        import fingerprint
-
-        windows = sorted({(d.start_time, d.end_time) for d in detections})
-        vecs = fingerprint.embed_windows(wav_path, windows)
-        for (start, end), vec in vecs.items():
-            track = storage.get_track(conn, segment_id, start, end)
-            if track:
-                storage.save_fingerprint(
-                    conn,
-                    track["id"],
-                    fingerprint.pack(vec),
-                    dim=len(vec),
-                    version=fingerprint.FINGERPRINT_VERSION,
-                )
-        conn.commit()
-    except Exception as exc:  # noqa: BLE001
-        print(f"[fingerprint] seg {segment_id}: {exc}", file=sys.stderr)
-
-
 def _maybe_drop_segment_wav(
     conn,
     segment_id: int,
@@ -355,7 +326,6 @@ def cmd_identify(args) -> int:
                 wav_path=str(kept_path),
                 clip_paths=clip_paths,
             )
-            _fingerprint_segment(conn, seg_id, kept_path, detections)
             _maybe_drop_segment_wav(
                 conn, seg_id, kept_path, detections, clip_paths, args.cfg
             )
@@ -527,7 +497,6 @@ def cmd_monitor(args) -> int:
                 max_dbfs=max_dbfs,
                 clip_paths=clip_paths,
             )
-            _fingerprint_segment(conn, seg_id, wav_path, detections)
             _maybe_drop_segment_wav(conn, seg_id, wav_path, detections, clip_paths, cfg)
 
             if detections:
