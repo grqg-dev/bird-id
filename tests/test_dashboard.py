@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+import pytest
+
 import dashboard
 import identifier
 import storage
@@ -381,3 +383,78 @@ def test_realtime_page_has_nav_links(client):
     assert resp.status_code == 200
     assert b'href="/live"' in resp.data
     assert b'href="/"' in resp.data
+
+
+# --- /voices ---------------------------------------------------------------
+
+
+def test_voices_index_empty_state(client):
+    """No fingerprints stored → empty state renders without numpy/sklearn."""
+    resp = client.get("/voices")
+    assert resp.status_code == 200
+    assert b"No fingerprints stored yet" in resp.data
+    assert b"backfill_fingerprints" in resp.data
+
+
+def test_voices_unknown_species_404(client):
+    assert client.get("/voices/not_a_bird").status_code == 404
+
+
+def _seed_voice_fingerprints(conn, *, n_a=4, n_b=4):
+    """Two well-separated synthetic voices for one species."""
+    import struct
+
+    started = datetime(2026, 5, 31, 6, 0, 0)
+    detections = [
+        identifier.Detection("Bewick's Wren", "Thryomanes bewickii", 0.9, 3.0 * i, 3.0 * i + 3.0)
+        for i in range(n_a + n_b)
+    ]
+    seg_id = storage.record_segment(
+        conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=3 * (n_a + n_b)),
+        duration=3.0 * (n_a + n_b),
+        detections=detections,
+        wav_path="/tmp/segv.wav",
+    )
+    tracks = storage.tracks_for_segment(conn, seg_id)
+    for i, t in enumerate(tracks):
+        base = [1.0, 0.0, 0.0, 0.1 * i] if i < n_a else [0.0, 1.0, 0.1 * i, 0.0]
+        storage.save_fingerprint(
+            conn, t["id"], struct.pack("<4f", *base), dim=4, version=1
+        )
+    conn.commit()
+
+
+def test_voices_index_lists_species(client, seeded_conn, tmp_path, monkeypatch):
+    pytest.importorskip("numpy")
+    pytest.importorskip("sklearn")
+    monkeypatch.setitem(dashboard._CFG, "recordings_dir", str(tmp_path))
+    _seed_voice_fingerprints(seeded_conn)
+    resp = client.get("/voices")
+    assert resp.status_code == 200
+    assert b"Bewick" in resp.data
+    assert b'href="/voices/bewicks_wren"' in resp.data
+
+
+def test_voices_detail_clusters_two_voices(client, seeded_conn, tmp_path, monkeypatch):
+    pytest.importorskip("numpy")
+    pytest.importorskip("sklearn")
+    monkeypatch.setitem(dashboard._CFG, "recordings_dir", str(tmp_path))
+    _seed_voice_fingerprints(seeded_conn)
+    resp = client.get("/voices/bewicks_wren")
+    assert resp.status_code == 200
+    assert b"Voice A" in resp.data
+    assert b"Voice B" in resp.data
+    # payload was cached to disk for reuse
+    cache = dashboard._voices_cache_path("bewicks_wren", str(tmp_path))
+    assert cache.is_file()
+
+
+def test_voices_detail_too_few_samples(client, seeded_conn, tmp_path, monkeypatch):
+    pytest.importorskip("numpy")
+    monkeypatch.setitem(dashboard._CFG, "recordings_dir", str(tmp_path))
+    # seeded fixture has one wren detection and no fingerprints at all
+    resp = client.get("/voices/bewicks_wren")
+    assert resp.status_code == 200
+    assert b"voice grouping starts at" in resp.data

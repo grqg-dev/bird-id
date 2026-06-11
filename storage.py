@@ -56,6 +56,14 @@ CREATE TABLE IF NOT EXISTS tracks (
     UNIQUE(segment_id, start_time, end_time)
 );
 
+CREATE TABLE IF NOT EXISTS fingerprints (
+    track_id    INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    version     INTEGER NOT NULL,     -- fingerprint.FINGERPRINT_VERSION at write time
+    dim         INTEGER NOT NULL,
+    vec         BLOB NOT NULL,        -- little-endian float32 × dim
+    created_at  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_tracks_segment ON tracks(segment_id);
 CREATE INDEX IF NOT EXISTS idx_detections_species ON detections(common_name);
 CREATE INDEX IF NOT EXISTS idx_detections_heard_at ON detections(heard_at);
@@ -244,6 +252,99 @@ def set_track_clip_path(
     conn.execute(
         "UPDATE tracks SET clip_path = ? WHERE id = ?", (clip_path, track_id)
     )
+
+
+def save_fingerprint(
+    conn: sqlite3.Connection,
+    track_id: int,
+    vec: bytes,
+    *,
+    dim: int,
+    version: int,
+) -> None:
+    """Store (or replace) a track's acoustic fingerprint. Caller commits."""
+    conn.execute(
+        "INSERT OR REPLACE INTO fingerprints (track_id, version, dim, vec, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (track_id, version, dim, vec, datetime.now().isoformat(timespec="seconds")),
+    )
+
+
+def species_fingerprints(
+    conn: sqlite3.Connection,
+    common_name: str,
+    *,
+    version: int,
+    min_conf: float = 0.0,
+) -> list[sqlite3.Row]:
+    """Fingerprinted detection windows for one species, oldest first.
+
+    One row per track: the species' detection in that window plus the stored
+    vector. `min_conf` filters out low-confidence windows whose audio is often
+    too noisy to cluster meaningfully.
+    """
+    return conn.execute(
+        """
+        SELECT f.track_id, f.vec, f.dim,
+               d.confidence, d.heard_at,
+               t.segment_id, t.start_time, t.end_time,
+               CASE WHEN s.wav_path IS NOT NULL OR t.clip_path IS NOT NULL
+                    THEN 1 ELSE 0 END AS has_audio
+        FROM fingerprints f
+        JOIN tracks t     ON t.id = f.track_id
+        JOIN segments s   ON s.id = t.segment_id
+        JOIN detections d ON d.track_id = f.track_id
+        WHERE f.version = ? AND d.common_name = ? AND d.confidence >= ?
+        ORDER BY d.heard_at
+        """,
+        (version, common_name, min_conf),
+    ).fetchall()
+
+
+def fingerprint_species_counts(
+    conn: sqlite3.Connection, *, version: int, min_conf: float = 0.0
+) -> list[sqlite3.Row]:
+    """Per-species count of fingerprinted windows (for the voices index)."""
+    return conn.execute(
+        """
+        SELECT d.common_name,
+               COUNT(*)        AS n,
+               MIN(d.heard_at) AS first_heard,
+               MAX(d.heard_at) AS last_heard
+        FROM fingerprints f
+        JOIN detections d ON d.track_id = f.track_id
+        WHERE f.version = ? AND d.confidence >= ?
+        GROUP BY d.common_name
+        ORDER BY n DESC
+        """,
+        (version, min_conf),
+    ).fetchall()
+
+
+def tracks_without_fingerprint(
+    conn: sqlite3.Connection, *, version: int
+) -> list[sqlite3.Row]:
+    """Tracks with audio on disk but no current-version fingerprint.
+
+    Grouped by segment (then window) so a backfill can load each segment wav
+    once. Includes both audio paths; callers prefer the segment wav (lossless)
+    and fall back to the clip file.
+    """
+    return conn.execute(
+        """
+        SELECT t.id, t.segment_id, t.start_time, t.end_time,
+               t.clip_path, s.wav_path
+        FROM tracks t
+        JOIN segments s ON s.id = t.segment_id
+        WHERE (t.clip_path IS NOT NULL OR s.wav_path IS NOT NULL)
+          AND NOT EXISTS (
+              SELECT 1 FROM fingerprints f
+              WHERE f.track_id = t.id AND f.version = ?
+          )
+        ORDER BY t.segment_id, t.start_time
+        """,
+        (version,),
+    ).fetchall()
 
 
 def species_summary(conn: sqlite3.Connection, *, since: Optional[str] = None) -> list[sqlite3.Row]:

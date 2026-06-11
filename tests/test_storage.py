@@ -655,3 +655,111 @@ def test_species_detections_has_audio_from_clip(db_conn, tmp_path):
     rows = storage.species_detections(db_conn, "Clipper")
     assert len(rows) == 1
     assert rows[0]["has_audio"] == 1
+
+
+def _fake_vec(*values: float) -> bytes:
+    """Little-endian float32 blob without needing numpy in the test env."""
+    import struct
+
+    return struct.pack(f"<{len(values)}f", *values)
+
+
+def test_fingerprints_table_in_schema(db_conn):
+    tables = {
+        row[0]
+        for row in db_conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    assert "fingerprints" in tables
+
+
+def test_save_and_query_species_fingerprints(seeded_conn):
+    track_id = seeded_conn.execute(
+        "SELECT track_id FROM detections WHERE common_name = 'Bewick''s Wren'"
+    ).fetchone()[0]
+    vec = _fake_vec(1.0, 2.0, 3.0)
+    storage.save_fingerprint(seeded_conn, track_id, vec, dim=3, version=1)
+
+    rows = storage.species_fingerprints(seeded_conn, "Bewick's Wren", version=1)
+    assert len(rows) == 1
+    assert rows[0]["track_id"] == track_id
+    assert bytes(rows[0]["vec"]) == vec
+    assert rows[0]["dim"] == 3
+    assert rows[0]["confidence"] == pytest.approx(0.92)
+    assert rows[0]["has_audio"] == 1
+    # other species and other versions see nothing
+    assert storage.species_fingerprints(seeded_conn, "Oak Titmouse", version=1) == []
+    assert storage.species_fingerprints(seeded_conn, "Bewick's Wren", version=2) == []
+
+
+def test_species_fingerprints_min_conf(seeded_conn):
+    for name in ("Bewick's Wren", "Oak Titmouse"):
+        track_id = seeded_conn.execute(
+            "SELECT track_id FROM detections WHERE common_name = ?", (name,)
+        ).fetchone()[0]
+        storage.save_fingerprint(seeded_conn, track_id, _fake_vec(1.0), dim=1, version=1)
+    # Titmouse detection is 0.75; a 0.8 floor keeps only the wren
+    rows = storage.species_fingerprints(seeded_conn, "Oak Titmouse", version=1, min_conf=0.8)
+    assert rows == []
+    rows = storage.species_fingerprints(seeded_conn, "Bewick's Wren", version=1, min_conf=0.8)
+    assert len(rows) == 1
+
+
+def test_save_fingerprint_replaces_on_conflict(seeded_conn):
+    track_id = seeded_conn.execute("SELECT id FROM tracks LIMIT 1").fetchone()[0]
+    storage.save_fingerprint(seeded_conn, track_id, _fake_vec(1.0), dim=1, version=1)
+    storage.save_fingerprint(seeded_conn, track_id, _fake_vec(9.0), dim=1, version=2)
+    row = seeded_conn.execute(
+        "SELECT version, vec FROM fingerprints WHERE track_id = ?", (track_id,)
+    ).fetchone()
+    assert row["version"] == 2
+    assert bytes(row["vec"]) == _fake_vec(9.0)
+
+
+def test_tracks_without_fingerprint(seeded_conn):
+    rows = storage.tracks_without_fingerprint(seeded_conn, version=1)
+    assert len(rows) == 2  # both seeded tracks have a segment wav
+    assert all(r["wav_path"] == "/tmp/seg1.wav" for r in rows)
+
+    storage.save_fingerprint(seeded_conn, rows[0]["id"], _fake_vec(1.0), dim=1, version=1)
+    remaining = storage.tracks_without_fingerprint(seeded_conn, version=1)
+    assert [r["id"] for r in remaining] == [rows[1]["id"]]
+    # a version bump invalidates stored fingerprints
+    assert len(storage.tracks_without_fingerprint(seeded_conn, version=2)) == 2
+
+
+def test_tracks_without_fingerprint_requires_audio(db_conn):
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=6),
+        duration=6.0,
+        detections=[identifier.Detection("NoAudio Bird", "Sp n", 0.9, 0.0, 3.0)],
+        wav_path=None,
+    )
+    assert storage.tracks_without_fingerprint(db_conn, version=1) == []
+
+
+def test_fingerprint_species_counts(seeded_conn):
+    for name in ("Bewick's Wren", "Oak Titmouse"):
+        track_id = seeded_conn.execute(
+            "SELECT track_id FROM detections WHERE common_name = ?", (name,)
+        ).fetchone()[0]
+        storage.save_fingerprint(seeded_conn, track_id, _fake_vec(1.0), dim=1, version=1)
+    rows = storage.fingerprint_species_counts(seeded_conn, version=1)
+    assert {r["common_name"]: r["n"] for r in rows} == {
+        "Bewick's Wren": 1,
+        "Oak Titmouse": 1,
+    }
+    rows = storage.fingerprint_species_counts(seeded_conn, version=1, min_conf=0.8)
+    assert {r["common_name"]: r["n"] for r in rows} == {"Bewick's Wren": 1}
+
+
+def test_fingerprint_cascade_delete_with_segment(seeded_conn):
+    track_id = seeded_conn.execute("SELECT id FROM tracks LIMIT 1").fetchone()[0]
+    storage.save_fingerprint(seeded_conn, track_id, _fake_vec(1.0), dim=1, version=1)
+    seeded_conn.execute("DELETE FROM segments")
+    n = seeded_conn.execute("SELECT COUNT(*) FROM fingerprints").fetchone()[0]
+    assert n == 0

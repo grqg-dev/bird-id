@@ -26,6 +26,7 @@ from pathlib import Path
 from flask import Flask, Response, abort, render_template_string, request, send_file
 
 import config
+import fingerprint
 import storage
 
 _ROOT = Path(__file__).resolve().parent
@@ -137,6 +138,14 @@ _VIBE_MAX_NODES = 4200  # cap total points so the browser stays smooth
 _VIBE_PEAKS_PER_FRAME = 7  # spectral peaks kept per analysed time frame
 _VIBE_NOISE_MARGIN = 1.6  # per-bin floor multiplier for the viz-only denoise
 
+# --- Voices pages (per-species acoustic voice clustering, route: /voices) ----
+_VOICES_VERSION = 1  # bump to invalidate cached clustering payloads
+_VOICE_CONF_FLOOR = 0.5  # only cluster windows at/above this confidence
+_VOICE_DISTANCE_THRESHOLD = 0.30  # cosine distance cut for average-linkage merge
+_VOICE_MIN_MEMBERS = 3  # clusters smaller than this count as "unassigned"
+_VOICE_MIN_SAMPLES = 6  # don't attempt clustering below this many windows
+_VOICE_REPS = 3  # representative clips shown per voice
+
 
 def _db():
     return storage.connect(_CFG["db"])
@@ -190,6 +199,12 @@ def _vibeviz_cache_path(
     else:
         name = f"vibe_v{v}_{segment_id}_full.json"
     return base / name
+
+
+def _voices_cache_path(slug: str, base_dir: str | Path) -> Path:
+    """Disk path for a cached per-species voices payload (pure path logic)."""
+    base = Path(base_dir).expanduser() / "cache" / "voices"
+    return base / f"voices_fp{fingerprint.FINGERPRINT_VERSION}_v{_VOICES_VERSION}_{slug}.json"
 
 
 def _resample_cols(matrix, target_cols: int):
@@ -387,6 +402,140 @@ def _compute_vibeviz(audio_path: str, start: float | None, end: float | None) ->
     }
 
 
+def _compute_voices(rows) -> dict:
+    """Cluster one species' fingerprints into distinct voices.
+
+    `rows` come from storage.species_fingerprints (oldest first). Returns a
+    JSON-safe payload; `fp_count` is stored so callers can tell when the
+    cached result is stale. Clusters smaller than _VOICE_MIN_MEMBERS are
+    pooled as "unassigned" rather than presented as voices.
+    """
+    import numpy as np
+
+    n = len(rows)
+    payload: dict = {
+        "fp_count": n,
+        "version": _VOICES_VERSION,
+        "voices": [],
+        "unassigned": 0,
+        "quality": None,
+        "cosinging": [],
+    }
+    if n < _VOICE_MIN_SAMPLES:
+        return payload
+
+    X = np.array([fingerprint.unpack(r["vec"]) for r in rows], dtype=np.float32)
+    X /= np.linalg.norm(X, axis=1, keepdims=True)
+
+    from sklearn.cluster import AgglomerativeClustering
+    from sklearn.metrics import silhouette_score
+
+    labels = (
+        AgglomerativeClustering(
+            n_clusters=None,
+            distance_threshold=_VOICE_DISTANCE_THRESHOLD,
+            metric="cosine",
+            linkage="average",
+        )
+        .fit(X)
+        .labels_
+    )
+
+    k = len(set(labels))
+    if 1 < k < n:
+        payload["quality"] = round(float(silhouette_score(X, labels, metric="cosine")), 3)
+
+    # Keep clusters big enough to mean something; order by first appearance.
+    clusters: list[list[int]] = []
+    for lab in set(labels):
+        idx = [i for i in range(n) if labels[i] == lab]
+        if len(idx) >= _VOICE_MIN_MEMBERS:
+            clusters.append(idx)
+        else:
+            payload["unassigned"] += len(idx)
+    clusters.sort(key=lambda idx: min(rows[i]["heard_at"] for i in idx))
+
+    voice_minutes: list[set[str]] = []
+    for v, idx in enumerate(clusters):
+        members = [rows[i] for i in idx]
+        centroid = X[idx].mean(axis=0)
+        centroid /= np.linalg.norm(centroid)
+        by_typicality = sorted(idx, key=lambda i: -float(X[i] @ centroid))
+        reps = [i for i in by_typicality if rows[i]["has_audio"]][:_VOICE_REPS]
+
+        hourly: dict[str, int] = {}
+        for m in members:
+            h = m["heard_at"][11:13]
+            hourly[h] = hourly.get(h, 0) + 1
+
+        voice_minutes.append({m["heard_at"][:16] for m in members})
+        payload["voices"].append(
+            {
+                "label": chr(ord("A") + v),
+                "count": len(members),
+                "first_heard": members[0]["heard_at"],
+                "last_heard": members[-1]["heard_at"],
+                "days": len({m["heard_at"][:10] for m in members}),
+                "hourly": hourly,
+                "avg_conf": round(sum(m["confidence"] for m in members) / len(members), 3),
+                "reps": [
+                    {
+                        "segment_id": rows[i]["segment_id"],
+                        "start": rows[i]["start_time"],
+                        "end": rows[i]["end_time"],
+                        "heard_at": rows[i]["heard_at"],
+                        "confidence": rows[i]["confidence"],
+                    }
+                    for i in reps
+                ],
+            }
+        )
+
+    # Two voices heard within the same minute can't be one bird singing one
+    # song — strong (not airtight) evidence of separate individuals.
+    for a in range(len(clusters)):
+        for b in range(a + 1, len(clusters)):
+            shared = sorted(voice_minutes[a] & voice_minutes[b])
+            if shared:
+                payload["cosinging"].append(
+                    {
+                        "a": payload["voices"][a]["label"],
+                        "b": payload["voices"][b]["label"],
+                        "n": len(shared),
+                        "first": shared[0],
+                    }
+                )
+
+    return payload
+
+
+def _voices_payload(conn, common_name: str, slug: str) -> dict:
+    """Cached voice clustering for one species (recomputed when data grows)."""
+    rows = storage.species_fingerprints(
+        conn,
+        common_name,
+        version=fingerprint.FINGERPRINT_VERSION,
+        min_conf=_VOICE_CONF_FLOOR,
+    )
+    cache = _voices_cache_path(slug, _CFG["recordings_dir"])
+    if cache.is_file():
+        try:
+            with cache.open() as f:
+                payload = json.load(f)
+            if payload.get("fp_count") == len(rows):
+                return payload
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    payload = _compute_voices(rows)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cache.with_suffix(".tmp")
+    with tmp.open("w") as f:
+        json.dump(payload, f)
+    tmp.replace(cache)
+    return payload
+
+
 def _resolve_call_audio(
     conn,
     segment_id: int,
@@ -546,6 +695,7 @@ PAGE = """
     <a href="/timeline{{ timeline_qs }}">Timeline</a>
     <a href="/data{{ data_qs }}">Data report</a>
     <a href="/trends">Trends</a>
+    <a href="/voices">Voices</a>
     {% if show_all %}
     <a href="{{ qs(day=today) }}">Daily (today)</a>
     {% else %}
@@ -1887,7 +2037,7 @@ BIRD_PAGE = """
         </div>
       </div>
     </div>
-    <div class="back mono"><a href="{{ back_href }}">← Back to Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/realtime">Real time</a> · <a href="/timeline{{ timeline_qs }}">Timeline</a> · <a href="/trends">Trends</a></div>
+    <div class="back mono"><a href="{{ back_href }}">← Back to Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/realtime">Real time</a> · <a href="/timeline{{ timeline_qs }}">Timeline</a> · <a href="/trends">Trends</a> · <a href="/voices/{{ slug }}">Voices</a></div>
   </div>
 
   <div class="hero">
@@ -3231,6 +3381,191 @@ TRENDS_PAGE = """<!doctype html>
 # ---------------------------------------------------------------------------
 # Trends helpers
 # ---------------------------------------------------------------------------
+
+_VOICES_SHARED_CSS = """
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;--cream:#f3efe2;--ink:#21232a;
+        --gold:#ffcf3f;--grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8}
+  *{box-sizing:border-box}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);background:#fff}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .lbl{font-size:11px;letter-spacing:1.5px;color:#8a857a;text-transform:uppercase}
+  .wrap{max-width:960px;margin:0 auto;padding:28px 22px}
+  .back{font-size:12px;letter-spacing:.5px;margin-bottom:22px}
+  .back a{color:var(--red-dark);text-decoration:none}
+  .back a:hover{text-decoration:underline}
+  .panel{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:18px;
+         box-shadow:0 1px 4px rgba(0,0,0,.05)}
+  .panel h2{margin:0 0 14px;font-size:13px;letter-spacing:1.2px;text-transform:uppercase;color:#7a766a;font-weight:700}
+  .note{font-size:12px;color:#8a857a;line-height:1.6}
+"""
+
+VOICES_INDEX_PAGE = """
+<!doctype html><html><head><meta charset="utf-8"><title>Voices · Bird-Dex</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+""" + _VOICES_SHARED_CSS + """
+  h1{margin:0 0 4px;font-size:28px;font-weight:800}
+  .sub{font-size:13px;color:#7a766a;margin:0 0 24px;line-height:1.6;max-width:640px}
+  .sp-list{display:flex;flex-direction:column;gap:10px}
+  .sp-row{display:grid;grid-template-columns:56px 1fr auto;gap:14px;align-items:center;
+          border:1px solid var(--border);border-radius:10px;padding:10px 14px;text-decoration:none;color:var(--ink)}
+  .sp-row:hover{background:var(--surface)}
+  .sp-row img{width:48px;height:48px;object-fit:contain}
+  .sp-row .no-art{width:48px;height:48px;border-radius:8px;background:var(--surface);display:flex;
+                  align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#b0aca2}
+  .sp-row .name{font-weight:700;font-size:15px}
+  .sp-row .meta{font-size:11px;color:#8a857a;margin-top:2px}
+  .vcount{font-size:13px;font-weight:800;color:var(--red-deep);text-align:right;white-space:nowrap}
+  .vcount small{display:block;font-weight:400;color:#8a857a;font-size:10px;letter-spacing:.5px}
+  .empty{padding:32px 0;text-align:center}
+</style></head><body>
+<div class="wrap">
+  <div class="back mono"><a href="/">← Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/timeline">Timeline</a> · <a href="/trends">Trends</a></div>
+  <h1>Voices</h1>
+  <p class="sub">Every detection window is fingerprinted by how it <em>sounds</em>
+  (the BirdNET model's internal features, not just the species label). Calls of one
+  species that consistently sound alike group into a <b>voice</b> — separate voices
+  usually mean separate individuals, or one bird's distinct song types.</p>
+  {% if species %}
+  <div class="sp-list">
+    {% for s in species %}
+    <a class="sp-row" href="/voices/{{ s.slug }}">
+      {% if s.sprite_slug %}<img src="/sprite/{{ s.sprite_slug }}.png" alt="">{% else %}<div class="no-art">{{ s.initials }}</div>{% endif %}
+      <div>
+        <div class="name">{{ s.name }}</div>
+        <div class="meta mono">{{ s.n }} fingerprinted call{{ '' if s.n == 1 else 's' }} · {{ s.first_heard[:10] }} → {{ s.last_heard[:10] }}</div>
+      </div>
+      <div class="vcount mono">{{ s.voice_count if s.voice_count else '—' }}<small>voice{{ '' if s.voice_count == 1 else 's' }}</small></div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="panel empty">
+    <p class="note"><b>No fingerprints stored yet.</b><br>
+    New detections are fingerprinted automatically by the monitor.<br>
+    For existing history run: <span class="mono">./.venv/bin/python scripts/backfill_fingerprints.py</span></p>
+  </div>
+  {% endif %}
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
+"""
+
+VOICES_PAGE = """
+<!doctype html><html><head><meta charset="utf-8"><title>Voices · {{ common_name }} · Bird-Dex</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+""" + _VOICES_SHARED_CSS + """
+  .hero{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center;margin-bottom:20px}
+  .hero img{width:96px;height:96px;object-fit:contain;background:var(--surface);
+            border:1px solid var(--border);border-radius:12px;padding:6px}
+  .hero h1{margin:0 0 2px;font-size:26px;font-weight:800}
+  .hero .latin{font-style:italic;color:#7a766a;font-size:13px;margin:0 0 6px}
+  .hero .sum{font-size:13px;color:#7a766a}
+  .hero .sum b{color:var(--red-deep)}
+  .qual{display:inline-block;font-size:10px;letter-spacing:1px;text-transform:uppercase;font-weight:700;
+        padding:3px 9px;border-radius:20px;margin-left:8px;vertical-align:1px}
+  .qual.hi{background:#e7f6ec;color:#1d7a3e}.qual.mid{background:#fdf3d7;color:#8a6d1a}
+  .qual.lo{background:var(--surface);color:#8a857a}
+  .cosing{border-left:4px solid var(--grn);background:#f4faf6}
+  .cosing .pair{font-size:13px;margin:4px 0}
+  .cosing .pair b{color:#1d7a3e}
+  .voice-hdr{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+  .voice-hdr .vname{font-size:18px;font-weight:800}
+  .voice-hdr .vmeta{font-size:11px;color:#8a857a}
+  .bars{display:flex;align-items:flex-end;gap:3px;height:52px;padding-top:4px}
+  .bars .bar{flex:1;background:var(--red);border-radius:3px 3px 0 0;min-width:3px}
+  .bars .bar.zero{background:#eceae3;min-height:2px}
+  .bar-lbls{display:flex;gap:3px;margin-top:4px}
+  .bar-lbls span{flex:6;text-align:center;font-size:9px;color:#8a857a}
+  .reps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}
+  .clip{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff}
+  .clip-hdr{display:flex;justify-content:space-between;padding:7px 10px;background:var(--surface);
+            border-bottom:1px solid var(--border);font-size:11px}
+  .clip-hdr .conf{font-weight:700;color:var(--red-deep)}
+  .clip .spectro{background:#0d1b14}
+  .clip .spectro img{display:block;width:100%;height:60px;object-fit:cover}
+  .clip .play{padding:6px 8px;background:#f7f6f2;border-top:1px solid var(--border)}
+  .clip .play audio{display:block;width:100%;height:30px}
+</style></head><body>
+<div class="wrap">
+  <div class="back mono"><a href="/voices">← All voices</a> · <a href="/bird/{{ slug }}">{{ common_name }} dex page</a> · <a href="/">Bird-Dex</a></div>
+
+  <div class="hero">
+    {% if sprite_slug %}<img src="/sprite/{{ sprite_slug }}.png" alt="{{ common_name }}">{% else %}<div></div>{% endif %}
+    <div>
+      <h1>{{ common_name }}</h1>
+      <p class="latin">{{ scientific_name }}</p>
+      <p class="sum mono">{{ payload.fp_count }} fingerprinted calls ·
+        {% if payload.voices|length > 1 %}<b>{{ payload.voices|length }} distinct voices</b>{% elif payload.voices|length == 1 %}<b>one consistent voice</b>{% else %}not enough data yet{% endif %}
+        {% if quality_label %}<span class="qual {{ quality_class }}">{{ quality_label }}</span>{% endif %}
+      </p>
+    </div>
+  </div>
+
+  {% if payload.fp_count < min_samples %}
+  <div class="panel"><p class="note">Only {{ payload.fp_count }} call(s) fingerprinted at ≥{{ conf_floor }} confidence —
+  voice grouping starts at {{ min_samples }}. Keep listening (or run the fingerprint backfill on older audio).</p></div>
+  {% endif %}
+
+  {% if payload.cosinging %}
+  <div class="panel cosing">
+    <h2>Heard together</h2>
+    {% for c in payload.cosinging %}
+    <p class="pair">Voices <b>{{ c.a }}</b> and <b>{{ c.b }}</b> were heard within the same minute
+      {{ c.n }} time{{ '' if c.n == 1 else 's' }} (first on {{ c.first[:10] }} at {{ c.first[11:16] }}) —
+      very likely different birds.</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% for v in payload.voices %}
+  <div class="panel">
+    <div class="voice-hdr">
+      <span class="vname">Voice {{ v.label }}</span>
+      <span class="vmeta mono">{{ v.count }} calls · {{ v.days }} day{{ '' if v.days == 1 else 's' }} ·
+        {{ v.first_heard[:10] }} {{ v.first_heard[11:16] }} → {{ v.last_heard[:10] }} {{ v.last_heard[11:16] }} ·
+        avg conf {{ "%.2f"|format(v.avg_conf) }}</span>
+    </div>
+    <div class="bars">
+      {% for h in range(24) %}
+      {% set n = v.hourly.get("%02d"|format(h), 0) %}
+      {% set hmax = v.hourly.values()|max %}
+      <div class="bar{{ ' zero' if not n else '' }}" style="height:{{ (n * 100 / hmax) if n else 2 }}%" title="{{ h }}:00 — {{ n }}"></div>
+      {% endfor %}
+    </div>
+    <div class="bar-lbls mono">{% for h in [0,6,12,18,23] %}<span>{{ h }}h</span>{% endfor %}</div>
+    {% if v.reps %}
+    <div class="reps">
+      {% for r in v.reps %}
+      {% set clip_qs = "?start=%.1f&end=%.1f"|format(r.start, r.end) %}
+      <div class="clip">
+        <div class="clip-hdr mono">
+          <span>{{ r.heard_at[:10] }} {{ r.heard_at[11:16] }}</span>
+          <span class="conf">{{ "%.2f"|format(r.confidence) }}</span>
+        </div>
+        <div class="spectro"><img loading="lazy" src="/spectrogram/{{ r.segment_id }}.png{{ clip_qs }}" alt="spectrogram"></div>
+        <div class="play"><audio controls preload="none" src="/audio/{{ r.segment_id }}{{ clip_qs }}"></audio></div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {% if payload.unassigned %}
+  <p class="note">{{ payload.unassigned }} call{{ '' if payload.unassigned == 1 else 's' }} didn't match any
+  voice consistently (one-off variants or noisy windows) and {{ 'is' if payload.unassigned == 1 else 'are' }} left ungrouped.</p>
+  {% endif %}
+
+  <p class="note mono" style="margin-top:26px">method: BirdNET embedding (1024-d) per 3s window ·
+  average-linkage clustering, cosine ≤ {{ threshold }} · windows ≥ {{ conf_floor }} conf ·
+  voices need ≥ {{ min_members }} calls</p>
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
+"""
+
 
 def _visible_days(conn, end_day: str, span: int = 7) -> tuple[str, ...]:
     """Return usable dates in the rolling window ending at end_day.
@@ -4953,6 +5288,84 @@ def trends_view():
         )
     finally:
         conn.close()
+
+
+@app.route("/voices")
+def voices_index():
+    conn = _db()
+    try:
+        counts = storage.fingerprint_species_counts(
+            conn,
+            version=fingerprint.FINGERPRINT_VERSION,
+            min_conf=_VOICE_CONF_FLOOR,
+        )
+        slugs = _slug_map()
+        species = []
+        for row in counts:
+            name = row["common_name"]
+            slug = slugs.get(name) or _common_to_slug(name)
+            payload = _voices_payload(conn, name, slug)
+            species.append(
+                {
+                    "name": name,
+                    "slug": slug,
+                    "sprite_slug": _sprite_slug(name, slugs),
+                    "initials": _species_initials(name),
+                    "n": row["n"],
+                    "first_heard": row["first_heard"],
+                    "last_heard": row["last_heard"],
+                    "voice_count": len(payload["voices"]),
+                }
+            )
+    finally:
+        conn.close()
+
+    return render_template_string(
+        VOICES_INDEX_PAGE,
+        species=species,
+        dev=_dev_mode(),
+        dev_script=_DEV_RELOAD_SCRIPT,
+    )
+
+
+@app.route("/voices/<slug>")
+def voices_detail(slug: str):
+    conn = _db()
+    try:
+        common_name = _resolve_bird_slug(slug, conn)
+        if not common_name:
+            abort(404)
+        meta = storage.species_meta(conn, common_name)
+        payload = _voices_payload(conn, common_name, slug)
+    finally:
+        conn.close()
+
+    quality_label = quality_class = None
+    q = payload.get("quality")
+    if q is not None and len(payload["voices"]) > 1:
+        if q >= 0.4:
+            quality_label, quality_class = "well separated", "hi"
+        elif q >= 0.2:
+            quality_label, quality_class = "moderately separated", "mid"
+        else:
+            quality_label, quality_class = "subtle differences", "lo"
+
+    return render_template_string(
+        VOICES_PAGE,
+        common_name=common_name,
+        scientific_name=meta["scientific_name"] if meta else "",
+        slug=slug,
+        sprite_slug=_sprite_slug(common_name, _slug_map()),
+        payload=payload,
+        quality_label=quality_label,
+        quality_class=quality_class,
+        conf_floor=_VOICE_CONF_FLOOR,
+        threshold=_VOICE_DISTANCE_THRESHOLD,
+        min_members=_VOICE_MIN_MEMBERS,
+        min_samples=_VOICE_MIN_SAMPLES,
+        dev=_dev_mode(),
+        dev_script=_DEV_RELOAD_SCRIPT,
+    )
 
 
 @app.route("/call/<int:segment_id>")

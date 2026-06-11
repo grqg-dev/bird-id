@@ -52,7 +52,8 @@ project testable and portable.
 | `recorder.py` | mic → wav (48kHz mono) + `stream_pcm()` continuous pipe | **yes** | **yes — macOS AVFoundation** |
 | `segmenter.py` | adaptive DSP: PCM hops → variable-length `Segment` objects | no | no |
 | `identifier.py` | `identify(wav)` → detections via BirdNET | no | no |
-| `storage.py` | SQLite: segments, tracks, detections, queries | no | no |
+| `fingerprint.py` | wav window → 1024-d BirdNET embedding (acoustic fingerprint) | no | no |
+| `storage.py` | SQLite: segments, tracks, detections, fingerprints, queries | no | no |
 | `clips.py` | slice segment wav → per-window clip files | no | no |
 | `config.py` | load `config.json`, resolve flag>config>default | no | no |
 | `dashboard.py` | Flask web UI (offline, server-rendered) | no | no |
@@ -79,6 +80,13 @@ Key invariants:
   log appends `(processed Xh Ym late)` when a dequeued segment is stale.
 - **Store raw, aggregate at query.** Write one row per 3s-window detection; roll
   up with `GROUP BY` at read time (see `species_summary`, `day_species`).
+- **Fingerprints are derived data.** The monitor calls `_fingerprint_segment()`
+  right after `record_segment()` and **before** the segment wav can be dropped;
+  failures are logged and swallowed — they must never take down the loop.
+  `fingerprint.py` keeps its own TFLite interpreter (needs
+  `experimental_preserve_all_tensors=True` to read the embedding layer); the
+  classification analyzer in `identifier.py` is untouched. The `/voices` pages
+  cluster these vectors per species (sklearn, lazy import, disk-cached).
 - **Tracks + clips.** Each distinct `(start_time, end_time)` window within a
   segment gets a `tracks` row (optional `clip_path` under `recordings/clips/`).
   Detections link via `track_id`. Clip files are written in `birdid.py` via
@@ -219,6 +227,13 @@ After code that touches DB schema or clips:
 
    Uses `config.json` for `db` and `recordings_dir`. Skips tracks whose segment
    `wav_path` is missing or expired. Safe to re-run; use `--dry-run` to preview.
+
+   Same deal for acoustic fingerprints (powers `/voices`; new segments get them
+   automatically, backfill covers history — **on prod, only with user OK**):
+
+   ```bash
+   ./.venv/bin/python scripts/backfill_fingerprints.py
+   ```
 
 3. **`docs/bird_info.json`** — field notes for the species drill-down card, keyed
    by slug from `docs/birds.json`. Dashboard caches this at import; **restart
