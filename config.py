@@ -33,6 +33,9 @@ DEFAULTS: dict[str, Any] = {
     "mic_dead_window_seconds": 60, # sustained silence window → mic-dead error
     "db": "birdid.db",
     "recordings_dir": "recordings",
+    # Sensor ingest service (cmd_ingest_server) — receives ESP32-S3 clip uploads
+    "ingest_host": "127.0.0.1",
+    "ingest_port": 8081,
     "retention_days": 30,   # drop kept segment wavs after N days; 0 = keep forever
     "clip_format": "mp3",   # mp3 | wav — per-window clips written by the monitor
     "clip_mp3_bitrate": "64k",

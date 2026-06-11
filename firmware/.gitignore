@@ -1,0 +1,9 @@
+# PlatformIO build output
+.pio/
+
+# contains Wi-Fi creds + API key — never commit
+src/config.h
+
+# the Edge Impulse export is large + per-deployment; keep only the README
+lib/ei-bird-model/*
+!lib/ei-bird-model/README.md

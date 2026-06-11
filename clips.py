@@ -8,6 +8,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+import config
+
 
 def _ffmpeg_path() -> str | None:
     """Resolve ffmpeg on PATH or ~/bin (launchd on the Mac mini omits the latter)."""
@@ -18,6 +20,39 @@ def _ffmpeg_path() -> str | None:
     if home_bin.is_file():
         return str(home_bin)
     return None
+
+
+def clip_format(cfg: dict) -> str:
+    """Resolve the per-window clip format from config ('mp3' or 'wav')."""
+    fmt = str(config.resolve(None, "clip_format", cfg) or "wav").lower()
+    return "mp3" if fmt == "mp3" else "wav"
+
+
+def clip_paths_for_detections(
+    src_wav: str | Path,
+    clips_dir: str | Path,
+    started_at: datetime,
+    detections,
+    *,
+    cfg: dict,
+) -> dict[tuple[float, float], str]:
+    """Write a clip file per unique detection window; return the
+    (start, end) -> clip_path map that storage.record_segment expects.
+
+    Shared by the local monitor (birdid.py) and the sensor ingest service
+    (ingest.py) so both turn a segment wav into clips the same way.
+    """
+    clips_dir = Path(clips_dir).expanduser()
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    fmt = clip_format(cfg)
+    bitrate = str(config.resolve(None, "clip_mp3_bitrate", cfg) or "64k")
+    clip_paths: dict[tuple[float, float], str] = {}
+    for start, end in {(d.start_time, d.end_time) for d in detections}:
+        dst = clip_dst_path(clips_dir, started_at, start, end, fmt=fmt)
+        path = write_clip(src_wav, dst, start, end, fmt=fmt, mp3_bitrate=bitrate)
+        if path:
+            clip_paths[(start, end)] = path
+    return clip_paths
 
 
 def clip_dst_path(

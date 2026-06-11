@@ -115,12 +115,45 @@ A quick terminal summary: how many species today, busiest hour, and anything
 | Dashboard on your home network | `./.venv/bin/python birdid.py dashboard --host 0.0.0.0` |
 | Live companion feed (phone-friendly) | Open `/live` while monitor runs — polls every 5s |
 | Dashboard auto-reload while hacking | `./.venv/bin/python birdid.py dashboard --dev` |
+| Receive clips from ESP32-S3 sensors | `./.venv/bin/python birdid.py ingest-server --host 0.0.0.0` |
+| See your sensors + what each heard | Open `/devices` on the dashboard |
 
 **Useful flags:** `-c 0.5` raises the confidence threshold (fewer false positives).
 `-d 1` picks a specific mic — list devices with `./.venv/bin/python recorder.py --list-devices`.
 
 If recording comes back silent, check macOS mic permission:
 *System Settings → Privacy & Security → Microphone → enable your terminal app.*
+
+## Backyard sensors (ESP32-S3)
+
+Want more than one listening spot? Put cheap **ESP32-S3 microphones** around the
+yard. Each one runs a tiny on-device "bird vs. no bird" detector and, when it hears
+something, uploads just that clip to a small server that runs the full
+identification — so every sensor's birds land in the same Bird-Dex, tagged with
+which sensor heard them (see the **Devices** page).
+
+```bash
+# On the server (the machine with your database):
+./.venv/bin/python birdid.py ingest-server --host 0.0.0.0   # listens on :8081
+```
+
+Then flash a sensor from [`firmware/`](firmware/) (PlatformIO) and register it —
+full wiring, setup, and the Edge Impulse model steps are in
+[`firmware/README.md`](firmware/README.md). Clips upload at 48 kHz, and each
+detection is timestamped to when the bird actually called (the device stamps the
+time), even if Wi-Fi was briefly down.
+
+## Self-hosting with Docker
+
+Prefer to run the server in a container (e.g. on a NAS or homelab box, no macOS)?
+
+```bash
+docker compose up --build      # ingest service on :8081, dashboard on :8080
+```
+
+Both share one volume for the database and recordings. Edit `config.json` for your
+location first. (The local mic monitor isn't containerized — it needs host audio
+hardware; Docker is for the sensor/dashboard server.)
 
 ## Configuration
 

@@ -2565,6 +2565,94 @@ TIMELINE_PAGE = """
 </body></html>
 """
 
+DEVICES_PAGE = """
+<!doctype html><html><head><meta charset="utf-8"><title>Devices · Bird-Dex</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--cream:#f3efe2;--ink:#21232a;
+        --gold:#ffcf3f;--grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);min-height:100vh;
+       background:var(--surface)}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .wrap{max-width:640px;margin:0 auto;padding:0 0 32px}
+  .hdr{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--border);
+       padding:14px 16px 12px}
+  .hdr h1{margin:0;font-size:20px;letter-spacing:-.3px}
+  .hdr-meta{margin-top:6px;font-size:12px;color:#8a857a}
+  .nav{font-size:12px;margin-top:10px}
+  .nav a{color:var(--red-dark);text-decoration:none;font-weight:600;margin-right:14px}
+  .nav a:hover{text-decoration:underline}
+  .dev{background:#fff;border-bottom:1px solid var(--border);padding:14px 16px}
+  .dev-top{display:flex;align-items:baseline;gap:10px}
+  .dev-name{margin:0;font-size:16px;font-weight:700}
+  .dev-uid{font-size:11px;color:#8a857a}
+  .online{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;
+          background:var(--grn);vertical-align:middle}
+  .offline{background:#c9c5ba}
+  .dev-meta{margin-top:4px;font-size:12px;color:#8a857a}
+  .dev-meta b{color:var(--ink)}
+  .stats{display:flex;gap:18px;margin-top:8px}
+  .stat{font-size:12px;color:#8a857a}
+  .stat b{display:block;font-size:18px;color:var(--ink);font-weight:700;line-height:1.1}
+  .species{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:999px;
+        padding:3px 9px;color:var(--ink)}
+  .chip a{color:inherit;text-decoration:none}
+  .chip b{color:var(--red-dark)}
+  .empty{padding:48px 16px;text-align:center;color:#8a857a;font-size:14px;line-height:1.6}
+  .empty code{background:#fff;border:1px solid var(--border);border-radius:4px;padding:1px 6px}
+</style></head><body>
+<div class="wrap">
+  <div class="hdr">
+    <h1>Sensors</h1>
+    <div class="hdr-meta mono">{{ devices|length }} registered device{{ '' if devices|length == 1 else 's' }}</div>
+    <div class="nav mono">
+      <a href="/">← Bird-Dex</a>
+      <a href="/live">Live feed</a>
+      <a href="/data">Data report</a>
+      <a href="/trends">Trends</a>
+    </div>
+  </div>
+  {% if devices %}
+  {% for d in devices %}
+  <div class="dev">
+    <div class="dev-top">
+      <h2 class="dev-name">
+        <span class="online {{ 'offline' if not d.is_online }}" title="{{ 'seen recently' if d.is_online else 'idle' }}"></span>
+        {{ d.name or d.device_uid }}
+      </h2>
+      {% if d.name %}<span class="dev-uid mono">{{ d.device_uid }}</span>{% endif %}
+    </div>
+    <div class="dev-meta mono">
+      {% if d.location %}<b>{{ d.location }}</b> · {% endif %}
+      last heard {{ d.last_seen_label }}{% if d.last_ip %} · {{ d.last_ip }}{% endif %}
+    </div>
+    <div class="stats">
+      <div class="stat"><b>{{ d.species }}</b>species</div>
+      <div class="stat"><b>{{ d.detections|format_int }}</b>detections</div>
+      <div class="stat"><b>{{ d.segments|format_int }}</b>clips</div>
+    </div>
+    {% if d.top_species %}
+    <div class="species">
+      {% for s in d.top_species %}
+      <span class="chip"><a href="/bird/{{ s.slug }}">{{ s.common_name }}</a> <b>{{ "%.0f"|format(s.peak_conf * 100) }}%</b></span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% else %}
+  <p class="empty">No sensors registered yet.<br>
+  Point an ESP32-S3 at the ingest service and register it:<br>
+  <code>POST /api/register {"device_uid": "yard-1"}</code></p>
+  {% endif %}
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
+"""
+
+
 LIVE_PAGE = """
 <!doctype html><html><head><meta charset="utf-8"><title>Live feed · Bird-Dex</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -2602,6 +2690,7 @@ LIVE_PAGE = """
   .evt-name a:hover{color:var(--red-dark)}
   .evt-conf{font-size:11px;color:#8a857a;margin-top:2px}
   .evt-conf b{color:var(--ink)}
+  .evt-dev{color:var(--red-dark);font-weight:600}
   .evt-thumb{flex:0 0 56px;width:56px;height:56px;border-radius:8px;border:1px solid var(--border);
              background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
   .evt-thumb img{width:100%;height:100%;object-fit:contain;padding:2px}
@@ -2632,6 +2721,7 @@ LIVE_PAGE = """
       <a href="/timeline">Timeline</a>
       <a href="/data">Data report</a>
       <a href="/trends">Trends</a>
+      <a href="/devices">Devices</a>
     </div>
     <div class="filters mono">
       <a href="/live{% if not hide_low %}?hide_low=1{% endif %}" class="{{ 'on' if hide_low else '' }}">Conf ≥ {{ "%.1f"|format(conf_floor) }}</a>
@@ -2645,7 +2735,7 @@ LIVE_PAGE = """
         <time class="evt-time mono">{{ e.time_label }}</time>
         <div class="evt-main">
           <p class="evt-name"><a href="/bird/{{ e.slug }}">{{ e.common_name }}</a></p>
-          <div class="evt-conf mono"><b>{{ "%.0f"|format(e.peak_conf * 100) }}%</b> confidence</div>
+          <div class="evt-conf mono"><b>{{ "%.0f"|format(e.peak_conf * 100) }}%</b> confidence{% if e.device %} · <span class="evt-dev">📡 {{ e.device }}</span>{% endif %}</div>
         </div>
         <div class="evt-thumb">
           {% if e.sprite_slug %}
@@ -3633,9 +3723,42 @@ def _species_initials(common_name: str) -> str:
     return "".join(p[0] for p in parts if p)[:2].upper()
 
 
+_DEVICE_ONLINE_SECONDS = 15 * 60  # seen within 15 min = "online"
+
+
+def _relative_since(iso: str | None, *, now: datetime | None = None) -> tuple[str, bool]:
+    """Humanized 'last seen' label + online flag for a device's last_seen_at."""
+    if not iso:
+        return "never", False
+    try:
+        then = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso, False
+    secs = ((now or datetime.now()) - then).total_seconds()
+    online = 0 <= secs <= _DEVICE_ONLINE_SECONDS
+    if secs < 0:
+        return "just now", True
+    if secs < 60:
+        return "just now", online
+    if secs < 3600:
+        return f"{int(secs // 60)} min ago", online
+    if secs < 86400:
+        return f"{int(secs // 3600)} h ago", online
+    return f"{int(secs // 86400)} days ago", online
+
+
+def _row_get(row, key, default=None):
+    """sqlite3.Row lacks .get(); return default if the column isn't present/NULL."""
+    try:
+        return row[key] if key in row.keys() else default
+    except (IndexError, AttributeError):
+        return default
+
+
 def _feed_event_dict(row, slugs: dict[str, str]) -> dict:
     slug = slugs.get(row["common_name"]) or _common_to_slug(row["common_name"])
     sprite = _sprite_slug(row["common_name"], slugs)
+    device = _row_get(row, "device_name") or _row_get(row, "device_uid")
     return {
         "heard_at": row["heard_at"],
         "common_name": row["common_name"],
@@ -3648,6 +3771,7 @@ def _feed_event_dict(row, slugs: dict[str, str]) -> dict:
         "sprite_slug": sprite,
         "time_label": _format_heard_clock(row["heard_at"]),
         "initials": _species_initials(row["common_name"]),
+        "device": device,  # None = local mic
     }
 
 
@@ -4409,6 +4533,47 @@ def live_feed():
                     for e in events
                 ]
             ),
+            dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/devices")
+def devices_page():
+    conn = _db()
+    try:
+        slugs = _slug_map()
+        devices = []
+        for row in storage.list_devices(conn):
+            label, online = _relative_since(row["last_seen_at"])
+            top = []
+            for s in storage.device_species(conn, row["id"])[:6]:
+                top.append(
+                    {
+                        "common_name": s["common_name"],
+                        "slug": slugs.get(s["common_name"]) or _common_to_slug(s["common_name"]),
+                        "peak_conf": s["peak_conf"],
+                    }
+                )
+            devices.append(
+                {
+                    "device_uid": row["device_uid"],
+                    "name": row["name"],
+                    "location": row["location"],
+                    "last_ip": row["last_ip"],
+                    "last_seen_label": label,
+                    "is_online": online,
+                    "segments": row["segments"],
+                    "detections": row["detections"],
+                    "species": row["species"],
+                    "top_species": top,
+                }
+            )
+        return render_template_string(
+            DEVICES_PAGE,
+            devices=devices,
             dev=_dev_mode(),
             dev_script=_DEV_RELOAD_SCRIPT,
         )

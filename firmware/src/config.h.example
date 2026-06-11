@@ -1,0 +1,36 @@
+// Copy this file to config.h and fill in your values. config.h is gitignored.
+#pragma once
+
+// --- Wi-Fi ---
+#define WIFI_SSID       "your-ssid"
+#define WIFI_PASSWORD   "your-password"
+
+// --- bird-id ingest server ---
+// The host running `birdid.py ingest-server` (or the Docker `ingest` service).
+#define INGEST_BASE_URL "http://192.168.1.50:8081"
+
+// Stable identity for this sensor. Pick something memorable; it shows on the
+// dashboard /devices page. Must be unique per device.
+#define DEVICE_UID      "yard-oak-1"
+
+// API key returned by POST /api/register the first time this device registers.
+// Leave empty ("") to auto-register on first boot and print the key to serial —
+// then paste it back here and re-flash so the key survives reflashes.
+#define DEVICE_API_KEY  ""
+
+// --- Detection tuning ---
+// Edge Impulse "bird" label and the score/streak needed to trigger an upload.
+#define BIRD_LABEL            "bird"
+#define BIRD_SCORE_THRESHOLD  0.80f   // per-window confidence to count as "bird"
+#define BIRD_TRIGGER_WINDOWS  2       // consecutive bird windows before uploading
+
+// --- Audio / NTP ---
+#define CAPTURE_SAMPLE_RATE   48000   // uploaded clip rate (BirdNET native)
+#define CLIP_SECONDS          3       // length of the clip we upload
+#define NTP_SERVER            "pool.ntp.org"
+#define TZ_OFFSET_SECONDS     0       // we send UTC; the server localizes
+
+// --- I2S MEMS mic (INMP441 / SPH0645) wiring ---
+#define I2S_SCK_PIN   5    // bit clock (BCLK)
+#define I2S_WS_PIN    6    // word select (LRCL)
+#define I2S_SD_PIN    4    // serial data (DOUT of the mic)
