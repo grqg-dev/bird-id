@@ -652,71 +652,97 @@ HEARD_PAGE = """
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   *{box-sizing:border-box}
-  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;background:#fbfaf7;color:#21232a}
+  html,body{height:100%}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;background:#fbfaf7;color:#21232a;
+       display:flex;flex-direction:column;overflow:hidden}
   .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
-  .wrap{max-width:1100px;margin:0 auto;padding:40px 24px 60px}
-  header{display:flex;align-items:baseline;gap:18px;margin-bottom:28px;flex-wrap:wrap}
-  h1{font-size:15px;font-weight:700;letter-spacing:1.5px;margin:0;color:#3a3d46}
-  .pills{display:flex;gap:6px;margin-left:auto;align-items:center}
+  header{display:flex;align-items:baseline;gap:8px 18px;flex-wrap:wrap;
+         width:100%;max-width:680px;margin:0 auto;padding:18px 22px 4px}
+  h1{font-size:13px;font-weight:700;letter-spacing:1.2px;margin:0;color:#3a3d46}
+  .pills{display:flex;gap:4px;margin-left:auto;align-items:center}
   .pills a{font-size:11px;letter-spacing:1px;text-decoration:none;color:#9a958a;
            padding:5px 11px;border-radius:999px;border:1px solid transparent}
   .pills a:hover{color:#21232a}
   .pills a.on{color:#21232a;border-color:#ddd9cd;background:#fff}
-  .pills .sep{width:1px;height:16px;background:#e4e1d7;margin:0 6px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
-  .bird{display:block;text-decoration:none}
-  .bird .art{aspect-ratio:1;border-radius:14px;overflow:hidden;background:#fff;border:1px solid #eeebe2}
-  .bird .art img{width:100%;height:100%;object-fit:contain;padding:16px;display:block;
-                 transition:transform .25s ease}
-  .bird:hover .art img{transform:scale(1.1)}
-  .bird .tag{padding:8px 4px 0;text-align:center}
-  .bird .tag .nm{font-size:13px;font-weight:700;color:#21232a;letter-spacing:.2px}
-  .bird .tag .ct{font-size:11px;color:#9a958a;letter-spacing:.6px;margin-top:2px}
-  .bird .no-art{display:flex;align-items:center;justify-content:center;height:100%;
-                color:#c9c4b6;font-size:12px;letter-spacing:1px;text-align:center;padding:14px;
-                transition:transform .25s ease}
-  .bird:hover .no-art{transform:scale(1.05)}
-  .empty{color:#9a958a;font-size:14px;padding:60px 0;text-align:center}
-  .foot{margin-top:34px;font-size:11px;letter-spacing:1px;color:#c0bbac}
-  .foot a{color:#9a958a;text-decoration:none}
-  .foot a:hover{color:#21232a}
+  .pills .sep{width:1px;height:16px;background:#e4e1d7;margin:0 6px;align-self:center}
+  .deck{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;
+        scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .deck::-webkit-scrollbar{display:none}
+  .slide{flex:0 0 100%;scroll-snap-align:center;scroll-snap-stop:always;
+         display:flex;flex-direction:column;align-items:center;justify-content:center;
+         gap:18px;padding:8px 24px 16px;text-decoration:none}
+  .slide .art{width:min(82vw,55vh,440px);aspect-ratio:1;border-radius:22px;overflow:hidden;
+              background:#fff;border:1px solid #eeebe2}
+  .slide .art img{width:100%;height:100%;object-fit:contain;padding:22px;display:block}
+  .slide .no-art{display:flex;align-items:center;justify-content:center;height:100%;
+                 color:#c9c4b6;font-size:13px;letter-spacing:1px;text-align:center;padding:20px}
+  .slide .tag{text-align:center}
+  .slide .nm{font-size:19px;font-weight:700;color:#21232a;letter-spacing:.2px}
+  .slide .ct{font-size:12px;color:#9a958a;letter-spacing:1px;margin-top:5px}
+  .navbar{display:flex;align-items:center;justify-content:center;gap:14px;padding:4px 0 16px}
+  .navbar button{font:inherit;font-size:16px;line-height:1;color:#9a958a;background:#fff;
+                 border:1px solid #e4e1d7;border-radius:999px;width:38px;height:38px;cursor:pointer}
+  .navbar button:hover{color:#21232a;border-color:#ccc7b8}
+  .count{font-size:11px;color:#9a958a;letter-spacing:1.5px;min-width:58px;text-align:center}
+  .home{font-size:11px;letter-spacing:1px;color:#c0bbac;text-decoration:none;margin-left:10px}
+  .home:hover{color:#21232a}
+  .empty{flex:1;display:flex;align-items:center;justify-content:center;
+         color:#9a958a;font-size:14px;text-align:center;padding:24px}
 </style></head><body>
-<div class="wrap">
-  <header>
-    <h1>Birds heard at 2653 Glendessary Ln</h1>
-    <nav class="pills mono">
-      {% for d in (1, 3, 7) %}
-      <a href="{{ hqs(range=d) }}" class="{{ 'on' if days == d else '' }}">{{ d }}d</a>
-      {% endfor %}
-      <span class="sep"></span>
-      <a href="{{ hqs(hi=not hi) }}" class="{{ 'on' if hi else '' }}" title="Only calls ≥ {{ '%.1f'|format(conf_floor) }} confidence">high conf</a>
-    </nav>
-  </header>
-
-  {% if birds %}
-  <div class="grid">
-    {% for b in birds %}
-    <a class="bird" href="/bird/{{ b.bird_slug }}">
-      <div class="art">
-        {% if b.sprite_slug %}
-        <img loading="lazy" src="/sprite/{{ b.sprite_slug }}.png" alt="{{ b.common_name }}">
-        {% else %}
-        <div class="no-art">{{ b.common_name }}</div>
-        {% endif %}
-      </div>
-      <div class="tag">
-        <div class="nm">{{ b.common_name }}</div>
-        <div class="ct mono">{{ b.windows }} call{{ '' if b.windows == 1 else 's' }}</div>
-      </div>
-    </a>
+<header>
+  <h1>Birds heard at 2653 Glendessary Ln</h1>
+  <nav class="pills mono">
+    {% for d in (1, 3, 7) %}
+    <a href="{{ hqs(range=d) }}" class="{{ 'on' if days == d else '' }}">{{ d }}d</a>
     {% endfor %}
-  </div>
-  {% else %}
-  <div class="empty">Nothing heard in the last {{ days }} day{{ '' if days == 1 else 's' }}{{ ' at high confidence' if hi else '' }}.</div>
-  {% endif %}
+    <span class="sep"></span>
+    <a href="{{ hqs(hi=not hi) }}" class="{{ 'on' if hi else '' }}" title="Only calls ≥ {{ '%.1f'|format(conf_floor) }} confidence">high conf</a>
+  </nav>
+</header>
 
-  <div class="foot mono"><a href="/">← Bird-Dex</a></div>
+{% if birds %}
+<div class="deck" id="deck">
+  {% for b in birds %}
+  <a class="slide" href="/bird/{{ b.bird_slug }}">
+    <div class="art">
+      {% if b.sprite_slug %}
+      <img loading="lazy" src="/sprite/{{ b.sprite_slug }}.png" alt="{{ b.common_name }}">
+      {% else %}
+      <div class="no-art">{{ b.common_name }}</div>
+      {% endif %}
+    </div>
+    <div class="tag">
+      <div class="nm">{{ b.common_name }}</div>
+      <div class="ct mono">{{ b.windows }} call{{ '' if b.windows == 1 else 's' }}</div>
+    </div>
+  </a>
+  {% endfor %}
 </div>
+<div class="navbar mono">
+  <button id="prev" aria-label="Previous bird">‹</button>
+  <span class="count" id="count">1 / {{ birds|length }}</span>
+  <button id="next" aria-label="Next bird">›</button>
+  <a class="home" href="/">Bird-Dex</a>
+</div>
+<script>
+(function(){
+  var deck=document.getElementById("deck"),total={{ birds|length }};
+  function idx(){return Math.round(deck.scrollLeft/deck.clientWidth)}
+  function go(d){deck.scrollTo({left:(idx()+d)*deck.clientWidth,behavior:"smooth"})}
+  deck.addEventListener("scroll",function(){
+    document.getElementById("count").textContent=(Math.min(idx(),total-1)+1)+" / "+total;
+  },{passive:true});
+  document.getElementById("prev").onclick=function(){go(-1)};
+  document.getElementById("next").onclick=function(){go(1)};
+  document.addEventListener("keydown",function(e){
+    if(e.key==="ArrowLeft")go(-1);else if(e.key==="ArrowRight")go(1);
+  });
+})();
+</script>
+{% else %}
+<div class="empty">Nothing heard in the last {{ days }} day{{ '' if days == 1 else 's' }}{{ ' at high confidence' if hi else '' }}.<br>
+  <a class="home mono" href="/">Bird-Dex</a></div>
+{% endif %}
 {% if dev %}{{ dev_script|safe }}{% endif %}
 </body></html>
 """
