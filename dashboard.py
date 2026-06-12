@@ -541,6 +541,7 @@ PAGE = """
     <a href="{{ qs(day=today) }}">Today</a>
     {% endif %}
     <span class="spacer"></span>
+    <a href="/heard">Heard</a>
     <a href="/live">Live feed</a>
     <a href="/realtime">Real time</a>
     <a href="/timeline{{ timeline_qs }}">Timeline</a>
@@ -640,6 +641,82 @@ PAGE = """
   {% else %}
   <div class="empty">{{ empty_msg }}</div>
   {% endif %}
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
+"""
+
+
+HEARD_PAGE = """
+<!doctype html><html><head><meta charset="utf-8"><title>Birds heard at 2653 Glendessary Ln</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *{box-sizing:border-box}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;background:#fbfaf7;color:#21232a}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .wrap{max-width:1100px;margin:0 auto;padding:40px 24px 60px}
+  header{display:flex;align-items:baseline;gap:18px;margin-bottom:28px;flex-wrap:wrap}
+  h1{font-size:15px;font-weight:700;letter-spacing:1.5px;margin:0;color:#3a3d46}
+  .pills{display:flex;gap:6px;margin-left:auto;align-items:center}
+  .pills a{font-size:11px;letter-spacing:1px;text-decoration:none;color:#9a958a;
+           padding:5px 11px;border-radius:999px;border:1px solid transparent}
+  .pills a:hover{color:#21232a}
+  .pills a.on{color:#21232a;border-color:#ddd9cd;background:#fff}
+  .pills .sep{width:1px;height:16px;background:#e4e1d7;margin:0 6px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
+  .bird{position:relative;display:block;aspect-ratio:1;border-radius:14px;overflow:hidden;
+        background:#fff;border:1px solid #eeebe2;text-decoration:none}
+  .bird img{width:100%;height:100%;object-fit:contain;padding:16px;display:block;
+            transition:transform .25s ease}
+  .bird:hover img{transform:scale(1.08)}
+  .bird .tag{position:absolute;left:0;right:0;bottom:0;padding:24px 12px 10px;
+             background:linear-gradient(transparent,rgba(251,250,247,.96) 55%);
+             opacity:0;transition:opacity .2s ease;pointer-events:none}
+  .bird:hover .tag{opacity:1}
+  .bird .tag .nm{font-size:13px;font-weight:700;color:#21232a;letter-spacing:.2px}
+  .bird .tag .ct{font-size:11px;color:#9a958a;letter-spacing:.6px;margin-top:2px}
+  .bird .no-art{display:flex;align-items:center;justify-content:center;height:100%;
+                color:#c9c4b6;font-size:12px;letter-spacing:1px;text-align:center;padding:14px;
+                transition:transform .25s ease}
+  .bird:hover .no-art{transform:scale(1.05)}
+  .empty{color:#9a958a;font-size:14px;padding:60px 0;text-align:center}
+  .foot{margin-top:34px;font-size:11px;letter-spacing:1px;color:#c0bbac}
+  .foot a{color:#9a958a;text-decoration:none}
+  .foot a:hover{color:#21232a}
+</style></head><body>
+<div class="wrap">
+  <header>
+    <h1>Birds heard at 2653 Glendessary Ln</h1>
+    <nav class="pills mono">
+      {% for d in (1, 3, 7) %}
+      <a href="{{ hqs(range=d) }}" class="{{ 'on' if days == d else '' }}">{{ d }}d</a>
+      {% endfor %}
+      <span class="sep"></span>
+      <a href="{{ hqs(hi=not hi) }}" class="{{ 'on' if hi else '' }}" title="Only calls ≥ {{ '%.1f'|format(conf_floor) }} confidence">high conf</a>
+    </nav>
+  </header>
+
+  {% if birds %}
+  <div class="grid">
+    {% for b in birds %}
+    <a class="bird" href="/bird/{{ b.bird_slug }}">
+      {% if b.sprite_slug %}
+      <img loading="lazy" src="/sprite/{{ b.sprite_slug }}.png" alt="{{ b.common_name }}">
+      {% else %}
+      <div class="no-art">{{ b.common_name }}</div>
+      {% endif %}
+      <div class="tag">
+        <div class="nm">{{ b.common_name }}</div>
+        <div class="ct mono">{{ b.windows }} call{{ '' if b.windows == 1 else 's' }} heard</div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">Nothing heard in the last {{ days }} day{{ '' if days == 1 else 's' }}{{ ' at high confidence' if hi else '' }}.</div>
+  {% endif %}
+
+  <div class="foot mono"><a href="/">← Bird-Dex</a></div>
 </div>
 {% if dev %}{{ dev_script|safe }}{% endif %}
 </body></html>
@@ -4543,6 +4620,49 @@ def index():
         )
     finally:
         conn.close()
+
+
+@app.route("/heard")
+def heard():
+    days = request.args.get("range")
+    days = int(days) if days in ("1", "3", "7") else 1
+    hi = request.args.get("hi") == "1"
+    since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    conn = _db()
+    try:
+        rows = storage.species_summary(
+            conn, since=since, min_conf=PEAK_CONF_FLOOR if hi else None
+        )
+    finally:
+        conn.close()
+    slugs = _slug_map()
+    birds = [
+        dict(
+            r,
+            sprite_slug=_sprite_slug(r["common_name"], slugs),
+            bird_slug=slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
+        )
+        for r in sorted(rows, key=lambda r: r["windows"], reverse=True)
+    ]
+
+    def hqs(range: int = days, hi: bool = hi) -> str:
+        parts = []
+        if range != 1:
+            parts.append(f"range={range}")
+        if hi:
+            parts.append("hi=1")
+        return "?" + "&".join(parts) if parts else "/heard"
+
+    return render_template_string(
+        HEARD_PAGE,
+        birds=birds,
+        days=days,
+        hi=hi,
+        conf_floor=PEAK_CONF_FLOOR,
+        hqs=hqs,
+        dev=_dev_mode(),
+        dev_script=_DEV_RELOAD_SCRIPT,
+    )
 
 
 @app.route("/bird/<slug>")

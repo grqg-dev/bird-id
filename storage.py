@@ -246,10 +246,22 @@ def set_track_clip_path(
     )
 
 
-def species_summary(conn: sqlite3.Connection, *, since: Optional[str] = None) -> list[sqlite3.Row]:
+def species_summary(
+    conn: sqlite3.Connection,
+    *,
+    since: Optional[str] = None,
+    min_conf: Optional[float] = None,
+) -> list[sqlite3.Row]:
     """Per-species rollup across all stored detections, by peak confidence."""
-    where = "WHERE heard_at >= ?" if since else ""
-    params = (since,) if since else ()
+    clauses = []
+    params: tuple = ()
+    if since:
+        clauses.append("heard_at >= ?")
+        params += (since,)
+    if min_conf is not None:
+        clauses.append("confidence >= ?")
+        params += (min_conf,)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     return conn.execute(
         f"""
         SELECT common_name, scientific_name,
