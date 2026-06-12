@@ -378,6 +378,45 @@ def species_dex_day(conn: sqlite3.Connection, day: str) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def species_dex_since(
+    conn: sqlite3.Connection, since: str, *, min_conf: Optional[float] = None
+) -> list[sqlite3.Row]:
+    """Same shape as species_dex, but only detections at/after `since` (ISO
+    timestamp), ordered by call count. The reference detection per species is
+    the highest-confidence one, preferring those whose audio still exists."""
+    where = "WHERE d.heard_at >= ?"
+    params: list = [since]
+    if min_conf is not None:
+        where += " AND d.confidence >= ?"
+        params.append(min_conf)
+    return conn.execute(
+        f"""
+        SELECT common_name, scientific_name, confidence AS peak_conf,
+               segment_id, start_time, end_time, has_audio,
+               windows, first_heard, last_heard
+        FROM (
+            SELECT d.common_name, d.scientific_name, d.confidence,
+                   d.segment_id, d.start_time, d.end_time,
+                   {_HAS_AUDIO} AS has_audio,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY d.common_name
+                       ORDER BY {_HAS_AUDIO} DESC, d.confidence DESC
+                   ) AS rn,
+                   COUNT(*)        OVER (PARTITION BY d.common_name) AS windows,
+                   MIN(d.heard_at) OVER (PARTITION BY d.common_name) AS first_heard,
+                   MAX(d.heard_at) OVER (PARTITION BY d.common_name) AS last_heard
+            FROM detections d
+            JOIN segments s ON s.id = d.segment_id
+            LEFT JOIN tracks t ON t.id = d.track_id
+            {where}
+        )
+        WHERE rn = 1
+        ORDER BY windows DESC, peak_conf DESC
+        """,
+        params,
+    ).fetchall()
+
+
 def get_segment(conn: sqlite3.Connection, segment_id: int) -> Optional[sqlite3.Row]:
     return conn.execute("SELECT * FROM segments WHERE id = ?", (segment_id,)).fetchone()
 

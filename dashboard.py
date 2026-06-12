@@ -670,9 +670,11 @@ HEARD_PAGE = """
   .deck::-webkit-scrollbar{display:none}
   .slide{flex:0 0 100%;scroll-snap-align:center;scroll-snap-stop:always;
          display:flex;flex-direction:column;align-items:center;justify-content:center;
-         gap:18px;padding:8px 24px 16px;text-decoration:none}
-  .slide .art{width:min(82vw,55vh,440px);aspect-ratio:1;border-radius:22px;overflow:hidden;
+         gap:16px;padding:8px 24px 16px}
+  .slide .go{display:flex;flex-direction:column;align-items:center;gap:16px;text-decoration:none}
+  .slide .art{width:min(82vw,50vh,420px);aspect-ratio:1;border-radius:22px;overflow:hidden;
               background:#fff;border:1px solid #eeebe2}
+  .slide audio.ref{width:min(82vw,50vh,420px);height:36px}
   .slide .art img{width:100%;height:100%;object-fit:contain;padding:22px;display:block}
   .slide .no-art{display:flex;align-items:center;justify-content:center;height:100%;
                  color:#c9c4b6;font-size:13px;letter-spacing:1px;text-align:center;padding:20px}
@@ -703,19 +705,25 @@ HEARD_PAGE = """
 {% if birds %}
 <div class="deck" id="deck">
   {% for b in birds %}
-  <a class="slide" href="/bird/{{ b.bird_slug }}">
-    <div class="art">
-      {% if b.sprite_slug %}
-      <img loading="lazy" src="/sprite/{{ b.sprite_slug }}.png" alt="{{ b.common_name }}">
-      {% else %}
-      <div class="no-art">{{ b.common_name }}</div>
-      {% endif %}
-    </div>
-    <div class="tag">
-      <div class="nm">{{ b.common_name }}</div>
-      <div class="ct mono">{{ b.windows }} call{{ '' if b.windows == 1 else 's' }}</div>
-    </div>
-  </a>
+  <div class="slide">
+    <a class="go" href="/bird/{{ b.bird_slug }}">
+      <div class="art">
+        {% if b.sprite_slug %}
+        <img loading="lazy" src="/sprite/{{ b.sprite_slug }}.png" alt="{{ b.common_name }}">
+        {% else %}
+        <div class="no-art">{{ b.common_name }}</div>
+        {% endif %}
+      </div>
+      <div class="tag">
+        <div class="nm">{{ b.common_name }}</div>
+        <div class="ct mono">{{ b.windows }} call{{ '' if b.windows == 1 else 's' }}</div>
+      </div>
+    </a>
+    {% if b.has_audio %}
+    <audio class="ref" controls preload="none" title="Reference call · conf {{ '%.3f'|format(b.peak_conf) }}"
+           src="/audio/{{ b.segment_id }}?start={{ '%.1f'|format(b.start_time) }}&end={{ '%.1f'|format(b.end_time) }}"></audio>
+    {% endif %}
+  </div>
   {% endfor %}
 </div>
 <div class="navbar mono">
@@ -732,6 +740,9 @@ HEARD_PAGE = """
   deck.addEventListener("scroll",function(){
     document.getElementById("count").textContent=(Math.min(idx(),total-1)+1)+" / "+total;
   },{passive:true});
+  deck.addEventListener("play",function(e){
+    deck.querySelectorAll("audio").forEach(function(a){if(a!==e.target)a.pause()});
+  },true);
   document.getElementById("prev").onclick=function(){go(-1)};
   document.getElementById("next").onclick=function(){go(1)};
   document.addEventListener("keydown",function(e){
@@ -4655,8 +4666,8 @@ def heard():
     since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
     conn = _db()
     try:
-        rows = storage.species_summary(
-            conn, since=since, min_conf=PEAK_CONF_FLOOR if hi else None
+        rows = storage.species_dex_since(
+            conn, since, min_conf=PEAK_CONF_FLOOR if hi else None
         )
     finally:
         conn.close()
@@ -4667,7 +4678,7 @@ def heard():
             sprite_slug=_sprite_slug(r["common_name"], slugs),
             bird_slug=slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
         )
-        for r in sorted(rows, key=lambda r: r["windows"], reverse=True)
+        for r in rows
     ]
 
     def hqs(range: int = days, hi: bool = hi) -> str:
