@@ -664,15 +664,12 @@ HEARD_PAGE = """
   .pills a.on{color:#21232a;border-color:#ddd9cd;background:#fff}
   .pills .sep{width:1px;height:16px;background:#e4e1d7;margin:0 6px}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
-  .bird{position:relative;display:block;aspect-ratio:1;border-radius:14px;overflow:hidden;
-        background:#fff;border:1px solid #eeebe2;text-decoration:none}
-  .bird img{width:100%;height:100%;object-fit:contain;padding:16px;display:block;
-            transition:transform .25s ease}
-  .bird:hover img{transform:scale(1.08)}
-  .bird .tag{position:absolute;left:0;right:0;bottom:0;padding:24px 12px 10px;
-             background:linear-gradient(transparent,rgba(251,250,247,.96) 55%);
-             opacity:0;transition:opacity .2s ease;pointer-events:none}
-  .bird:hover .tag{opacity:1}
+  .bird{display:block;text-decoration:none}
+  .bird .art{aspect-ratio:1;border-radius:14px;overflow:hidden;background:#fff;border:1px solid #eeebe2}
+  .bird .art img{width:100%;height:100%;object-fit:contain;padding:16px;display:block;
+                 transition:transform .25s ease}
+  .bird:hover .art img{transform:scale(1.1)}
+  .bird .tag{padding:8px 4px 0;text-align:center}
   .bird .tag .nm{font-size:13px;font-weight:700;color:#21232a;letter-spacing:.2px}
   .bird .tag .ct{font-size:11px;color:#9a958a;letter-spacing:.6px;margin-top:2px}
   .bird .no-art{display:flex;align-items:center;justify-content:center;height:100%;
@@ -700,14 +697,16 @@ HEARD_PAGE = """
   <div class="grid">
     {% for b in birds %}
     <a class="bird" href="/bird/{{ b.bird_slug }}">
-      {% if b.sprite_slug %}
-      <img loading="lazy" src="/sprite/{{ b.sprite_slug }}.png" alt="{{ b.common_name }}">
-      {% else %}
-      <div class="no-art">{{ b.common_name }}</div>
-      {% endif %}
+      <div class="art">
+        {% if b.sprite_slug %}
+        <img loading="lazy" src="/sprite/{{ b.sprite_slug }}.png" alt="{{ b.common_name }}">
+        {% else %}
+        <div class="no-art">{{ b.common_name }}</div>
+        {% endif %}
+      </div>
       <div class="tag">
         <div class="nm">{{ b.common_name }}</div>
-        <div class="ct mono">{{ b.windows }} call{{ '' if b.windows == 1 else 's' }} heard</div>
+        <div class="ct mono">{{ b.windows }} call{{ '' if b.windows == 1 else 's' }}</div>
       </div>
     </a>
     {% endfor %}
@@ -4626,7 +4625,7 @@ def index():
 def heard():
     days = request.args.get("range")
     days = int(days) if days in ("1", "3", "7") else 1
-    hi = request.args.get("hi") == "1"
+    hi = request.args.get("hi") != "0"
     since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
     conn = _db()
     try:
@@ -4649,8 +4648,8 @@ def heard():
         parts = []
         if range != 1:
             parts.append(f"range={range}")
-        if hi:
-            parts.append("hi=1")
+        if not hi:
+            parts.append("hi=0")
         return "?" + "&".join(parts) if parts else "/heard"
 
     return render_template_string(
