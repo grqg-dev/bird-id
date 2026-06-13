@@ -5427,9 +5427,13 @@ def audio(segment_id: int):
     finally:
         conn.close()
 
+    # NB: recordings paths are stored relative to CWD, but send_file() resolves
+    # relative paths against the Flask app root (/app in Docker, != CWD /data) — so
+    # pass an absolute (CWD-based) path or it 404s the file the os.path.exists found.
     if track and track["clip_path"] and os.path.exists(track["clip_path"]):
         return send_file(
-            track["clip_path"], mimetype=_audio_mimetype(track["clip_path"])
+            os.path.abspath(track["clip_path"]),
+            mimetype=_audio_mimetype(track["clip_path"]),
         )
 
     if not seg or not seg["wav_path"] or not os.path.exists(seg["wav_path"]):
@@ -5443,7 +5447,7 @@ def audio(segment_id: int):
         return Response(clip, mimetype="audio/wav")
 
     return send_file(
-        seg["wav_path"], mimetype=_audio_mimetype(seg["wav_path"])
+        os.path.abspath(seg["wav_path"]), mimetype=_audio_mimetype(seg["wav_path"])
     )
 
 
@@ -5455,7 +5459,7 @@ def spectrogram(segment_id: int):
         segment_id, start, end, _CFG["recordings_dir"]
     )
     if cache_path.is_file():
-        return send_file(cache_path, mimetype="image/png")
+        return send_file(os.path.abspath(cache_path), mimetype="image/png")
 
     conn = _db()
     try:
@@ -5513,7 +5517,7 @@ def spectrogram(segment_id: int):
         pad_inches=0,
     )
     plt.close(fig)
-    return send_file(cache_path, mimetype="image/png")
+    return send_file(os.path.abspath(cache_path), mimetype="image/png")
 
 
 def main(host: str = "127.0.0.1", port: int = 8080, *, dev: bool = False):
