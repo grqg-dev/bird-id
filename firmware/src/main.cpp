@@ -304,7 +304,19 @@ static uint8_t *buildClipWav(size_t *out_len) {
   // Oldest-first: ring start is head when full, else 0.
   size_t start = (g_ring_filled < CLIP_SAMPLES) ? 0 : g_ring_head;
   int16_t *pcm = (int16_t *)(buf + 44);
-  for (size_t i = 0; i < samples; i++) pcm[i] = g_ring[(start + i) % CLIP_SAMPLES];
+  // High-pass the uploaded audio (~230 Hz, 2-pole) so low-frequency rumble —
+  // traffic, wind, the mic's DC drift — doesn't dominate the clip BirdNET sees.
+  // Birds sit well above this corner. NOTE this only cleans the *stored* audio;
+  // the gate still measures the raw ring (acLevel), so triggering is unchanged.
+  const float R = 0.97f;
+  float x1 = 0.0f, y1 = 0.0f, w1 = 0.0f, z1 = 0.0f;
+  for (size_t i = 0; i < samples; i++) {
+    float x = (float)g_ring[(start + i) % CLIP_SAMPLES];
+    float y = x - x1 + R * y1;  x1 = x; y1 = y;   // stage 1
+    float z = y - w1 + R * z1;  w1 = y; z1 = z;   // stage 2
+    int v = (int)(z >= 0 ? z + 0.5f : z - 0.5f);  // round to int16, clamped
+    pcm[i] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+  }
 
   *out_len = total;
   return buf;
