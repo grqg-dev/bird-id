@@ -7,7 +7,13 @@
 
 // --- bird-id ingest server ---
 // The host running `birdid.py ingest-server` (or the Docker `ingest` service).
-#define INGEST_BASE_URL "http://192.168.1.50:8081"
+// INGEST_HOST may be an mDNS name like "birdnet.local" (resolved at boot via
+// ESPmDNS, so a changing DHCP IP doesn't need a reflash; the host must advertise
+// it — see deploy/birdnet-mdns-alias.service) or a plain IP. If the mDNS lookup
+// fails, the firmware falls back to INGEST_FALLBACK_IP.
+#define INGEST_HOST        "birdnet.local"
+#define INGEST_PORT        8081
+#define INGEST_FALLBACK_IP "192.168.1.50"   // used if INGEST_HOST can't be resolved
 
 // Stable identity for this sensor. Pick something memorable; it shows on the
 // dashboard /devices page. Must be unique per device.

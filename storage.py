@@ -30,7 +30,12 @@ CREATE TABLE IF NOT EXISTS devices (
     api_key_hash  TEXT,                  -- ingest auth (hash, never plaintext)
     registered_at TEXT NOT NULL,
     last_seen_at  TEXT,
-    last_ip       TEXT
+    last_ip       TEXT,
+    -- Remote gate overrides served to the sensor via /api/config. NULL = the
+    -- device keeps its firmware-compiled default for that knob.
+    gate_noise_floor      INTEGER,       -- upload/capture threshold (int16 RMS)
+    gate_cooldown_windows INTEGER,       -- min ~seconds between clips
+    gate_postroll_windows INTEGER        -- ~seconds of post-roll (event centering)
 );
 
 CREATE TABLE IF NOT EXISTS segments (
@@ -89,6 +94,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # Index lives here (not in _SCHEMA): on an old DB the column doesn't exist until
     # the ALTER above, and executescript(_SCHEMA) runs before this migration.
     conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_device ON segments(device_id)")
+
+    # Remote gate-config columns on devices (added later; absent on older DBs).
+    dev_cols = {row[1] for row in conn.execute("PRAGMA table_info(devices)").fetchall()}
+    for col in ("gate_noise_floor", "gate_cooldown_windows", "gate_postroll_windows"):
+        if col not in dev_cols:
+            conn.execute(f"ALTER TABLE devices ADD COLUMN {col} INTEGER")
 
     missing = conn.execute(
         """
@@ -281,6 +292,40 @@ def touch_device(
         "UPDATE devices SET last_seen_at = ?, last_ip = COALESCE(?, last_ip) WHERE id = ?",
         (datetime.now().isoformat(timespec="seconds"), ip, device_id),
     )
+    conn.commit()
+
+
+# Maps DB columns <-> the JSON keys the firmware understands (/api/config).
+_GATE_FIELDS = {
+    "noise_floor": "gate_noise_floor",
+    "cooldown_windows": "gate_cooldown_windows",
+    "postroll_windows": "gate_postroll_windows",
+}
+
+
+def get_device_config(conn: sqlite3.Connection, device_id: int) -> dict:
+    """Per-device gate overrides as a JSON-ready dict, omitting unset (NULL) knobs
+    so the sensor keeps its firmware default for those."""
+    row = conn.execute(
+        "SELECT gate_noise_floor, gate_cooldown_windows, gate_postroll_windows "
+        "FROM devices WHERE id = ?",
+        (device_id,),
+    ).fetchone()
+    if row is None:
+        return {}
+    return {key: row[col] for key, col in _GATE_FIELDS.items() if row[col] is not None}
+
+
+def set_device_config(conn: sqlite3.Connection, device_id: int, **values) -> None:
+    """Set gate overrides. Each of noise_floor/cooldown_windows/postroll_windows is
+    an int to override, or None to clear (revert that knob to the firmware default).
+    Only keys present in `values` are touched."""
+    cols = [(_GATE_FIELDS[k], v) for k, v in values.items() if k in _GATE_FIELDS]
+    if not cols:
+        return
+    assignments = ", ".join(f"{col} = ?" for col, _ in cols)
+    params = [v for _, v in cols] + [device_id]
+    conn.execute(f"UPDATE devices SET {assignments} WHERE id = ?", params)
     conn.commit()
 
 

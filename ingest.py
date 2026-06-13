@@ -240,6 +240,29 @@ def ingest():
     )
 
 
+@app.get("/api/config")
+def device_config():
+    """Serve a sensor its remote gate overrides (set via the dashboard). The sensor
+    polls this; unset knobs are omitted so it keeps its firmware defaults. Also
+    counts as a check-in (updates last_seen), so a device that's gated-silent still
+    shows as online."""
+    uid = (request.args.get("device_uid") or "").strip()
+    api_key = request.args.get("api_key") or ""
+    if not uid:
+        abort(400, "device_uid required")
+    conn = _db()
+    try:
+        dev = storage.get_device_by_uid(conn, uid)
+        if dev is None:
+            abort(404, "unknown device — register it first")
+        if not _check_key(dev, api_key):
+            abort(401, "invalid api_key")
+        storage.touch_device(conn, dev["id"], ip=request.remote_addr)
+        return jsonify(storage.get_device_config(conn, dev["id"]))
+    finally:
+        conn.close()
+
+
 @app.get("/healthz")
 def healthz():
     return jsonify({"ok": True})

@@ -12,6 +12,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <ESPmDNS.h>
 #include <time.h>
 #include <driver/i2s.h>
 
@@ -46,7 +47,18 @@ static int16_t g_win16k[WINDOW_16K];
 static size_t  g_win16k_count = 0;
 static int     g_decimate_phase = 0;
 
-static int g_bird_streak = 0;
+// Sound-activated capture state. When the newest second crosses the noise floor
+// we "arm", keep capturing for a post-roll so the event lands centered (not
+// sliced by the clip edge), then snapshot. A cooldown bounds upload rate.
+static bool g_armed = false;
+static int  g_postroll = 0;   // post-roll windows remaining for the armed capture
+static int  g_cooldown = 0;   // cooldown windows remaining after a capture
+
+// Live gate config: starts from the compile-time defaults, overridden at runtime
+// by the server (GET /api/config) so the gates can be retuned from the dashboard.
+static int g_cfg_noise_floor = NOISE_FLOOR_RMS;
+static int g_cfg_postroll    = CAPTURE_POSTROLL_WINDOWS;
+static int g_cfg_cooldown     = BIRD_TRIGGER_WINDOWS;
 
 // ---------------------------------------------------------------------------
 // Upload retry queue (PSRAM). Each entry owns a malloc'd WAV byte buffer + the
@@ -85,11 +97,44 @@ static void wifiConnect() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.printf("WiFi: connecting to %s", WIFI_SSID);
+  uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED) {
     delay(400);
     Serial.print('.');
+    // No timeout = a router blip at boot strands the sensor forever. Reboot to
+    // retry cleanly instead (also covers runtime drops via the loop() recheck).
+    if (millis() - start > (uint32_t)WIFI_CONNECT_TIMEOUT_S * 1000) {
+      Serial.println("\nWiFi: connect timed out — rebooting to retry");
+      delay(100);
+      ESP.restart();
+    }
   }
   Serial.printf("\nWiFi: connected, ip=%s\n", WiFi.localIP().toString().c_str());
+}
+
+// Resolved "http://<ip>:<port>" base for the ingest server, filled by
+// resolveIngestBase() once Wi-Fi is up; used by registerDevice()/uploadWav().
+static String g_ingest_base;
+
+// Resolve INGEST_HOST to a base URL. An mDNS ".local" name is looked up via
+// ESPmDNS; anything else (plain IP / DNS name) is used verbatim. Falls back to
+// INGEST_FALLBACK_IP if the lookup fails, so a multicast hiccup doesn't strand us.
+static void resolveIngestBase() {
+  String host = INGEST_HOST;
+  String ip;
+  if (host.endsWith(".local")) {
+    MDNS.begin("birdid-sensor");                       // our own mDNS label (any valid name)
+    String name = host.substring(0, host.length() - 6);  // strip ".local"
+    Serial.printf("mDNS: resolving %s ...\n", host.c_str());
+    IPAddress addr = MDNS.queryHost(name, 3000);       // 3 s timeout
+    if (addr != IPAddress(0, 0, 0, 0)) ip = addr.toString();
+    else Serial.printf("mDNS: '%s' not found — using fallback %s\n", host.c_str(), INGEST_FALLBACK_IP);
+  } else {
+    ip = host;                                         // plain IP or DNS name
+  }
+  if (ip.length() == 0) ip = INGEST_FALLBACK_IP;
+  g_ingest_base = String("http://") + ip + ":" + String(INGEST_PORT);
+  Serial.printf("ingest server: %s\n", g_ingest_base.c_str());
 }
 
 static void ntpSync() {
@@ -195,6 +240,45 @@ static float classifyBird() {
 #endif
 }
 
+// RMS of `count` ring samples starting at `start`, after a TWO-pole high-pass
+// (cascaded one-poles, ~300 Hz/stage, 12 dB/oct). The high-pass strips the
+// INMP441's DC drift AND the dominant 50-120 Hz mains/rumble pickup so the level
+// reflects real audio-band sound, not hum. (A one-pole HPF is too shallow — 60 Hz
+// leaks through and swamps the metric.) Birds live well above this corner.
+static float acLevel(size_t start, size_t count) {
+  if (count == 0) return 0.0f;
+  const float R = 0.96f;                 // cascaded one-pole HPFs, ~300 Hz corner
+  float x1 = 0.0f, y1 = 0.0f;            // stage 1 state
+  float w1 = 0.0f, z1 = 0.0f;            // stage 2 state
+  double acc = 0.0;
+  for (size_t i = 0; i < count; i++) {
+    float x = (float)g_ring[(start + i) % CLIP_SAMPLES];
+    float y = x - x1 + R * y1;           // stage 1
+    x1 = x; y1 = y;
+    float z = y - w1 + R * z1;           // stage 2 (input = stage-1 output)
+    w1 = y; z1 = z;
+    acc += (double)z * z;
+  }
+  return (float)sqrt(acc / (double)count);
+}
+
+// Audio-band level of the whole clip we'd upload (ring, oldest-first like buildClipWav).
+static float clipAcLevel() {
+  size_t start = (g_ring_filled < CLIP_SAMPLES) ? 0 : g_ring_head;
+  return acLevel(start, g_ring_filled);
+}
+
+// Audio-band level of just the NEWEST ~1 s of the ring — "is there sound right
+// now?". Used to trigger sound-activated capture so events aren't sliced by the
+// fixed clip boundary.
+static float windowAcLevel() {
+  size_t W = CAPTURE_SAMPLE_RATE;        // 1 second
+  size_t avail = (g_ring_filled < W) ? g_ring_filled : W;
+  if (avail == 0) return 0.0f;
+  size_t start = (g_ring_head + CLIP_SAMPLES - avail) % CLIP_SAMPLES;
+  return acLevel(start, avail);
+}
+
 // ---------------------------------------------------------------------------
 // WAV building (48 kHz mono 16-bit, the full ring in chronological order)
 // ---------------------------------------------------------------------------
@@ -236,7 +320,7 @@ static String g_api_key = DEVICE_API_KEY;
 static void registerDevice() {
   if (g_api_key.length() > 0) return;
   HTTPClient http;
-  http.begin(String(INGEST_BASE_URL) + "/api/register");
+  http.begin(g_ingest_base + "/api/register");
   http.addHeader("Content-Type", "application/json");
   String body = String("{\"device_uid\":\"") + DEVICE_UID + "\"}";
   int code = http.POST(body);
@@ -257,11 +341,44 @@ static void registerDevice() {
   http.end();
 }
 
+// Pull an integer JSON field like "key":123 out of a flat response body. Returns
+// false if the key is absent (so we keep the current value). Avoids pulling in a
+// JSON parser for three small ints.
+static bool jsonInt(const String &body, const char *key, int &out) {
+  String pat = String("\"") + key + "\":";
+  int k = body.indexOf(pat);
+  if (k < 0) return false;
+  out = (int)body.substring(k + pat.length()).toInt();  // toInt() stops at ',' or '}'
+  return true;
+}
+
+// Poll the server for this device's gate overrides and apply them. Unset knobs are
+// omitted by the server, so we keep the compile-time default for those. On any
+// error we keep the current values (fail safe).
+static uint32_t g_last_config_ms = 0;
+static void fetchConfig() {
+  g_last_config_ms = millis();
+  HTTPClient http;
+  http.begin(g_ingest_base + "/api/config?device_uid=" + DEVICE_UID + "&api_key=" + g_api_key);
+  int code = http.GET();
+  if (code == 200) {
+    String body = http.getString();
+    jsonInt(body, "noise_floor", g_cfg_noise_floor);
+    jsonInt(body, "cooldown_windows", g_cfg_cooldown);
+    jsonInt(body, "postroll_windows", g_cfg_postroll);
+    Serial.printf("config: noise_floor=%d cooldown=%d postroll=%d\n",
+                  g_cfg_noise_floor, g_cfg_cooldown, g_cfg_postroll);
+  } else {
+    Serial.printf("config fetch: HTTP %d (keeping current gates)\n", code);
+  }
+  http.end();
+}
+
 // POST one WAV as multipart/form-data. Returns the HTTP status (or <0 on error).
 static int uploadWav(const uint8_t *wav, size_t len, const char *captured_at,
                      bool used_receipt_time) {
   HTTPClient http;
-  http.begin(String(INGEST_BASE_URL) + "/api/ingest");
+  http.begin(g_ingest_base + "/api/ingest");
   const char *boundary = "----birdid8s3boundary";
   http.addHeader("Content-Type", String("multipart/form-data; boundary=") + boundary);
 
@@ -292,18 +409,27 @@ static int uploadWav(const uint8_t *wav, size_t len, const char *captured_at,
   return code;
 }
 
-// Try to flush the retry queue (oldest first). Stops on the first failure.
+// Whether a failed upload is worth retrying. Transient: connection errors (code<0),
+// request timeout (408), rate limit (429), server errors (>=500). Anything else is a
+// permanent 4xx (404 unknown device, 401 bad key, 400 bad request) — retrying just
+// spams the server, so drop the clip instead.
+static bool isRetryable(int code) {
+  return code < 0 || code == 408 || code == 429 || code >= 500;
+}
+
+// Try to flush the retry queue (oldest first). Stops on the first transient failure;
+// drops clips the server permanently rejected so they don't loop forever.
 static void flushPending() {
   while (g_pending_count > 0) {
     PendingUpload &p = g_pending[0];
     int code = uploadWav(p.wav, p.len, p.captured_at, p.used_receipt_time);
-    if (code == 200) {
-      free(p.wav);
-      memmove(&g_pending[0], &g_pending[1], (g_pending_count - 1) * sizeof(PendingUpload));
-      g_pending_count--;
-    } else {
+    if (code != 200 && isRetryable(code)) {
       break;  // server down / Wi-Fi blip — keep it (and its original timestamp) for later
     }
+    if (code != 200) Serial.printf("dropping rejected pending clip (HTTP %d)\n", code);
+    free(p.wav);
+    memmove(&g_pending[0], &g_pending[1], (g_pending_count - 1) * sizeof(PendingUpload));
+    g_pending_count--;
   }
 }
 
@@ -323,18 +449,25 @@ static void enqueuePending(uint8_t *wav, size_t len, const char *captured_at, bo
 }
 
 // A bird was detected: stamp the time, build the clip, upload (or queue on failure).
-static void onBirdDetected() {
+static void captureAndUpload() {
   char captured_at[28];
   bool synced = nowIso(captured_at, sizeof captured_at);
-  Serial.printf("BIRD detected @ %s%s\n", captured_at, synced ? "" : " (clock unsynced)");
+  Serial.printf("capture @ %s (ac_rms %.0f)%s\n",
+                captured_at, clipAcLevel(), synced ? "" : " (clock unsynced)");
 
   size_t len = 0;
   uint8_t *wav = buildClipWav(&len);
   if (!wav) { Serial.println("buildClipWav: out of PSRAM"); return; }
 
   int code = uploadWav(wav, len, captured_at, !synced);
-  if (code == 200) free(wav);
-  else enqueuePending(wav, len, captured_at, !synced);  // keep its capture time for retry
+  if (code == 200) {
+    free(wav);
+  } else if (isRetryable(code)) {
+    enqueuePending(wav, len, captured_at, !synced);  // transient — keep its capture time for retry
+  } else {
+    Serial.printf("upload rejected (HTTP %d) — dropping clip\n", code);
+    free(wav);  // permanent (e.g. 404 unknown device) — don't loop on it
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -352,8 +485,10 @@ void setup() {
   if (!g_ring) { Serial.println("FATAL: ring alloc failed"); while (true) delay(1000); }
 
   wifiConnect();
+  resolveIngestBase();
   ntpSync();
   registerDevice();
+  fetchConfig();              // pull remote gate overrides (else keep defaults)
   i2sInit();
   Serial.println("listening…");
 }
@@ -361,18 +496,30 @@ void setup() {
 void loop() {
   if (WiFi.status() != WL_CONNECTED) wifiConnect();
 
-  if (captureChunk()) {              // a full 16 kHz window is ready
+  if (captureChunk()) {              // a full 16 kHz window is ready (~1 s)
     float score = classifyBird();
-    if (score >= BIRD_SCORE_THRESHOLD) {
-      if (++g_bird_streak >= BIRD_TRIGGER_WINDOWS) {
-        g_bird_streak = 0;
-        onBirdDetected();
+    bool hasSound = (g_cfg_noise_floor <= 0) || (windowAcLevel() >= (float)g_cfg_noise_floor);
+    bool wantClip = hasSound && (score >= BIRD_SCORE_THRESHOLD);  // stub score=0, thr=-1 => sound-only
+
+    if (g_cooldown > 0) g_cooldown--;
+
+    if (g_armed) {
+      // Keep capturing the post-roll, then snapshot so the triggering sound is
+      // centered in the 3 s ring (pre-roll already buffered, post-roll just added).
+      if (--g_postroll <= 0) {
+        captureAndUpload();
+        g_armed = false;
+        g_cooldown = g_cfg_cooldown;    // min gap before the next capture
       }
-    } else {
-      g_bird_streak = 0;
+    } else if (wantClip && g_cooldown == 0) {
+      g_armed = true;
+      g_postroll = g_cfg_postroll;
     }
     g_win16k_count = 0;             // start the next detection window
   }
 
   if (g_pending_count > 0) flushPending();  // opportunistically drain the retry queue
+
+  // Periodically refresh remote gate config (lets the dashboard retune us live).
+  if (millis() - g_last_config_ms > (uint32_t)CONFIG_POLL_S * 1000) fetchConfig();
 }

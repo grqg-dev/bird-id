@@ -6,6 +6,13 @@
 # Both services share ONE volume holding birdid.db + recordings/. They must run on
 # the same host/volume — SQLite over a network filesystem is unsafe. Concurrent
 # ingest-writes / dashboard-reads are fine: storage.connect() enables WAL mode.
+#
+# This deployment bind-mounts the repo root to /data (instead of a named volume) so
+# the host's existing birdid.db (which holds registered device keys) and recordings/
+# stay in place, and clips remain accessible on the host for training-data export.
+# It must be a *directory* mount, not a single-file mount of birdid.db: SQLite's WAL
+# sidecars (birdid.db-wal/-shm) must sit beside the db on one shared filesystem so
+# both containers see the same WAL state.
 
 services:
   ingest:
@@ -17,7 +24,7 @@ services:
     ports:
       - "8081:8081"
     volumes:
-      - birddata:/data
+      - ./:/data                            # host birdid.db + recordings/ live here
       - ./config.json:/app/config.json:ro   # lat/lon/min_conf; edit for your location
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/healthz').status==200 else 1)"]
@@ -33,11 +40,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - birddata:/data
+      - ./:/data
       - ./config.json:/app/config.json:ro
     depends_on:
       - ingest
     restart: unless-stopped
-
-volumes:
-  birddata:

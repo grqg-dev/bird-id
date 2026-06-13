@@ -127,10 +127,10 @@ If recording comes back silent, check macOS mic permission:
 ## Backyard sensors (ESP32-S3)
 
 Want more than one listening spot? Put cheap **ESP32-S3 microphones** around the
-yard. Each one runs a tiny on-device "bird vs. no bird" detector and, when it hears
-something, uploads just that clip to a small server that runs the full
-identification — so every sensor's birds land in the same Bird-Dex, tagged with
-which sensor heard them (see the **Devices** page).
+yard. Each one listens for sound, and when something crosses its noise floor it
+uploads just that clip to a small server that runs the full identification — so
+every sensor's birds land in the same Bird-Dex, tagged with which sensor heard them
+(see the **Devices** page).
 
 ```bash
 # On the server (the machine with your database):
@@ -142,6 +142,11 @@ full wiring, setup, and the Edge Impulse model steps are in
 [`firmware/README.md`](firmware/README.md). Clips upload at 48 kHz, and each
 detection is timestamped to when the bird actually called (the device stamps the
 time), even if Wi-Fi was briefly down.
+
+You can **tune each sensor remotely from the Devices page** — noise floor (how loud
+a sound must be to trigger), cooldown, and post-roll — and it picks up the change on
+its next check-in, no reflashing. Sensors can find the server by name
+(`birdnet.local`) instead of a hardcoded IP; see [`firmware/README.md`](firmware/README.md).
 
 ## Self-hosting with Docker
 

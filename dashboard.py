@@ -23,7 +23,7 @@ import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from flask import Flask, Response, abort, render_template_string, request, send_file
+from flask import Flask, Response, abort, redirect, render_template_string, request, send_file
 
 import config
 import storage
@@ -2602,6 +2602,15 @@ DEVICES_PAGE = """
   .chip b{color:var(--red-dark)}
   .empty{padding:48px 16px;text-align:center;color:#8a857a;font-size:14px;line-height:1.6}
   .empty code{background:#fff;border:1px solid var(--border);border-radius:4px;padding:1px 6px}
+  .gate{margin-top:12px;padding-top:12px;border-top:1px dashed var(--border)}
+  .gate-hd{font-size:11px;color:#8a857a;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+  .gate-row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+  .gate label{font-size:11px;color:#8a857a;display:flex;flex-direction:column;gap:3px}
+  .gate input{width:84px;font-size:14px;padding:5px 7px;border:1px solid var(--border);
+              border-radius:6px;background:#fff;color:var(--ink);font-family:inherit}
+  .gate button{font-size:13px;font-weight:600;padding:6px 14px;border:0;border-radius:6px;
+               background:var(--red);color:#fff;cursor:pointer}
+  .gate button:hover{background:var(--red-dark)}
 </style></head><body>
 <div class="wrap">
   <div class="hdr">
@@ -2640,6 +2649,21 @@ DEVICES_PAGE = """
       {% endfor %}
     </div>
     {% endif %}
+    <form class="gate" method="post" action="/devices/{{ d.device_uid }}/gate">
+      <div class="gate-hd">remote gate — blank = device default</div>
+      <div class="gate-row">
+        <label>noise floor
+          <input name="noise_floor" type="number" min="0" placeholder="default"
+                 value="{{ d.gate.noise_floor if d.gate.noise_floor is not none else '' }}"></label>
+        <label>cooldown (s)
+          <input name="cooldown_windows" type="number" min="0" placeholder="default"
+                 value="{{ d.gate.cooldown_windows if d.gate.cooldown_windows is not none else '' }}"></label>
+        <label>post-roll (s)
+          <input name="postroll_windows" type="number" min="0" placeholder="default"
+                 value="{{ d.gate.postroll_windows if d.gate.postroll_windows is not none else '' }}"></label>
+        <button type="submit">Save</button>
+      </div>
+    </form>
   </div>
   {% endfor %}
   {% else %}
@@ -4569,6 +4593,11 @@ def devices_page():
                     "detections": row["detections"],
                     "species": row["species"],
                     "top_species": top,
+                    "gate": {
+                        "noise_floor": row["gate_noise_floor"],
+                        "cooldown_windows": row["gate_cooldown_windows"],
+                        "postroll_windows": row["gate_postroll_windows"],
+                    },
                 }
             )
         return render_template_string(
@@ -4579,6 +4608,36 @@ def devices_page():
         )
     finally:
         conn.close()
+
+
+@app.route("/devices/<uid>/gate", methods=["POST"])
+def set_device_gate(uid):
+    """Save a sensor's remote gate overrides (blank field = clear → firmware default).
+    The device picks these up on its next /api/config poll."""
+    def _parse(name):
+        v = (request.form.get(name) or "").strip()
+        if not v:
+            return None
+        try:
+            return int(v)
+        except ValueError:
+            abort(400, f"{name} must be a whole number")
+
+    conn = _db()
+    try:
+        dev = storage.get_device_by_uid(conn, uid)
+        if dev is None:
+            abort(404, "unknown device")
+        storage.set_device_config(
+            conn,
+            dev["id"],
+            noise_floor=_parse("noise_floor"),
+            cooldown_windows=_parse("cooldown_windows"),
+            postroll_windows=_parse("postroll_windows"),
+        )
+    finally:
+        conn.close()
+    return redirect("/devices")
 
 
 @app.route("/realtime")

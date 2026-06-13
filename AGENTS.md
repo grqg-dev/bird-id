@@ -98,14 +98,32 @@ Key invariants:
 ## Distributed sensors (ESP32-S3 → ingest service)
 
 Besides the local mic, bird-id accepts uploads from cheap **ESP32-S3 sensors**
-(`firmware/`). Each sensor runs a tiny on-device Edge Impulse "bird vs. no bird"
-classifier and, only when a bird is likely present, POSTs a **48 kHz mono WAV** to
-the ingest service, which runs the same BirdNET pipeline as the monitor.
+(`firmware/`). A sensor captures a **48 kHz mono WAV** and POSTs it to the ingest
+service, which runs the same BirdNET pipeline as the monitor. The eventual gate is
+an on-device Edge Impulse "bird vs. no bird" model; until one is dropped into
+`lib/ei-bird-model/` the classifier is stubbed and capture is **sound-activated**
+instead (see "Edge gating" below).
 
 - **`ingest.py`** = a Flask service that owns BirdNET. `POST /api/register` (mint a
-  device + API key) and `POST /api/ingest` (auth → identify → clips →
-  `record_segment(device_id=…)`). Run it with `birdid.py ingest-server` (config
+  device + API key), `POST /api/ingest` (auth → identify → clips →
+  `record_segment(device_id=…)`), and `GET /api/config` (auth → per-device gate
+  overrides; see "Edge gating"). Run it with `birdid.py ingest-server` (config
   `ingest_host`/`ingest_port`, default `127.0.0.1:8081`).
+- **Edge gating + remote config.** No on-device model yet, so the sensor is
+  sound-activated: it high-passes the newest second (2-pole, ~300 Hz, to ignore DC
+  drift / 50–120 Hz mains hum), and when it crosses a **noise floor** it captures a
+  3 s clip *centered* on the sound (pre-roll buffered + post-roll) so events aren't
+  sliced by the clip edge; a cooldown bounds upload rate. The three knobs
+  (noise_floor / cooldown / post-roll) are firmware defaults but **overridable
+  remotely from the dashboard** — the device polls `GET /api/config` at boot + every
+  60 s and applies any per-device override (`devices.gate_*` columns, NULL = use the
+  firmware default). Polling (not piggybacking on uploads) avoids a lockout when a
+  too-high floor stops uploads.
+- **Addressing + resilience.** The sensor finds the server by mDNS name
+  (`INGEST_HOST`, e.g. `birdnet.local`, resolved via `ESPmDNS`) with an IP fallback,
+  so a changing DHCP lease needs no reflash; advertise the name with
+  `deploy/birdnet-mdns-alias.*` (Avahi). Wi-Fi connect has a timeout that reboots
+  rather than hanging forever, so a router blip can't strand the sensor.
 - **Multi-device.** `storage.devices` table + nullable `segments.device_id`
   (NULL = local mic). Detections inherit their device through the segment join.
   Dashboard `/devices` lists sensors + per-device species; the `/live` feed shows a
