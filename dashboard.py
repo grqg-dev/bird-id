@@ -2643,6 +2643,7 @@ DEVICES_PAGE = """
     <div class="dev-meta mono">
       {% if d.location %}<b>{{ d.location }}</b> · {% endif %}
       last heard {{ d.last_seen_label }}{% if d.last_ip %} · {{ d.last_ip }}{% endif %}
+      {% if d.rssi is not none %} · WiFi {{ d.rssi }} dBm ({{ d.rssi_label }}){% endif %}
     </div>
     <div class="stats">
       <div class="stat"><b>{{ d.species }}</b>species</div>
@@ -4572,6 +4573,21 @@ def live_feed():
         conn.close()
 
 
+def _rssi_label(dbm):
+    """Qualitative Wi-Fi signal from a dBm value (None if unknown)."""
+    if dbm is None:
+        return None
+    if dbm >= -55:
+        return "strong"
+    if dbm >= -67:
+        return "good"
+    if dbm >= -75:
+        return "fair"
+    if dbm >= -82:
+        return "weak"
+    return "very weak"
+
+
 @app.route("/devices")
 def devices_page():
     conn = _db()
@@ -4595,6 +4611,8 @@ def devices_page():
                     "name": row["name"],
                     "location": row["location"],
                     "last_ip": row["last_ip"],
+                    "rssi": row["last_rssi"],
+                    "rssi_label": _rssi_label(row["last_rssi"]),
                     "last_seen_label": label,
                     "is_online": online,
                     "segments": row["segments"],

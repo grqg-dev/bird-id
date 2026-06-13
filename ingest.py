@@ -258,7 +258,10 @@ def device_config():
             abort(404, "unknown device — register it first")
         if not _check_key(dev, api_key):
             abort(401, "invalid api_key")
-        storage.touch_device(conn, dev["id"], ip=request.remote_addr)
+        storage.touch_device(
+            conn, dev["id"], ip=request.remote_addr,
+            rssi=request.args.get("rssi", type=int),
+        )
         return jsonify(storage.get_device_config(conn, dev["id"]))
     finally:
         conn.close()

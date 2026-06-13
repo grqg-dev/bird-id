@@ -333,6 +333,7 @@ static void registerDevice() {
   if (g_api_key.length() > 0) return;
   HTTPClient http;
   http.begin(g_ingest_base + "/api/register");
+  http.setTimeout(HTTP_TIMEOUT_S * 1000);
   http.addHeader("Content-Type", "application/json");
   String body = String("{\"device_uid\":\"") + DEVICE_UID + "\"}";
   int code = http.POST(body);
@@ -371,7 +372,9 @@ static uint32_t g_last_config_ms = 0;
 static void fetchConfig() {
   g_last_config_ms = millis();
   HTTPClient http;
-  http.begin(g_ingest_base + "/api/config?device_uid=" + DEVICE_UID + "&api_key=" + g_api_key);
+  http.begin(g_ingest_base + "/api/config?device_uid=" + DEVICE_UID + "&api_key=" + g_api_key
+             + "&rssi=" + String(WiFi.RSSI()));   // report signal strength on each check-in
+  http.setTimeout(HTTP_TIMEOUT_S * 1000);
   int code = http.GET();
   if (code == 200) {
     String body = http.getString();
@@ -391,6 +394,7 @@ static int uploadWav(const uint8_t *wav, size_t len, const char *captured_at,
                      bool used_receipt_time) {
   HTTPClient http;
   http.begin(g_ingest_base + "/api/ingest");
+  http.setTimeout(HTTP_TIMEOUT_S * 1000);
   const char *boundary = "----birdid8s3boundary";
   http.addHeader("Content-Type", String("multipart/form-data; boundary=") + boundary);
 

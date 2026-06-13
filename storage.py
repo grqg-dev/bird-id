@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS devices (
     registered_at TEXT NOT NULL,
     last_seen_at  TEXT,
     last_ip       TEXT,
+    last_rssi     INTEGER,              -- last reported Wi-Fi signal (dBm); NULL = unknown
     -- Remote gate overrides served to the sensor via /api/config. NULL = the
     -- device keeps its firmware-compiled default for that knob.
     gate_noise_floor      INTEGER,       -- upload/capture threshold (int16 RMS)
@@ -97,7 +98,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
     # Remote gate-config columns on devices (added later; absent on older DBs).
     dev_cols = {row[1] for row in conn.execute("PRAGMA table_info(devices)").fetchall()}
-    for col in ("gate_noise_floor", "gate_cooldown_windows", "gate_postroll_windows"):
+    for col in ("gate_noise_floor", "gate_cooldown_windows", "gate_postroll_windows",
+                "last_rssi"):
         if col not in dev_cols:
             conn.execute(f"ALTER TABLE devices ADD COLUMN {col} INTEGER")
 
@@ -285,12 +287,18 @@ def get_device_by_uid(conn: sqlite3.Connection, device_uid: str) -> Optional[sql
 
 
 def touch_device(
-    conn: sqlite3.Connection, device_id: int, *, ip: Optional[str] = None
+    conn: sqlite3.Connection,
+    device_id: int,
+    *,
+    ip: Optional[str] = None,
+    rssi: Optional[int] = None,
 ) -> None:
-    """Record that a device just checked in (updates last_seen_at / last_ip)."""
+    """Record that a device just checked in (last_seen_at / last_ip / last_rssi).
+    None values leave the existing column untouched."""
     conn.execute(
-        "UPDATE devices SET last_seen_at = ?, last_ip = COALESCE(?, last_ip) WHERE id = ?",
-        (datetime.now().isoformat(timespec="seconds"), ip, device_id),
+        "UPDATE devices SET last_seen_at = ?, last_ip = COALESCE(?, last_ip), "
+        "last_rssi = COALESCE(?, last_rssi) WHERE id = ?",
+        (datetime.now().isoformat(timespec="seconds"), ip, rssi, device_id),
     )
     conn.commit()
 
