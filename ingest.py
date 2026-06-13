@@ -113,6 +113,19 @@ def _truthy(value) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+# BirdNET also emits non-bird "noise" classes (common at a roadside). A clip whose
+# only detections are these counts as "no bird found".
+_NOISE_CLASSES = {
+    "Dog", "Engine", "Environmental", "Fireworks", "Gun", "Noise",
+    "Human vocal", "Human non-vocal", "Human whistle", "Power tools", "Siren",
+}
+
+
+def _bird_detections(detections):
+    """Detections that are actual birds (drops BirdNET's noise classes)."""
+    return [d for d in detections if d.common_name not in _NOISE_CLASSES]
+
+
 def _maybe_drop_segment_wav(conn, segment_id, detections, clip_paths) -> None:
     """Drop the full uploaded wav once clips exist (parity with the monitor's
     drop_segment_after_clips). Clips remain for playback; cleanup handles the rest."""
@@ -205,7 +218,23 @@ def ingest():
         lat = config.resolve(request.form.get("lat", type=float), "lat", _CFG)
         lon = config.resolve(request.form.get("lon", type=float), "lon", _CFG)
 
-        detections = _identify(wav_path, min_conf=min_conf, lat=lat, lon=lon)
+        detections = _bird_detections(
+            _identify(wav_path, min_conf=min_conf, lat=lat, lon=lon)
+        )
+        if not detections:
+            # No bird found — drop the upload so the disk doesn't fill with
+            # silence/traffic/noise. (We still log the check-in below.)
+            wav_path.unlink(missing_ok=True)
+            storage.touch_device(conn, dev["id"], ip=request.remote_addr)
+            return jsonify(
+                {
+                    "segment_id": None,
+                    "started_at": started_at.isoformat(timespec="seconds"),
+                    "used_receipt_time": used_fallback,
+                    "detections": [],
+                }
+            )
+
         clip_paths = clips.clip_paths_for_detections(
             wav_path, rec_dir / "clips", started_at, detections, cfg=_CFG
         )
