@@ -36,6 +36,7 @@ import storage
 
 app = Flask(__name__)
 _CFG = config.load()
+config.apply_timezone(_CFG)  # stored clip times use the configured zone, not UTC
 
 
 def _db():

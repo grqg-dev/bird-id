@@ -43,6 +43,13 @@ _DEV_RELOAD_SCRIPT = """<script>
 
 app = Flask(__name__)
 _CFG = config.load()
+config.apply_timezone(_CFG)  # render clip times in the configured zone, not UTC
+
+
+@app.context_processor
+def _inject_place():
+    """Make the location name available to every template (header, field notes)."""
+    return {"place": _CFG.get("place") or "Bird-Dex"}
 
 
 @app.template_filter("format_int")
@@ -578,7 +585,7 @@ PAGE = """
     <div class="seg"><div class="count mono">{{ ov.detections }}</div><div class="lbl">Detections {{ day_scope }}</div></div>
     <div class="seg"><div class="count mono">{{ ov.species }}</div><div class="lbl">Heard {{ day_scope }} · busiest {{ peak }}</div></div>
     {% else %}<div class="seg lbl">No sightings logged {{ day_scope }} yet</div>{% endif %}
-    <div class="when"><b>Bird-Dex</b>Santa Barbara · {{ header_day }}</div>
+    <div class="when"><b>Bird-Dex</b>{{ place }} · {{ header_day }}</div>
     <div class="seg"><a href="/data{{ data_qs }}" style="font-size:12px;color:var(--red-dark);text-decoration:none;font-weight:700">Data report →</a></div>
   </div>
 
@@ -1910,7 +1917,7 @@ BIRD_PAGE = """
 
   {% if info %}
   <div class="panel field-notes">
-    <h2>Field notes <span class="src">Santa Barbara soundscape</span></h2>
+    <h2>Field notes <span class="src">{{ place }} soundscape</span></h2>
     <div class="notes-grid">
       {% if info.sound %}
       <div class="note-item"><div class="k">Sound</div><div class="v">{{ info.sound }}</div></div>
@@ -3964,7 +3971,8 @@ def _build_timeline(conn, *, selected_day: str, show_all: bool) -> dict:
 
     lat = float(_CFG.get("lat", 34.42))
     lon = float(_CFG.get("lon", -119.70))
-    sun = _solar_arc(lat, lon, date.fromisoformat(selected_day))
+    sun = _solar_arc(lat, lon, date.fromisoformat(selected_day),
+                     tzname=_CFG.get("timezone") or "America/Los_Angeles")
     now_pct = None
     if selected_day == _today():
         now = datetime.now()

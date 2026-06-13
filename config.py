@@ -19,6 +19,9 @@ CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 DEFAULTS: dict[str, Any] = {
     "lat": None,        # e.g. 37.77  -> enables BirdNET's location/season filter
     "lon": None,        # e.g. -122.42
+    "place": None,      # display name shown on the dashboard (e.g. "Monroeville")
+    "timezone": None,   # IANA tz (e.g. "America/New_York") for clip times + sun arc;
+                        #   None = use the host/container local time
     "min_conf": 0.3,
     "segment_minutes": 1.0,       # retired — ignored by streaming monitor
     # Streaming monitor (cmd_monitor)
@@ -44,6 +47,20 @@ DEFAULTS: dict[str, Any] = {
     "dashboard_live_hours": 24,      # live-feed window protected from trim
     "drop_segment_after_clips": True,  # delete full segment wav once clips exist (or no hits)
 }
+
+
+def apply_timezone(cfg: dict | None = None) -> None:
+    """Set the process-local timezone from cfg['timezone'] (an IANA name) so naive
+    timestamps and time formatting use the configured zone — important in a UTC
+    Docker container. No-op if unset. Needs OS tzdata installed."""
+    import os
+    import time
+
+    tz = (cfg if cfg is not None else load()).get("timezone")
+    if tz:
+        os.environ["TZ"] = tz
+        if hasattr(time, "tzset"):
+            time.tzset()
 
 
 def load(path: str | Path = CONFIG_PATH) -> dict[str, Any]:

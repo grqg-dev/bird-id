@@ -10,8 +10,9 @@ FROM python:3.12-slim
 # ffmpeg     — clip mp3 transcode (clips.py)
 # libsndfile1 — soundfile backend (clip extraction / spectrograms)
 # libgomp1   — OpenMP runtime needed by TensorFlow / scikit-learn
+# tzdata     — zoneinfo so config "timezone" resolves (else times stay UTC)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg libsndfile1 libgomp1 \
+        ffmpeg libsndfile1 libgomp1 tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
