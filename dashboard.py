@@ -23,7 +23,7 @@ import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from flask import Flask, Response, abort, render_template_string, request, send_file
+from flask import Flask, Response, abort, redirect, render_template_string, request, send_file
 
 import config
 import storage
@@ -43,6 +43,13 @@ _DEV_RELOAD_SCRIPT = """<script>
 
 app = Flask(__name__)
 _CFG = config.load()
+config.apply_timezone(_CFG)  # render clip times in the configured zone, not UTC
+
+
+@app.context_processor
+def _inject_place():
+    """Make the location name available to every template (header, field notes)."""
+    return {"place": _CFG.get("place") or "Bird-Dex"}
 
 
 @app.template_filter("format_int")
@@ -579,7 +586,7 @@ PAGE = """
     <div class="seg"><div class="count mono">{{ ov.detections }}</div><div class="lbl">Detections {{ day_scope }}</div></div>
     <div class="seg"><div class="count mono">{{ ov.species }}</div><div class="lbl">Heard {{ day_scope }} · busiest {{ peak }}</div></div>
     {% else %}<div class="seg lbl">No sightings logged {{ day_scope }} yet</div>{% endif %}
-    <div class="when"><b>Bird-Dex</b>Santa Barbara · {{ header_day }}</div>
+    <div class="when"><b>Bird-Dex</b>{{ place }} · {{ header_day }}</div>
     <div class="seg"><a href="/data{{ data_qs }}" style="font-size:12px;color:var(--red-dark);text-decoration:none;font-weight:700">Data report →</a></div>
   </div>
 
@@ -2023,7 +2030,7 @@ BIRD_PAGE = """
 
   {% if info %}
   <div class="panel field-notes">
-    <h2>Field notes <span class="src">Santa Barbara soundscape</span></h2>
+    <h2>Field notes <span class="src">{{ place }} soundscape</span></h2>
     <div class="notes-grid">
       {% if info.sound %}
       <div class="note-item"><div class="k">Sound</div><div class="v">{{ info.sound }}</div></div>
@@ -2678,6 +2685,119 @@ TIMELINE_PAGE = """
 </body></html>
 """
 
+DEVICES_PAGE = """
+<!doctype html><html><head><meta charset="utf-8"><title>Devices · Bird-Dex</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--cream:#f3efe2;--ink:#21232a;
+        --gold:#ffcf3f;--grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);min-height:100vh;
+       background:var(--surface)}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .wrap{max-width:640px;margin:0 auto;padding:0 0 32px}
+  .hdr{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--border);
+       padding:14px 16px 12px}
+  .hdr h1{margin:0;font-size:20px;letter-spacing:-.3px}
+  .hdr-meta{margin-top:6px;font-size:12px;color:#8a857a}
+  .nav{font-size:12px;margin-top:10px}
+  .nav a{color:var(--red-dark);text-decoration:none;font-weight:600;margin-right:14px}
+  .nav a:hover{text-decoration:underline}
+  .dev{background:#fff;border-bottom:1px solid var(--border);padding:14px 16px}
+  .dev-top{display:flex;align-items:baseline;gap:10px}
+  .dev-name{margin:0;font-size:16px;font-weight:700}
+  .dev-uid{font-size:11px;color:#8a857a}
+  .online{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;
+          background:var(--grn);vertical-align:middle}
+  .offline{background:#c9c5ba}
+  .dev-meta{margin-top:4px;font-size:12px;color:#8a857a}
+  .dev-meta b{color:var(--ink)}
+  .stats{display:flex;gap:18px;margin-top:8px}
+  .stat{font-size:12px;color:#8a857a}
+  .stat b{display:block;font-size:18px;color:var(--ink);font-weight:700;line-height:1.1}
+  .species{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:999px;
+        padding:3px 9px;color:var(--ink)}
+  .chip a{color:inherit;text-decoration:none}
+  .chip b{color:var(--red-dark)}
+  .empty{padding:48px 16px;text-align:center;color:#8a857a;font-size:14px;line-height:1.6}
+  .empty code{background:#fff;border:1px solid var(--border);border-radius:4px;padding:1px 6px}
+  .gate{margin-top:12px;padding-top:12px;border-top:1px dashed var(--border)}
+  .gate-hd{font-size:11px;color:#8a857a;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+  .gate-row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+  .gate label{font-size:11px;color:#8a857a;display:flex;flex-direction:column;gap:3px}
+  .gate input{width:84px;font-size:14px;padding:5px 7px;border:1px solid var(--border);
+              border-radius:6px;background:#fff;color:var(--ink);font-family:inherit}
+  .gate button{font-size:13px;font-weight:600;padding:6px 14px;border:0;border-radius:6px;
+               background:var(--red);color:#fff;cursor:pointer}
+  .gate button:hover{background:var(--red-dark)}
+</style></head><body>
+<div class="wrap">
+  <div class="hdr">
+    <h1>Sensors</h1>
+    <div class="hdr-meta mono">{{ devices|length }} registered device{{ '' if devices|length == 1 else 's' }}</div>
+    <div class="nav mono">
+      <a href="/">← Bird-Dex</a>
+      <a href="/live">Live feed</a>
+      <a href="/data">Data report</a>
+      <a href="/trends">Trends</a>
+    </div>
+  </div>
+  {% if devices %}
+  {% for d in devices %}
+  <div class="dev">
+    <div class="dev-top">
+      <h2 class="dev-name">
+        <span class="online {{ 'offline' if not d.is_online }}" title="{{ 'seen recently' if d.is_online else 'idle' }}"></span>
+        {{ d.name or d.device_uid }}
+      </h2>
+      {% if d.name %}<span class="dev-uid mono">{{ d.device_uid }}</span>{% endif %}
+    </div>
+    <div class="dev-meta mono">
+      {% if d.location %}<b>{{ d.location }}</b> · {% endif %}
+      last heard {{ d.last_seen_label }}{% if d.last_ip %} · {{ d.last_ip }}{% endif %}
+      {% if d.rssi is not none %} · WiFi {{ d.rssi }} dBm ({{ d.rssi_label }}){% endif %}
+    </div>
+    <div class="stats">
+      <div class="stat"><b>{{ d.species }}</b>species</div>
+      <div class="stat"><b>{{ d.detections|format_int }}</b>detections</div>
+      <div class="stat"><b>{{ d.segments|format_int }}</b>clips</div>
+    </div>
+    {% if d.top_species %}
+    <div class="species">
+      {% for s in d.top_species %}
+      <span class="chip"><a href="/bird/{{ s.slug }}">{{ s.common_name }}</a> <b>{{ "%.0f"|format(s.peak_conf * 100) }}%</b></span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <form class="gate" method="post" action="/devices/{{ d.device_uid }}/gate">
+      <div class="gate-hd">remote gate — blank = device default</div>
+      <div class="gate-row">
+        <label>noise floor
+          <input name="noise_floor" type="number" min="0" placeholder="default"
+                 value="{{ d.gate.noise_floor if d.gate.noise_floor is not none else '' }}"></label>
+        <label>cooldown (s)
+          <input name="cooldown_windows" type="number" min="0" placeholder="default"
+                 value="{{ d.gate.cooldown_windows if d.gate.cooldown_windows is not none else '' }}"></label>
+        <label>post-roll (s)
+          <input name="postroll_windows" type="number" min="0" placeholder="default"
+                 value="{{ d.gate.postroll_windows if d.gate.postroll_windows is not none else '' }}"></label>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p class="empty">No sensors registered yet.<br>
+  Point an ESP32-S3 at the ingest service and register it:<br>
+  <code>POST /api/register {"device_uid": "yard-1"}</code></p>
+  {% endif %}
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
+"""
+
+
 LIVE_PAGE = """
 <!doctype html><html><head><meta charset="utf-8"><title>Live feed · Bird-Dex</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -2715,6 +2835,7 @@ LIVE_PAGE = """
   .evt-name a:hover{color:var(--red-dark)}
   .evt-conf{font-size:11px;color:#8a857a;margin-top:2px}
   .evt-conf b{color:var(--ink)}
+  .evt-dev{color:var(--red-dark);font-weight:600}
   .evt-thumb{flex:0 0 56px;width:56px;height:56px;border-radius:8px;border:1px solid var(--border);
              background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
   .evt-thumb img{width:100%;height:100%;object-fit:contain;padding:2px}
@@ -2745,6 +2866,7 @@ LIVE_PAGE = """
       <a href="/timeline">Timeline</a>
       <a href="/data">Data report</a>
       <a href="/trends">Trends</a>
+      <a href="/devices">Devices</a>
     </div>
     <div class="filters mono">
       <a href="/live{% if not hide_low %}?hide_low=1{% endif %}" class="{{ 'on' if hide_low else '' }}">Conf ≥ {{ "%.1f"|format(conf_floor) }}</a>
@@ -2758,7 +2880,7 @@ LIVE_PAGE = """
         <time class="evt-time mono">{{ e.time_label }}</time>
         <div class="evt-main">
           <p class="evt-name"><a href="/bird/{{ e.slug }}">{{ e.common_name }}</a></p>
-          <div class="evt-conf mono"><b>{{ "%.0f"|format(e.peak_conf * 100) }}%</b> confidence</div>
+          <div class="evt-conf mono"><b>{{ "%.0f"|format(e.peak_conf * 100) }}%</b> confidence{% if e.device %} · <span class="evt-dev">📡 {{ e.device }}</span>{% endif %}</div>
         </div>
         <div class="evt-thumb">
           {% if e.sprite_slug %}
@@ -3746,9 +3868,42 @@ def _species_initials(common_name: str) -> str:
     return "".join(p[0] for p in parts if p)[:2].upper()
 
 
+_DEVICE_ONLINE_SECONDS = 15 * 60  # seen within 15 min = "online"
+
+
+def _relative_since(iso: str | None, *, now: datetime | None = None) -> tuple[str, bool]:
+    """Humanized 'last seen' label + online flag for a device's last_seen_at."""
+    if not iso:
+        return "never", False
+    try:
+        then = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso, False
+    secs = ((now or datetime.now()) - then).total_seconds()
+    online = 0 <= secs <= _DEVICE_ONLINE_SECONDS
+    if secs < 0:
+        return "just now", True
+    if secs < 60:
+        return "just now", online
+    if secs < 3600:
+        return f"{int(secs // 60)} min ago", online
+    if secs < 86400:
+        return f"{int(secs // 3600)} h ago", online
+    return f"{int(secs // 86400)} days ago", online
+
+
+def _row_get(row, key, default=None):
+    """sqlite3.Row lacks .get(); return default if the column isn't present/NULL."""
+    try:
+        return row[key] if key in row.keys() else default
+    except (IndexError, AttributeError):
+        return default
+
+
 def _feed_event_dict(row, slugs: dict[str, str]) -> dict:
     slug = slugs.get(row["common_name"]) or _common_to_slug(row["common_name"])
     sprite = _sprite_slug(row["common_name"], slugs)
+    device = _row_get(row, "device_name") or _row_get(row, "device_uid")
     return {
         "heard_at": row["heard_at"],
         "common_name": row["common_name"],
@@ -3761,6 +3916,7 @@ def _feed_event_dict(row, slugs: dict[str, str]) -> dict:
         "sprite_slug": sprite,
         "time_label": _format_heard_clock(row["heard_at"]),
         "initials": _species_initials(row["common_name"]),
+        "device": device,  # None = local mic
     }
 
 
@@ -3929,7 +4085,8 @@ def _build_timeline(conn, *, selected_day: str, show_all: bool) -> dict:
 
     lat = float(_CFG.get("lat", 34.42))
     lon = float(_CFG.get("lon", -119.70))
-    sun = _solar_arc(lat, lon, date.fromisoformat(selected_day))
+    sun = _solar_arc(lat, lon, date.fromisoformat(selected_day),
+                     tzname=_CFG.get("timezone") or "America/Los_Angeles")
     now_pct = None
     if selected_day == _today():
         now = datetime.now()
@@ -4527,6 +4684,99 @@ def live_feed():
         )
     finally:
         conn.close()
+
+
+def _rssi_label(dbm):
+    """Qualitative Wi-Fi signal from a dBm value (None if unknown)."""
+    if dbm is None:
+        return None
+    if dbm >= -55:
+        return "strong"
+    if dbm >= -67:
+        return "good"
+    if dbm >= -75:
+        return "fair"
+    if dbm >= -82:
+        return "weak"
+    return "very weak"
+
+
+@app.route("/devices")
+def devices_page():
+    conn = _db()
+    try:
+        slugs = _slug_map()
+        devices = []
+        for row in storage.list_devices(conn):
+            label, online = _relative_since(row["last_seen_at"])
+            top = []
+            for s in storage.device_species(conn, row["id"])[:6]:
+                top.append(
+                    {
+                        "common_name": s["common_name"],
+                        "slug": slugs.get(s["common_name"]) or _common_to_slug(s["common_name"]),
+                        "peak_conf": s["peak_conf"],
+                    }
+                )
+            devices.append(
+                {
+                    "device_uid": row["device_uid"],
+                    "name": row["name"],
+                    "location": row["location"],
+                    "last_ip": row["last_ip"],
+                    "rssi": row["last_rssi"],
+                    "rssi_label": _rssi_label(row["last_rssi"]),
+                    "last_seen_label": label,
+                    "is_online": online,
+                    "segments": row["segments"],
+                    "detections": row["detections"],
+                    "species": row["species"],
+                    "top_species": top,
+                    "gate": {
+                        "noise_floor": row["gate_noise_floor"],
+                        "cooldown_windows": row["gate_cooldown_windows"],
+                        "postroll_windows": row["gate_postroll_windows"],
+                    },
+                }
+            )
+        return render_template_string(
+            DEVICES_PAGE,
+            devices=devices,
+            dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/devices/<uid>/gate", methods=["POST"])
+def set_device_gate(uid):
+    """Save a sensor's remote gate overrides (blank field = clear → firmware default).
+    The device picks these up on its next /api/config poll."""
+    def _parse(name):
+        v = (request.form.get(name) or "").strip()
+        if not v:
+            return None
+        try:
+            return int(v)
+        except ValueError:
+            abort(400, f"{name} must be a whole number")
+
+    conn = _db()
+    try:
+        dev = storage.get_device_by_uid(conn, uid)
+        if dev is None:
+            abort(404, "unknown device")
+        storage.set_device_config(
+            conn,
+            dev["id"],
+            noise_floor=_parse("noise_floor"),
+            cooldown_windows=_parse("cooldown_windows"),
+            postroll_windows=_parse("postroll_windows"),
+        )
+    finally:
+        conn.close()
+    return redirect("/devices")
 
 
 @app.route("/realtime")
@@ -5351,9 +5601,13 @@ def audio(segment_id: int):
     finally:
         conn.close()
 
+    # NB: recordings paths are stored relative to CWD, but send_file() resolves
+    # relative paths against the Flask app root (/app in Docker, != CWD /data) — so
+    # pass an absolute (CWD-based) path or it 404s the file the os.path.exists found.
     if track and track["clip_path"] and os.path.exists(track["clip_path"]):
         return send_file(
-            track["clip_path"], mimetype=_audio_mimetype(track["clip_path"])
+            os.path.abspath(track["clip_path"]),
+            mimetype=_audio_mimetype(track["clip_path"]),
         )
 
     if not seg or not seg["wav_path"] or not os.path.exists(seg["wav_path"]):
@@ -5367,7 +5621,7 @@ def audio(segment_id: int):
         return Response(clip, mimetype="audio/wav")
 
     return send_file(
-        seg["wav_path"], mimetype=_audio_mimetype(seg["wav_path"])
+        os.path.abspath(seg["wav_path"]), mimetype=_audio_mimetype(seg["wav_path"])
     )
 
 
@@ -5379,7 +5633,7 @@ def spectrogram(segment_id: int):
         segment_id, start, end, _CFG["recordings_dir"]
     )
     if cache_path.is_file():
-        return send_file(cache_path, mimetype="image/png")
+        return send_file(os.path.abspath(cache_path), mimetype="image/png")
 
     conn = _db()
     try:
@@ -5437,7 +5691,7 @@ def spectrogram(segment_id: int):
         pad_inches=0,
     )
     plt.close(fig)
-    return send_file(cache_path, mimetype="image/png")
+    return send_file(os.path.abspath(cache_path), mimetype="image/png")
 
 
 def main(host: str = "127.0.0.1", port: int = 8080, *, dev: bool = False):

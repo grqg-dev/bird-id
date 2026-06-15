@@ -3,10 +3,6 @@
 Guidance for AI agents (and humans) contributing to this project. Read this
 before changing code. For *usage*, see `README.md`.
 
-**Deep code reference:** [`docs/codebase-guide.md`](docs/codebase-guide.md) —
-module APIs, DB schema, config keys, dashboard routes, internal patterns, and
-file map. Start here for environment rules; go there for code details.
-
 ## Environments — dev vs prod
 
 | | **Dev (this machine)** | **Prod (Mac mini)** |
@@ -56,6 +52,7 @@ project testable and portable.
 | `clips.py` | slice segment wav → per-window clip files | no | no |
 | `config.py` | load `config.json`, resolve flag>config>default | no | no |
 | `dashboard.py` | Flask web UI (offline, server-rendered) | no | no |
+| `ingest.py` | Flask HTTP service: receive ESP32-S3 sensor clips → identify → store | no | no |
 | `birdid.py` | CLI that wires the above together | — | — |
 
 Key invariants:
@@ -63,6 +60,11 @@ Key invariants:
   running it against a fixed file. Keep it a pure `wav path in → detections out`
   function so the BirdNET backend could later be swapped for an HTTP API without
   changing any caller.
+- **Only one server component owns BirdNET.** The local monitor and `ingest.py`
+  each load the model; the **dashboard must stay TF-free** (it only reads the DB).
+  `ingest.py` defers BirdNET behind `ingest._identify` (imported lazily) so
+  `import ingest` stays light and tests stub it. Don't `import identifier` in
+  `dashboard.py`.
 - **The monitor loop stays in one process** so it reuses the cached `_ANALYZER`
   in `identifier.py`. Never shell out to `birdid.py identify` per segment — that
   reloads the whole TF model every time. Verify: "Model loaded" prints once.
@@ -92,6 +94,61 @@ Key invariants:
   precomputed JSON (`/callviz/…`). **`static/three.min.js`** and **`static/OrbitControls.js`**
   are **vendored** (pinned three.js r134 UMD build) — download once in dev, never a
   runtime CDN.
+
+## Distributed sensors (ESP32-S3 → ingest service)
+
+Besides the local mic, bird-id accepts uploads from cheap **ESP32-S3 sensors**
+(`firmware/`). A sensor captures a **48 kHz mono WAV** and POSTs it to the ingest
+service, which runs the same BirdNET pipeline as the monitor. The eventual gate is
+an on-device Edge Impulse "bird vs. no bird" model; until one is dropped into
+`lib/ei-bird-model/` the classifier is stubbed and capture is **sound-activated**
+instead (see "Edge gating" below).
+
+- **`ingest.py`** = a Flask service that owns BirdNET. `POST /api/register` (mint a
+  device + API key), `POST /api/ingest` (auth → identify → clips →
+  `record_segment(device_id=…)`), and `GET /api/config` (auth → per-device gate
+  overrides; see "Edge gating"). Run it with `birdid.py ingest-server` (config
+  `ingest_host`/`ingest_port`, default `127.0.0.1:8081`).
+- **Edge gating + remote config.** No on-device model yet, so the sensor is
+  sound-activated: it high-passes the newest second (2-pole, ~300 Hz, to ignore DC
+  drift / 50–120 Hz mains hum), and when it crosses a **noise floor** it captures a
+  3 s clip *centered* on the sound (pre-roll buffered + post-roll) so events aren't
+  sliced by the clip edge; a cooldown bounds upload rate. The three knobs
+  (noise_floor / cooldown / post-roll) are firmware defaults but **overridable
+  remotely from the dashboard** — the device polls `GET /api/config` at boot + every
+  60 s and applies any per-device override (`devices.gate_*` columns, NULL = use the
+  firmware default). Polling (not piggybacking on uploads) avoids a lockout when a
+  too-high floor stops uploads.
+- **Addressing + resilience.** The sensor finds the server by mDNS name
+  (`INGEST_HOST`, e.g. `birdnet.local`, resolved via `ESPmDNS`) with an IP fallback,
+  so a changing DHCP lease needs no reflash; advertise the name with
+  `deploy/birdnet-mdns-alias.*` (Avahi). Wi-Fi connect has a timeout that reboots
+  rather than hanging forever, so a router blip can't strand the sensor.
+- **Multi-device.** `storage.devices` table + nullable `segments.device_id`
+  (NULL = local mic). Detections inherit their device through the segment join.
+  Dashboard `/devices` lists sensors + per-device species; the `/live` feed shows a
+  📡 device badge. Helpers: `register_device`/`touch_device`/`list_devices`/`device_species`.
+- **Capture-time, not receipt-time.** The *device* stamps `captured_at` (NTP) and
+  the ingest endpoint treats it as authoritative (`started_at = captured_at`), so a
+  delayed/retried upload still files under when the bird called. A never-synced
+  device sends `clock_unsynced=1` and the server falls back to receipt time + logs.
+  This is covered by `tests/test_ingest.py::test_delayed_upload_keeps_capture_time`.
+- **Audio is dual-rate.** Sensors upload 48 kHz (BirdNET-native, full fidelity); the
+  on-device detector runs on a 3:1-decimated 16 kHz copy. The pipeline is
+  sample-rate agnostic, so no server change is needed.
+- **Shared clip helper.** `clips.clip_paths_for_detections()` is the single copy
+  used by both the monitor (`birdid.py`) and `ingest.py` — don't fork it.
+
+## Self-hosting with Docker
+
+`Dockerfile` + `docker-compose.yml` containerize the **server** (ingest + dashboard)
+for homelab users who can't run macOS, and de-risk the Pi target (same Linux
+`requirements.txt`). `docker compose up --build` starts both services sharing one
+volume at `/data` for `birdid.db` + `recordings/`; `working_dir: /data` makes the
+CWD-relative paths resolve there (the gotcha below). The **monitor is not
+containerized** (it needs host mic hardware). Keep both services on the same
+host/volume — SQLite over a network FS is unsafe; WAL handles the concurrent
+ingest-write / dashboard-read.
 
 ## Setup
 
@@ -144,6 +201,8 @@ pytest + Flask only; CI does not install `requirements.txt`):
 | `tests/test_identifier_summarize.py` | `summarize()`, default `min_conf` |
 | `tests/test_dashboard.py` | Helpers + `/`, `/bird/…`, `/call`, `/data`, `/live`, `/api/recent` via `test_client` |
 | `tests/test_birdid.py` | `cmd_stats`, `_resolve_id_params` |
+| `tests/test_devices.py` | Device registry helpers, `device_id` migration, dashboard `/devices` + live badge |
+| `tests/test_ingest.py` | `/api/register` + `/api/ingest` (BirdNET stubbed), device auth, capture-time timestamps |
 
 **Dashboard test seam:** every route uses `dashboard._db()`. Tests monkeypatch it to
 return a seeded SQLite connection (see `tests/conftest.py`). Heavy imports
@@ -191,6 +250,12 @@ smoke test after touching `cmd_monitor`.
 
 Both use `WorkingDirectory=/Users/matt/bird-id`. **CWD matters** — relative
 `db` and `recordings_dir` in `config.json` resolve from there.
+
+To accept ESP32-S3 sensor uploads in prod, add a third always-on service —
+`com.birdid.ingest` running `birdid.py ingest-server --host 0.0.0.0` — alongside
+the two above (same `WorkingDirectory`, so it writes the same `birdid.db`). No
+plist exists yet; create one mirroring `com.birdid.dashboard` when sensors ship.
+Unlike the monitor, the ingest service needs no mic permission.
 
 **First-time monitor setup** (mic permission — macOS grants mic to `.app`
 bundles, not bare Python under launchd):

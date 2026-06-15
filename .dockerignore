@@ -1,0 +1,26 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+
+# runtime data — lives on the mounted volume, never baked into the image
+recordings/
+birdid.db
+birdid.db-wal
+birdid.db-shm
+birdid.db.local-backup*
+*.wav
+*.m4a
+
+# firmware is built with PlatformIO, not part of the server image
+firmware/
+
+# dev cruft
+.DS_Store
+.claude/
+
+# docs: the dashboard needs docs/*.json at runtime, but not the heavy previews
+docs/*.png
+docs/*.html
+docs/*.md

@@ -22,6 +22,23 @@ DEFAULT_DB = "birdid.db"
 ORPHAN_MIN_AGE_SEC = 600
 
 _SCHEMA = """
+CREATE TABLE IF NOT EXISTS devices (
+    id            INTEGER PRIMARY KEY,
+    device_uid    TEXT NOT NULL UNIQUE,  -- stable hardware id the sensor sends
+    name          TEXT,                  -- friendly label ("Oak feeder")
+    location      TEXT,
+    api_key_hash  TEXT,                  -- ingest auth (hash, never plaintext)
+    registered_at TEXT NOT NULL,
+    last_seen_at  TEXT,
+    last_ip       TEXT,
+    last_rssi     INTEGER,              -- last reported Wi-Fi signal (dBm); NULL = unknown
+    -- Remote gate overrides served to the sensor via /api/config. NULL = the
+    -- device keeps its firmware-compiled default for that knob.
+    gate_noise_floor      INTEGER,       -- upload/capture threshold (int16 RMS)
+    gate_cooldown_windows INTEGER,       -- min ~seconds between clips
+    gate_postroll_windows INTEGER        -- ~seconds of post-roll (event centering)
+);
+
 CREATE TABLE IF NOT EXISTS segments (
     id             INTEGER PRIMARY KEY,
     started_at     TEXT NOT NULL,
@@ -30,6 +47,7 @@ CREATE TABLE IF NOT EXISTS segments (
     wav_path       TEXT,                 -- NULL if the segment audio was discarded
     mean_dbfs      REAL,
     max_dbfs       REAL,
+    device_id      INTEGER REFERENCES devices(id),  -- NULL = local mic (monitor)
     num_detections INTEGER NOT NULL DEFAULT 0
 );
 
@@ -63,10 +81,27 @@ CREATE INDEX IF NOT EXISTS idx_detections_heard_at ON detections(heard_at);
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Upgrade older databases: track_id column, tracks rows, backfill links."""
+    """Upgrade older databases: track_id column, tracks rows, backfill links,
+    and the segments.device_id column for multi-sensor attribution."""
     cols = {row[1] for row in conn.execute("PRAGMA table_info(detections)").fetchall()}
     if "track_id" not in cols:
         conn.execute("ALTER TABLE detections ADD COLUMN track_id INTEGER REFERENCES tracks(id)")
+
+    seg_cols = {row[1] for row in conn.execute("PRAGMA table_info(segments)").fetchall()}
+    if "device_id" not in seg_cols:
+        # Existing rows stay NULL = local mic. The devices table itself is created
+        # idempotently by executescript(_SCHEMA) in connect().
+        conn.execute("ALTER TABLE segments ADD COLUMN device_id INTEGER REFERENCES devices(id)")
+    # Index lives here (not in _SCHEMA): on an old DB the column doesn't exist until
+    # the ALTER above, and executescript(_SCHEMA) runs before this migration.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_device ON segments(device_id)")
+
+    # Remote gate-config columns on devices (added later; absent on older DBs).
+    dev_cols = {row[1] for row in conn.execute("PRAGMA table_info(devices)").fetchall()}
+    for col in ("gate_noise_floor", "gate_cooldown_windows", "gate_postroll_windows",
+                "last_rssi"):
+        if col not in dev_cols:
+            conn.execute(f"ALTER TABLE devices ADD COLUMN {col} INTEGER")
 
     missing = conn.execute(
         """
@@ -139,6 +174,7 @@ def record_segment(
     mean_dbfs: Optional[float] = None,
     max_dbfs: Optional[float] = None,
     clip_paths: Optional[dict[tuple[float, float], str]] = None,
+    device_id: Optional[int] = None,
 ) -> int:
     """Insert a segment and its detections in one transaction. Returns segment id.
 
@@ -147,13 +183,16 @@ def record_segment(
 
     Optional `clip_paths` maps (start_time, end_time) window keys to on-disk clip
     wav paths for the matching `tracks` row.
+
+    Optional `device_id` attributes the segment to a registered sensor (NULL = the
+    local mic / monitor).
     """
     detections = list(detections)
     paths = clip_paths or {}
     created_at = started_at.isoformat(timespec="seconds")
     cur = conn.execute(
         "INSERT INTO segments (started_at, ended_at, duration, wav_path, "
-        "mean_dbfs, max_dbfs, num_detections) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "mean_dbfs, max_dbfs, device_id, num_detections) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
             created_at,
             ended_at.isoformat(timespec="seconds"),
@@ -161,6 +200,7 @@ def record_segment(
             wav_path,
             mean_dbfs,
             max_dbfs,
+            device_id,
             len(detections),
         ),
     )
@@ -203,6 +243,141 @@ def record_segment(
     )
     conn.commit()
     return segment_id
+
+
+# --- Devices (multi-sensor registry + attribution) ------------------------
+
+def register_device(
+    conn: sqlite3.Connection,
+    device_uid: str,
+    *,
+    name: Optional[str] = None,
+    location: Optional[str] = None,
+    api_key_hash: Optional[str] = None,
+) -> int:
+    """Upsert a sensor by its stable `device_uid`. Returns the device id.
+
+    Re-registering an existing uid updates the provided fields (name/location/
+    api_key_hash) and leaves the rest untouched. Idempotent.
+    """
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        """
+        INSERT INTO devices (device_uid, name, location, api_key_hash, registered_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(device_uid) DO UPDATE SET
+            name         = COALESCE(excluded.name, devices.name),
+            location     = COALESCE(excluded.location, devices.location),
+            api_key_hash = COALESCE(excluded.api_key_hash, devices.api_key_hash)
+        """,
+        (device_uid, name, location, api_key_hash, now),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT id FROM devices WHERE device_uid = ?", (device_uid,)
+    ).fetchone()
+    return row["id"]
+
+
+def get_device_by_uid(conn: sqlite3.Connection, device_uid: str) -> Optional[sqlite3.Row]:
+    """Look up a registered device by its hardware uid (None if unknown)."""
+    return conn.execute(
+        "SELECT * FROM devices WHERE device_uid = ?", (device_uid,)
+    ).fetchone()
+
+
+def touch_device(
+    conn: sqlite3.Connection,
+    device_id: int,
+    *,
+    ip: Optional[str] = None,
+    rssi: Optional[int] = None,
+) -> None:
+    """Record that a device just checked in (last_seen_at / last_ip / last_rssi).
+    None values leave the existing column untouched."""
+    conn.execute(
+        "UPDATE devices SET last_seen_at = ?, last_ip = COALESCE(?, last_ip), "
+        "last_rssi = COALESCE(?, last_rssi) WHERE id = ?",
+        (datetime.now().isoformat(timespec="seconds"), ip, rssi, device_id),
+    )
+    conn.commit()
+
+
+# Maps DB columns <-> the JSON keys the firmware understands (/api/config).
+_GATE_FIELDS = {
+    "noise_floor": "gate_noise_floor",
+    "cooldown_windows": "gate_cooldown_windows",
+    "postroll_windows": "gate_postroll_windows",
+}
+
+
+def get_device_config(conn: sqlite3.Connection, device_id: int) -> dict:
+    """Per-device gate overrides as a JSON-ready dict, omitting unset (NULL) knobs
+    so the sensor keeps its firmware default for those."""
+    row = conn.execute(
+        "SELECT gate_noise_floor, gate_cooldown_windows, gate_postroll_windows "
+        "FROM devices WHERE id = ?",
+        (device_id,),
+    ).fetchone()
+    if row is None:
+        return {}
+    return {key: row[col] for key, col in _GATE_FIELDS.items() if row[col] is not None}
+
+
+def set_device_config(conn: sqlite3.Connection, device_id: int, **values) -> None:
+    """Set gate overrides. Each of noise_floor/cooldown_windows/postroll_windows is
+    an int to override, or None to clear (revert that knob to the firmware default).
+    Only keys present in `values` are touched."""
+    cols = [(_GATE_FIELDS[k], v) for k, v in values.items() if k in _GATE_FIELDS]
+    if not cols:
+        return
+    assignments = ", ".join(f"{col} = ?" for col, _ in cols)
+    params = [v for _, v in cols] + [device_id]
+    conn.execute(f"UPDATE devices SET {assignments} WHERE id = ?", params)
+    conn.commit()
+
+
+def list_devices(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """All registered devices with detection/segment counts, newest-seen first."""
+    return conn.execute(
+        """
+        SELECT dev.*,
+               COUNT(DISTINCT s.id) AS segments,
+               COUNT(d.id)          AS detections,
+               COUNT(DISTINCT d.common_name) AS species
+        FROM devices dev
+        LEFT JOIN segments s   ON s.device_id = dev.id
+        LEFT JOIN detections d ON d.segment_id = s.id
+        GROUP BY dev.id
+        ORDER BY dev.last_seen_at DESC NULLS LAST, dev.registered_at DESC
+        """
+    ).fetchall()
+
+
+def device_species(
+    conn: sqlite3.Connection, device_id: int, *, since: Optional[str] = None
+) -> list[sqlite3.Row]:
+    """Per-species rollup for one device, by peak confidence (mirrors species_summary)."""
+    where = "WHERE s.device_id = ?"
+    params: tuple = (device_id,)
+    if since:
+        where += " AND d.heard_at >= ?"
+        params = (device_id, since)
+    return conn.execute(
+        f"""
+        SELECT d.common_name, d.scientific_name,
+               COUNT(*)          AS windows,
+               MAX(d.confidence) AS peak_conf,
+               MIN(d.heard_at)   AS first_heard,
+               MAX(d.heard_at)   AS last_heard
+        FROM detections d
+        JOIN segments s ON s.id = d.segment_id
+        {where}
+        GROUP BY d.common_name, d.scientific_name
+        ORDER BY peak_conf DESC
+        """,
+        params,
+    ).fetchall()
 
 
 def get_track(
@@ -516,18 +691,23 @@ def species_detections(
 _RECENT_FEED_SELECT = f"""
         SELECT common_name, scientific_name,
                segment_id, confidence AS peak_conf,
-               heard_at, start_time, end_time, has_audio
+               heard_at, start_time, end_time, has_audio,
+               device_id, device_name, device_uid
         FROM (
             SELECT d.common_name, d.scientific_name,
                    d.segment_id, d.confidence, d.heard_at,
                    d.start_time, d.end_time,
                    {_HAS_AUDIO} AS has_audio,
+                   s.device_id AS device_id,
+                   dev.name AS device_name,
+                   dev.device_uid AS device_uid,
                    ROW_NUMBER() OVER (
                        PARTITION BY d.segment_id, d.common_name
                        ORDER BY d.confidence DESC, d.heard_at DESC
                    ) AS rn
             FROM detections d
             JOIN segments s ON s.id = d.segment_id
+            LEFT JOIN devices dev ON dev.id = s.device_id
             LEFT JOIN tracks t ON t.id = d.track_id
             WHERE d.heard_at >= ?
               AND d.confidence >= ?

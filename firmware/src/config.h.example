@@ -1,0 +1,62 @@
+// Copy this file to config.h and fill in your values. config.h is gitignored.
+#pragma once
+
+// --- Wi-Fi ---
+#define WIFI_SSID       "your-ssid"
+#define WIFI_PASSWORD   "your-password"
+// Reboot if Wi-Fi doesn't connect within this many seconds (so a router blip can't
+// strand the sensor). Per-request HTTP timeout fails a stalled upload fast (weak
+// Wi-Fi) so the clip is queued + retried instead of blocking the loop for minutes.
+#define WIFI_CONNECT_TIMEOUT_S  30
+#define HTTP_TIMEOUT_S          15
+
+// --- bird-id ingest server ---
+// The host running `birdid.py ingest-server` (or the Docker `ingest` service).
+// INGEST_HOST may be an mDNS name like "birdnet.local" (resolved at boot via
+// ESPmDNS, so a changing DHCP IP doesn't need a reflash; the host must advertise
+// it — see deploy/birdnet-mdns-alias.service) or a plain IP. If the mDNS lookup
+// fails, the firmware falls back to INGEST_FALLBACK_IP.
+#define INGEST_HOST        "birdnet.local"
+#define INGEST_PORT        8081
+#define INGEST_FALLBACK_IP "192.168.1.50"   // used if INGEST_HOST can't be resolved
+
+// Stable identity for this sensor. Pick something memorable; it shows on the
+// dashboard /devices page. Must be unique per device.
+#define DEVICE_UID      "yard-oak-1"
+
+// API key returned by POST /api/register the first time this device registers.
+// Leave empty ("") to auto-register on first boot and print the key to serial —
+// then paste it back here and re-flash so the key survives reflashes.
+#define DEVICE_API_KEY  ""
+
+// --- Detection tuning ---
+// With an Edge Impulse model in lib/ei-bird-model/, set BIRD_SCORE_THRESHOLD to a
+// real confidence (e.g. 0.80f) to gate uploads on-device. With NO model the
+// classifier is stubbed (scores 0); use -1.0f to disable that gate and rely on the
+// sound-activated capture below (the server runs BirdNET and labels each clip).
+#define BIRD_LABEL            "bird"
+#define BIRD_SCORE_THRESHOLD  -1.0f   // -1.0 = no on-device model gate; 0.80f = real gating
+
+// Noise floor: capture only when the newest ~1 s of audio crosses this RMS (int16),
+// measured after a ~300 Hz 2-pole high-pass so DC drift / mains hum / low traffic
+// rumble don't count. 0 = capture continuously. Calibrate against real audio.
+#define NOISE_FLOOR_RMS  200          // raise to capture less, lower for more
+
+// Post-roll windows kept after a trigger so the event lands centered in the clip
+// (≈1 s lead + 1 s trail at 1). Cooldown = min ~seconds between captured clips.
+#define CAPTURE_POSTROLL_WINDOWS  1
+#define BIRD_TRIGGER_WINDOWS      3   // cooldown: min ~seconds between uploads
+
+// How often (s) the sensor polls GET /api/config for dashboard-set gate overrides.
+#define CONFIG_POLL_S  60
+
+// --- Audio / NTP ---
+#define CAPTURE_SAMPLE_RATE   48000   // uploaded clip rate (BirdNET native)
+#define CLIP_SECONDS          3       // length of the clip we upload
+#define NTP_SERVER            "pool.ntp.org"
+#define TZ_OFFSET_SECONDS     0       // we send UTC; the server localizes
+
+// --- I2S MEMS mic (INMP441 / SPH0645) wiring ---
+#define I2S_SCK_PIN   5    // bit clock (BCLK)
+#define I2S_WS_PIN    6    // word select (LRCL)
+#define I2S_SD_PIN    4    // serial data (DOUT of the mic)

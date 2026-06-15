@@ -1,0 +1,6 @@
+# Config for the birdnet.local mDNS alias (installed to /etc/default/birdnet-mdns-alias).
+#
+# The IP that birdnet.local should resolve to. It does NOT have to be this host —
+# point it at wherever the bird-id ingest server runs. To move the service later,
+# change this line and run:  sudo systemctl restart birdnet-mdns-alias
+BIRDNET_TARGET_IP=192.168.0.210

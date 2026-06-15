@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish birdnet.local mDNS alias for the bird-id ingest server
+After=network-online.target avahi-daemon.service
+Wants=network-online.target
+Requires=avahi-daemon.service
+
+[Service]
+# BIRDNET_TARGET_IP lives here — edit it and `systemctl restart birdnet-mdns-alias`
+# to point birdnet.local at a different host (e.g. when the service moves to prod).
+EnvironmentFile=/etc/default/birdnet-mdns-alias
+# avahi-publish runs in the foreground and holds the name registered until killed.
+ExecStart=/usr/local/bin/birdnet-mdns-alias.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

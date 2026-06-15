@@ -91,8 +91,7 @@ def _retention_days(args) -> int:
 
 
 def _clip_format(cfg: dict) -> str:
-    fmt = str(config.resolve(None, "clip_format", cfg) or "wav").lower()
-    return "mp3" if fmt == "mp3" else "wav"
+    return clips.clip_format(cfg)
 
 
 def _proactive_cleanup(cfg: dict) -> bool:
@@ -173,19 +172,13 @@ def _clip_paths_for_detections(
     *,
     cfg: dict,
 ) -> dict[tuple[float, float], str]:
-    """Write per-window clip files; return map for storage.record_segment."""
-    clips_dir.mkdir(parents=True, exist_ok=True)
-    fmt = _clip_format(cfg)
-    bitrate = str(config.resolve(None, "clip_mp3_bitrate", cfg) or "64k")
-    clip_paths: dict[tuple[float, float], str] = {}
-    for start, end in {(d.start_time, d.end_time) for d in detections}:
-        dst = clips.clip_dst_path(clips_dir, started_at, start, end, fmt=fmt)
-        path = clips.write_clip(
-            src_wav, dst, start, end, fmt=fmt, mp3_bitrate=bitrate
-        )
-        if path:
-            clip_paths[(start, end)] = path
-    return clip_paths
+    """Write per-window clip files; return map for storage.record_segment.
+
+    Thin wrapper over clips.clip_paths_for_detections (shared with ingest.py).
+    """
+    return clips.clip_paths_for_detections(
+        src_wav, clips_dir, started_at, detections, cfg=cfg
+    )
 
 
 def _maybe_drop_segment_wav(
@@ -578,6 +571,14 @@ def cmd_dashboard(args) -> int:
     return 0
 
 
+def cmd_ingest_server(args) -> int:
+    import ingest  # imported here so other commands don't pay Flask's import cost
+    host = config.resolve(args.host, "ingest_host", args.cfg)
+    port = int(config.resolve(args.port, "ingest_port", args.cfg))
+    ingest.main(host=host, port=port)
+    return 0
+
+
 def cmd_cleanup(args) -> int:
     """Drop expired segment wavs, trim non-dashboard audio, and purge orphans."""
     db_path, rec_dir = _db_paths(args)
@@ -668,6 +669,14 @@ def main(argv=None) -> int:
         help="auto-reload on code changes (local dev only)",
     )
     p_dash.set_defaults(func=cmd_dashboard)
+
+    p_ingest = sub.add_parser(
+        "ingest-server",
+        help="HTTP service that receives clips from ESP32-S3 sensors and identifies them",
+    )
+    p_ingest.add_argument("--host", help="bind host (default from config: ingest_host)")
+    p_ingest.add_argument("--port", type=int, help="bind port (default from config: ingest_port)")
+    p_ingest.set_defaults(func=cmd_ingest_server)
 
     args = parser.parse_args(argv)
     args.cfg = config.load()
