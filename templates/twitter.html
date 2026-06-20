@@ -53,9 +53,10 @@
     .post-avatar img{width:100%;height:100%;object-fit:contain;padding:3px}
     .post-avatar .initials{font-size:15px;font-weight:800;color:var(--text-secondary)}
     .post-body{min-width:0}
-    .post-meta{font-size:14px;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .post-meta{font-size:14px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .post-meta .name{font-weight:800;color:var(--text)}
-    .post-meta .handle,.post-meta .dot,.post-meta time{color:var(--text-secondary);margin-left:4px}
+    .post-meta .dot,.post-meta time{color:var(--text-secondary);margin-left:4px}
+    .post-handle{font-size:12px;color:var(--text-secondary);font-style:italic;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .post-text{font-size:15px;line-height:1.45;margin-bottom:10px}
     .post-media{border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:10px}
     .post-media img{display:block;width:100%;height:180px;object-fit:cover;background:#0d1b14}
@@ -179,10 +180,10 @@
         '<div class="post-body">'+
           '<div class="post-meta">'+
             '<a href="'+e.bird_url+'" class="name">'+e.common_name+'</a>'+
-            '<span class="handle">'+e.scientific_name+'</span>'+
             '<span class="dot">·</span>'+
             '<time datetime="'+e.heard_at+'">'+e.time_label+'</time>'+
           '</div>'+
+          '<div class="post-handle">'+e.scientific_name+'</div>'+
           '<div class="post-text">Detected with <strong>'+Math.round(e.peak_conf*100)+'%</strong> confidence</div>'+
           media+
           '<div class="post-actions">'+
