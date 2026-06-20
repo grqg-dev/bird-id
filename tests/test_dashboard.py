@@ -381,3 +381,47 @@ def test_realtime_page_has_nav_links(client):
     assert resp.status_code == 200
     assert b'href="/live"' in resp.data
     assert b'href="/"' in resp.data
+
+
+def test_twitter_view_renders(client):
+    resp = client.get("/twitter")
+    assert resp.status_code == 200
+    assert b"Bird feed" in resp.data
+    assert b"/bird/" in resp.data
+    assert b"spectrogram" in resp.data
+    assert b"data-theme" in resp.data
+
+
+def test_twitter_chronological_sort(client):
+    resp = client.get("/twitter?sort=time")
+    assert resp.status_code == 200
+    assert b"Latest" in resp.data
+
+
+def test_twitter_confidence_sort(client):
+    resp = client.get("/twitter?sort=conf")
+    assert resp.status_code == 200
+    assert b"Top conf" in resp.data
+
+
+def test_twitter_api_returns_json(client):
+    resp = client.get("/api/twitter?page=1")
+    assert resp.status_code == 200
+    assert resp.is_json
+    data = resp.get_json()
+    assert "events" in data
+    assert "has_more" in data
+
+
+def test_twitter_api_respects_pagination(client):
+    resp = client.get("/api/twitter?page=1")
+    data = resp.get_json()
+    resp2 = client.get("/api/twitter?page=2")
+    data2 = resp2.get_json()
+    assert data2["events"] == [] or len(data2["events"]) < 50
+
+
+def test_twitter_nav_link_present_on_index(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert b"/twitter" in resp.data

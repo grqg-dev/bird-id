@@ -84,8 +84,10 @@ The dashboard works offline — no internet required once it's running. Browse b
 or all-time, open a species for clips and spectrograms, click **◳ 3D** on a dex card
 for the **Call Chamber** (`/call`) — an orbitable 3D frequency-pole visualization
 synced to clip playback — open **Live feed** (`/live`) for a rolling 24-hour timeline
-that auto-updates while you monitor, or open **Data report** (`/data`) for detection
-counts and confidence charts.
+that auto-updates while you monitor, open **Twitter view** (`/twitter`) for an
+all-time, scrollable timeline of every detection sorted by latest or top confidence,
+with dark/light mode, or open **Data report** (`/data`) for detection counts and
+confidence charts.
 
 Gallery mode (`/?mode=gallery`) is a lighter grid of illustrations and stats — no
 spectrograms or audio:

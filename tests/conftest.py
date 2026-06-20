@@ -52,10 +52,19 @@ def seeded_conn(db_conn):
 
 @pytest.fixture
 def client(seeded_conn, monkeypatch):
-    """Flask test client backed by the seeded in-memory DB."""
+    """Flask test client backed by the seeded DB (fresh connection per call)."""
     import dashboard
 
-    monkeypatch.setattr(dashboard, "_db", lambda: seeded_conn)
+    db_path = next(
+        r["file"]
+        for r in seeded_conn.execute("PRAGMA database_list").fetchall()
+        if r["name"] == "main"
+    )
+
+    def _fresh_db():
+        return storage.connect(db_path)
+
+    monkeypatch.setattr(dashboard, "_db", _fresh_db)
     monkeypatch.setitem(dashboard._CFG, "min_conf", 0.3)
     monkeypatch.setitem(dashboard._CFG, "lat", 34.42)
     monkeypatch.setitem(dashboard._CFG, "lon", -119.70)

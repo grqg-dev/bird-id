@@ -1,0 +1,210 @@
+
+<!doctype html><html><head><meta charset="utf-8"><title>Bird-Dex</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;--cream:#f3efe2;--ink:#21232a;
+        --gold:#ffcf3f;--grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8}
+  *{box-sizing:border-box}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);min-height:100vh;
+       background:#fff}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .lbl{font-size:11px;letter-spacing:1.5px;color:#8a857a}
+
+  .wrap{max-width:1280px;margin:0 auto;padding:28px 22px}
+  .when{margin-left:auto;text-align:right;color:#8a857a}
+  .when b{display:block;font-size:13px;letter-spacing:1.5px;color:var(--ink);font-weight:700}
+
+  /* summary strip */
+  .screen-bar{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 20px;margin-bottom:22px;
+              display:flex;gap:26px;align-items:center;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .screen-bar .count{font-size:28px;font-weight:800;color:var(--ink);letter-spacing:-.5px}
+  .screen-bar .lbl{color:#8a857a}
+  .screen-bar .seg{border-left:1px solid var(--border);padding-left:26px}
+
+  /* dex grid — ~3 cards per row on desktop */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:1100px){.grid:not(.gallery){grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:680px){.grid:not(.gallery){grid-template-columns:1fr}}
+  .entry{background:#fff;border-radius:12px;border:1px solid #e2e0d8;overflow:hidden;
+         box-shadow:0 1px 4px rgba(0,0,0,.08);display:flex;flex-direction:column}
+  .entry .top{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
+              background:#f7f6f2;border-bottom:1px solid #eceae3}
+  .no{font-weight:800;color:var(--ink);letter-spacing:1px}
+  .peak-conf{font-weight:700;color:var(--red-deep);letter-spacing:.3px}
+  .top-right{display:flex;align-items:center;gap:8px}
+  .viz-btn{font-size:10px;font-weight:700;letter-spacing:.4px;text-decoration:none;
+           padding:3px 7px;border-radius:6px;border:1px solid var(--red-dark);color:var(--red-dark);
+           background:#fff;line-height:1.2}
+  .viz-btn:hover{background:var(--surface);color:var(--red-deep);border-color:var(--red-deep)}
+  .sprite{background:#fff;border-bottom:1px solid #eceae3}
+  .sprite img.art{display:block;width:200px;height:200px;margin:0 auto;object-fit:contain;padding:10px 14px 6px}
+  .spectro{background:#0d1b14}
+  .spectro img{display:block;width:100%;height:88px;object-fit:cover}
+  .clip-nav{display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 10px;
+            background:#fff;border-top:1px solid #eceae3;font-size:11px}
+  .clip-nav a{color:var(--red-dark);text-decoration:none;font-weight:600;padding:2px 8px;
+              border:1px solid var(--border);border-radius:6px;background:#fff}
+  .clip-nav a:hover{background:var(--surface)}
+  .clip-nav .off{color:#b0aca2;padding:2px 8px}
+  .clip-nav .pos{color:#8a857a;letter-spacing:.3px}
+  .play{background:#f7f6f2;padding:8px 10px;border-top:1px solid #eceae3}
+  .play audio{display:block;width:100%;height:32px}
+  .body{padding:10px 12px 12px}
+  .name{font-size:17px;font-weight:800;margin:0;letter-spacing:.3px}
+  .latin{font-style:italic;color:#7a766a;font-size:12px;margin:1px 0 9px}
+  .meta{display:flex;justify-content:space-between;font-size:11px;color:#8a857a;letter-spacing:.5px;margin-top:4px}
+  .empty{background:#f7f6f2;border:1px solid #e2e0d8;border-radius:12px;padding:46px;text-align:center;color:#7a766a;font-size:15px}
+  .modes{display:flex;gap:8px;margin-bottom:14px}
+  .modes a{font-size:12px;letter-spacing:.5px;text-decoration:none;padding:6px 12px;border-radius:8px;
+           border:1px solid var(--border);color:#7a766a;background:#fff}
+  .modes a.on{background:var(--surface);border-color:#d7d2c0;color:var(--ink);font-weight:700}
+  .modes a:hover{border-color:#c8c4ba;color:var(--ink);background:var(--surface)}
+  .entry.low-conf{border-color:#e8dcc0;background:#fffcf5}
+  .entry.low-conf .peak-conf{color:#b8860b}
+  .day-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;padding:10px 14px;
+           background:var(--surface);border:1px solid var(--border);border-radius:10px}
+  .day-bar a{font-size:12px;letter-spacing:.5px;text-decoration:none;padding:6px 12px;border-radius:8px;
+             border:1px solid var(--border);color:#7a766a;background:#fff}
+  .day-bar a.on{background:#fff;border-color:var(--red);color:var(--red-deep);font-weight:700}
+  .day-bar a:hover{border-color:#c8c4ba;color:var(--ink)}
+  .day-bar form{display:flex;align-items:center;gap:8px;margin:0}
+  .day-bar input[type=date]{font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;
+                            font-family:inherit;background:#fff}
+  .day-bar button{font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);
+                 background:#fff;cursor:pointer}
+  .day-bar .spacer{flex:1}
+  .no-art{display:flex;align-items:center;justify-content:center;width:200px;height:200px;margin:0 auto;padding:8px 12px;
+          color:#b0aca2;font-size:12px;letter-spacing:.5px;text-align:center}
+  /* gallery — fixed square art box, auto columns (3–4+ on typical screens) */
+  .grid.gallery{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+  @media(max-width:480px){.grid.gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
+  .grid.gallery .entry .top{padding:5px 8px}
+  .grid.gallery .body{padding:6px 8px 8px}
+  .grid.gallery .latin{margin:1px 0 4px}
+  .grid.gallery .sprite{padding:6px 8px 4px;border-bottom:none;background:#fff}
+  .grid.gallery .art-box{
+    aspect-ratio:1;width:100%;border:1px solid #eceae3;border-radius:4px;
+    background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .grid.gallery .art-box img.art{width:100%;height:100%;padding:6px;object-fit:contain;display:block}
+  .grid.gallery .art-box.no-art{height:auto;font-size:10px;color:#b0aca2;letter-spacing:.4px}
+  .name a{color:inherit;text-decoration:none}
+  .name a:hover{color:var(--red-deep);text-decoration:underline}
+</style></head><body>
+
+<div class="wrap">
+  {% from "includes/site-nav.html" import site_nav %}
+  {{ site_nav(active='dex') }}
+  <div class="day-bar mono">
+    {% if not show_all %}
+    <a href="{{ qs(day=prev_day) }}">← Prev</a>
+    <a href="{{ qs(day=next_day) }}">Next →</a>
+    {% endif %}
+    <form method="get" action="/">
+      {% if mode == 'gallery' %}<input type="hidden" name="mode" value="gallery">{% endif %}
+      {% if sort != 'discovered' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+      {% if hide_low %}<input type="hidden" name="hide_low" value="1">{% endif %}
+      <label class="lbl" for="day-pick">Day</label>
+      <input type="date" id="day-pick" name="day" value="{{ selected_day }}" max="{{ today }}">
+      <button type="submit">Go</button>
+    </form>
+    {% if not show_all and selected_day != today %}
+    <a href="{{ qs(day=today) }}">Today</a>
+    {% endif %}
+    <span class="spacer"></span>
+    {% if show_all %}
+    <a href="{{ qs(day=today) }}">Daily (today)</a>
+    {% else %}
+    <a href="{{ qs(day='all') }}">Show all</a>
+    {% endif %}
+    {% if show_all %}
+    <span class="lbl">All-time · every day</span>
+    {% else %}
+    <span class="lbl">{{ day_label }}</span>
+    {% endif %}
+  </div>
+  <div class="modes mono">
+    <a href="{{ qs(mode='dex') }}" class="{{ 'on' if mode == 'dex' else '' }}">Full dex</a>
+    <a href="{{ qs(mode='gallery') }}" class="{{ 'on' if mode == 'gallery' else '' }}">Gallery</a>
+    <span style="flex:1"></span>
+    <a href="{{ qs(day='all', sort='discovered') }}" class="{{ 'on' if sort == 'discovered' and show_all else '' }}">Discovered</a>
+    <a href="{{ qs(sort='heard') }}" class="{{ 'on' if sort == 'heard' else '' }}">Most heard</a>
+    <a href="{{ qs(sort='peak') }}" class="{{ 'on' if sort == 'peak' else '' }}">Peak conf</a>
+    <a href="{{ qs(hide_low=not hide_low) }}" class="{{ 'on' if hide_low else '' }}">Peak ≥ {{ "%.1f"|format(peak_floor) }}</a>
+    {% if hide_low and hidden_count %}<span class="lbl">{{ hidden_count }} hidden</span>{% endif %}
+  </div>
+  <div class="screen-bar">
+    <div><div class="count mono">Nº {{ "%03d"|format(total) }}</div><div class="lbl">{{ species_lbl }}</div></div>
+    {% if show_all %}
+    {% if all_totals.detections %}
+    <div class="seg"><div class="count mono">{{ all_totals.detections }}</div><div class="lbl">Detections (all time)</div></div>
+    <div class="seg"><div class="count mono">{{ all_totals.species }}</div><div class="lbl">Species (all time)</div></div>
+    {% else %}<div class="seg lbl">No sightings logged yet</div>{% endif %}
+    {% elif ov.detections %}
+    <div class="seg"><div class="count mono">{{ ov.detections }}</div><div class="lbl">Detections {{ day_scope }}</div></div>
+    <div class="seg"><div class="count mono">{{ ov.species }}</div><div class="lbl">Heard {{ day_scope }} · busiest {{ peak }}</div></div>
+    {% else %}<div class="seg lbl">No sightings logged {{ day_scope }} yet</div>{% endif %}
+    <div class="when"><b>Bird-Dex</b>Santa Barbara · {{ header_day }}</div>
+    <div class="seg"><a href="/data{{ data_qs }}" style="font-size:12px;color:var(--red-dark);text-decoration:none;font-weight:700">Data report →</a></div>
+  </div>
+
+  {% if dex %}
+  <div class="grid{{ ' gallery' if mode == 'gallery' else '' }}">
+    {% for e in dex %}
+    {% set clip_qs = "?start=%.1f&end=%.1f"|format(e.start_time, e.end_time) %}
+    <div class="entry{{ ' low-conf' if not hide_low and e.peak_conf < peak_floor else '' }}">
+      <div class="top">
+        <span class="no mono">Nº {{ "%03d"|format(loop.index) }}</span>
+        <div class="top-right">
+          {% if e.has_audio and mode != 'gallery' %}
+          <a class="viz-btn mono" title="Call analyzer"
+             href="{{ call_href(e.segment_id, e.start_time, e.end_time, e.bird_slug) }}">◳ Viz</a>
+          {% endif %}
+          <span class="peak-conf mono">{{ "%.3f"|format(e.peak_conf) }}</span>
+        </div>
+      </div>
+      <div class="sprite">
+        {% if e.sprite_slug %}
+        {% if mode == 'gallery' %}<div class="art-box">{% endif %}
+        <img class="art" loading="lazy" src="/sprite/{{ e.sprite_slug }}.png" alt="{{ e.common_name }}">
+        {% if mode == 'gallery' %}</div>{% endif %}
+        {% elif mode == 'gallery' %}
+        <div class="art-box no-art lbl">NO ILLUSTRATION</div>
+        {% endif %}
+        {% if mode != 'gallery' and e.has_audio %}
+        <div class="spectro">
+          <img loading="lazy" src="/spectrogram/{{ e.segment_id }}.png{{ clip_qs }}" alt="call spectrogram">
+        </div>
+        {% if e.clip_total > 1 %}
+        <div class="clip-nav mono">
+          {% if e.prev_clip %}
+          <a href="{{ call_href(e.prev_clip.segment_id, e.prev_clip.start, e.prev_clip.end, e.bird_slug) }}"
+             title="{{ e.prev_clip.heard_at }}">← {{ "%.3f"|format(e.prev_clip.peak_conf) }}</a>
+          {% else %}<span class="off">←</span>{% endif %}
+          <span class="pos">{{ e.clip_no }} / {{ e.clip_total }}</span>
+          {% if e.next_clip %}
+          <a href="{{ call_href(e.next_clip.segment_id, e.next_clip.start, e.next_clip.end, e.bird_slug) }}"
+             title="{{ e.next_clip.heard_at }}">{{ "%.3f"|format(e.next_clip.peak_conf) }} →</a>
+          {% else %}<span class="off">→</span>{% endif %}
+        </div>
+        {% endif %}
+        <div class="play"><audio controls preload="none" src="/audio/{{ e.segment_id }}{{ clip_qs }}"></audio></div>
+        {% endif %}
+      </div>
+      <div class="body">
+        <p class="name"><a href="/bird/{{ e.bird_slug }}{{ bird_qs }}">{{ e.common_name }}</a></p>
+        <p class="latin">{{ e.scientific_name }}</p>
+        <div class="meta mono"><span>HEARD ×{{ e.windows }}</span>
+          <span>{{ e.first_heard[5:10] }} → {{ e.last_heard[5:10] }}</span></div>
+        {% if e.windows > 1 and mode != 'gallery' %}
+        <div class="meta mono" style="margin-top:6px"><a href="/bird/{{ e.bird_slug }}{{ bird_qs }}" style="color:var(--red-dark)">All {{ e.windows }} clips →</a></div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">{{ empty_msg }}</div>
+  {% endif %}
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>

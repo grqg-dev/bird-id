@@ -1,0 +1,161 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Real time · Bird-Dex</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--cream:#f3efe2;--ink:#21232a;
+        --gold:#ffcf3f;--grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);min-height:100vh;
+       background:var(--surface)}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .wrap{max-width:640px;margin:0 auto;padding:0 0 48px}
+  .hdr{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--border);
+       padding:14px 16px 12px}
+  .hdr h1{margin:0;font-size:20px;letter-spacing:-.3px}
+  .hdr-meta{display:flex;align-items:center;gap:10px;margin-top:6px;font-size:12px;color:#8a857a}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:var(--grn);flex-shrink:0;
+            animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  .nav{font-size:12px;margin-top:10px}
+  .nav a{color:var(--red-dark);text-decoration:none;font-weight:600;margin-right:14px}
+  .nav a:hover{text-decoration:underline}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));
+        gap:12px;padding:16px}
+  .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px;
+        text-align:center;transition:opacity 2s ease,box-shadow .4s ease;
+        position:relative;overflow:hidden;cursor:pointer;text-decoration:none;color:inherit}
+  .card:hover{box-shadow:0 2px 10px rgba(0,0,0,.1)}
+  .card.fresh{box-shadow:0 0 0 2px var(--grn);animation:glow .8s ease-out forwards}
+  @keyframes glow{0%{box-shadow:0 0 0 3px var(--grn),0 0 12px var(--grn)}
+                  100%{box-shadow:0 0 0 2px var(--grn)}}
+  .card.old{opacity:.5}
+  .card.ancient{opacity:.2}
+  .sprite{width:80px;height:80px;object-fit:contain;display:block;margin:0 auto 6px}
+  .ini{width:80px;height:80px;display:flex;align-items:center;justify-content:center;
+       font-size:24px;font-weight:700;color:#b0aca2;margin:0 auto 6px}
+  .name{font-size:12px;font-weight:700;line-height:1.2;margin-bottom:4px}
+  .conf{font-size:11px;color:#8a857a}
+  .time{font-size:10px;color:#b0aca2;margin-top:4px;font-family:"SF Mono",monospace}
+  .empty{padding:64px 16px;text-align:center;color:#8a857a;font-size:14px;line-height:1.6}
+  @media(max-width:400px){.grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}}
+</style></head><body>
+<div class="wrap">
+  <div class="hdr">
+    <h1>Real time</h1>
+    <div class="hdr-meta mono">
+      <span class="live-dot" aria-hidden="true"></span>
+      <span id="updated">Listening…</span>
+    </div>
+    <div class="nav mono">
+      <a href="/">← Bird-Dex</a>
+      <a href="/twitter">Twitter</a>
+      <a href="/live">Live feed</a>
+      <a href="/timeline">Timeline</a>
+      <a href="/trends">Trends</a>
+    </div>
+  </div>
+  <div class="grid" id="grid">
+    {% if not events %}
+    <p class="empty" id="empty">No birds detected in the last 15 minutes yet.<br>
+    Cards appear as the monitor hears birds.</p>
+    {% else %}
+    {% for e in events %}
+    <a class="card" href="/bird/{{ e.slug }}" data-key="{{ e.segment_id }}_{{ e.slug }}"
+       data-heard="{{ e.heard_at }}">
+      {% if e.sprite_slug %}
+      <img class="sprite" src="/sprite/{{ e.sprite_slug }}.png" alt="">
+      {% else %}
+      <div class="ini">{{ e.initials }}</div>
+      {% endif %}
+      <div class="name">{{ e.common_name }}</div>
+      <div class="conf mono">{{ "%.0f"|format(e.peak_conf * 100) }}%</div>
+      <div class="time mono">{{ e.time_label }}</div>
+    </a>
+    {% endfor %}
+    {% endif %}
+  </div>
+</div>
+<script>
+(function(){
+  var grid=document.getElementById("grid");
+  var since={{ latest_json|safe }};
+  var lastPoll=Date.now();
+  var seen={};
+  var _15min=15*60*1000;
+
+  function key(e){return e.segment_id+"_"+e.slug}
+  function fmtTime(iso){
+    var d=new Date(iso.replace(" ","T"));
+    if(isNaN(d))return iso.slice(11,16);
+    var h=d.getHours(),m=d.getMinutes(),ap=h>=12?"PM":"AM";
+    h=h%12;if(!h)h=12;
+    return h+":"+(m<10?"0":"")+m+" "+ap;
+  }
+  function initials(name){
+    return name.split(/\s+/).map(function(w){return w[0]||""}).join("").slice(0,2).toUpperCase();
+  }
+  function ageClass(heardAt){
+    var age=Date.now()-new Date(heardAt.replace(" ","T")).getTime();
+    if(age<120000)return "";
+    if(age<300000)return "old";
+    return "ancient";
+  }
+  function refreshAges(){
+    grid.querySelectorAll(".card[data-heard]").forEach(function(el){
+      el.className="card "+ageClass(el.dataset.heard);
+    });
+  }
+  function removeEmpty(){
+    var e=document.getElementById("empty");
+    if(e)e.remove();
+  }
+  function addCard(e){
+    removeEmpty();
+    var k=key(e);
+    var existing=grid.querySelector("[data-key='"+k+"']");
+    if(existing){existing.dataset.heard=e.heard_at;return;}
+    seen[k]=1;
+    var img=e.has_sprite
+      ?'<img class="sprite" src="/sprite/'+e.slug+'.png" alt="">'
+      :'<div class="ini">'+initials(e.common_name)+'</div>';
+    var el=document.createElement("a");
+    el.className="card fresh";
+    el.href="/bird/"+e.slug;
+    el.dataset.key=k;
+    el.dataset.heard=e.heard_at;
+    el.innerHTML=img+
+      '<div class="name">'+e.common_name+'</div>'+
+      '<div class="conf mono">'+Math.round(e.peak_conf*100)+'%</div>'+
+      '<div class="time mono">'+fmtTime(e.heard_at)+'</div>';
+    grid.insertBefore(el,grid.firstChild);
+    setTimeout(function(){if(el.classList.contains("fresh"))el.classList.remove("fresh");},2000);
+  }
+  // Mark initial server-rendered cards as seen
+  grid.querySelectorAll(".card[data-key]").forEach(function(el){seen[el.dataset.key]=1;});
+
+  setInterval(refreshAges,15000);
+  function tickUpdated(){
+    var s=Math.floor((Date.now()-lastPoll)/1000);
+    document.getElementById("updated").textContent=
+      s<5?"Listening…":"Updated "+s+"s ago";
+  }
+  setInterval(tickUpdated,1000);
+  function poll(){
+    if(document.hidden)return;
+    var url="/api/recent?since="+encodeURIComponent(since);
+    fetch(url,{cache:"no-store"})
+      .then(function(r){return r.json()})
+      .then(function(data){
+        lastPoll=Date.now();
+        if(data.latest)since=data.latest;
+        (data.events||[]).forEach(function(e){
+          if(!seen[key(e)])addCard(e);
+        });
+      })
+      .catch(function(){});
+  }
+  setInterval(poll,2000);
+  document.addEventListener("visibilitychange",function(){if(!document.hidden)poll();});
+})();
+</script>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>

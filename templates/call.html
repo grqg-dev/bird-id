@@ -1,0 +1,493 @@
+
+<!doctype html><html><head><meta charset="utf-8"><title>{{ common_name }} · Call Chamber</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;--ink:#21232a;
+        --surface:#f7f6f2;--border:#e2e0d8;--muted:#8a857a}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Helvetica Neue",Arial,sans-serif;color:var(--ink);
+        background:#fff;min-height:100vh}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .wrap{max-width:960px;margin:0 auto;padding:28px 22px 36px}
+  .top{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:16px}
+  .top a{color:var(--red-dark);text-decoration:none;font-size:12px;font-weight:600;letter-spacing:.3px}
+  .top a:hover{text-decoration:underline}
+  .top .pos{font-size:11px;color:var(--muted);letter-spacing:.5px}
+  .top .spacer{flex:1}
+  .hero-card{position:relative;margin-bottom:18px;padding:14px 16px;background:var(--surface);
+             border:1px solid var(--border);border-radius:12px}
+  .hero-head{display:flex;gap:16px;align-items:flex-start;padding-right:88px;
+             padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:12px}
+  .hero-main{flex:1;min-width:0}
+  .hero-nav{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+  .nav-group{display:flex;align-items:center;gap:8px;flex:1 1 220px}
+  .nav-group.bird{justify-content:flex-end}
+  .nav-lbl{font-size:9px;letter-spacing:1.3px;text-transform:uppercase;color:var(--muted);width:34px;flex:0 0 34px}
+  .nav{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .clip-pos{font-size:11px;color:var(--muted);letter-spacing:.4px;padding:0 4px}
+  .nav a{padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;
+         color:#7a766a;text-decoration:none;font-size:11px;font-weight:600;max-width:168px;
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav a:hover{border-color:#c8c4ba;color:var(--ink);background:var(--surface)}
+  .nav a.off{opacity:.35;pointer-events:none}
+  .sprite-sm{width:56px;height:56px;object-fit:contain;border-radius:10px;background:#fff;
+             border:1px solid var(--border);padding:5px}
+  .title{margin:0;font-size:24px;font-weight:800;letter-spacing:.1px;line-height:1.15}
+  .latin{margin:4px 0 0;font-style:italic;color:#7a766a;font-size:13px}
+  .hero-meta{margin:6px 0 0;font-size:10px;color:var(--muted);letter-spacing:.4px}
+  .badge{position:absolute;top:14px;right:16px;display:flex;flex-direction:column;
+         align-items:flex-end;gap:3px;text-align:right}
+  .conf{font-size:15px;font-weight:800;color:var(--red-deep)}
+  .conf-lbl{font-size:9px;letter-spacing:1.2px;color:var(--muted);text-transform:uppercase}
+  .stage{position:relative;border:1px solid var(--border);border-radius:12px;overflow:hidden;
+         background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.06);
+         opacity:0;transform:translateY(4px);transition:opacity .35s ease,transform .35s ease}
+  .stage.ready{opacity:1;transform:none}
+  .stage-hud{position:absolute;inset:0;pointer-events:none;z-index:2;
+             display:flex;flex-direction:column;justify-content:space-between;padding:10px 12px}
+  .hud-top{display:flex;justify-content:flex-end;align-items:flex-start;width:100%}
+  .time-readout{font-size:11px;color:#e8ece9;background:rgba(6,12,10,.55);
+                border:1px solid rgba(255,255,255,.08);padding:4px 9px;border-radius:6px}
+  .stage-load{position:absolute;inset:0;z-index:4;display:flex;align-items:center;justify-content:center;
+              background:#f7f6f2;transition:opacity .3s}
+  .stage-load.hide{opacity:0;pointer-events:none}
+  .stage-load span{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);
+                   animation:loadpulse 1.4s ease-in-out infinite}
+  @keyframes loadpulse{0%,100%{opacity:.45}50%{opacity:1}}
+  .play-overlay{position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;
+                pointer-events:none;transition:opacity .25s ease}
+  .play-chip{font-size:11px;letter-spacing:.8px;color:var(--ink);background:rgba(255,255,255,.9);
+             border:1px solid var(--border);padding:10px 16px;border-radius:999px;
+             display:flex;align-items:center;gap:8px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+  .play-chip i{font-style:normal;color:var(--red);font-size:13px}
+  .play-overlay.hide{opacity:0}
+  #chamber-canvas{display:block;width:100%;height:min(66vh,520px);cursor:pointer;touch-action:manipulation}
+  #chamber-fallback{display:none;position:absolute;inset:0;z-index:5;align-items:center;justify-content:center;
+                    color:var(--muted);font-size:14px;padding:28px;text-align:center;background:var(--surface)}
+  .transport{margin-top:12px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;
+             background:var(--surface);display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:center}
+  .t-btn{width:38px;height:38px;border:0;border-radius:50%;background:var(--red);color:#fff;
+         font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .t-btn:hover{background:var(--red-dark)}
+  .t-btn:focus-visible{outline:2px solid var(--red-dark);outline-offset:2px}
+  .t-track{grid-column:2;display:flex;flex-direction:column;gap:6px}
+  .t-bar{position:relative;height:5px;border-radius:999px;background:#eceae3;overflow:visible;cursor:pointer}
+  .t-fill{height:100%;width:0;background:var(--red);border-radius:999px}
+  .t-thumb{position:absolute;top:50%;width:11px;height:11px;border-radius:50%;background:#fff;
+           border:2px solid var(--red);transform:translate(-50%,-50%);pointer-events:none;left:0}
+  .t-meta{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);letter-spacing:.4px}
+  .t-meta .on{color:var(--red-deep);font-weight:600}
+  audio#chamber-audio{display:none}
+  @media(prefers-reduced-motion:reduce){
+    .stage,.stage-load,.play-overlay{transition:none}
+    .stage-load span{animation:none}
+  }
+</style></head><body>
+{% from "includes/site-nav.html" import site_nav %}
+{{ site_nav(active='call') }}
+<div class="wrap">
+  <div class="top mono">
+    <a href="{{ back_href }}">← Bird-Dex</a>
+    <span class="spacer"></span>
+    <a href="/vibe/{{ segment_id }}?start={{ start }}&end={{ end }}&slug={{ slug }}"
+       style="margin-right:14px">Fable ✳</a>
+    <span class="pos">Dex #{{ "%03d"|format(dex_no) }} / {{ "%03d"|format(dex_total) }}</span>
+  </div>
+  <div class="hero-card">
+    <div class="badge mono">
+      <span class="conf-lbl">Peak conf</span>
+      <span class="conf">{{ "%.3f"|format(peak_conf) }}</span>
+    </div>
+    <div class="hero-head">
+      {% if sprite_slug %}<img class="sprite-sm" src="/sprite/{{ sprite_slug }}.png" alt="">{% endif %}
+      <div class="hero-main">
+        <h1 class="title">{{ common_name }}</h1>
+        {% if scientific_name %}<p class="latin">{{ scientific_name }}</p>{% endif %}
+        {% if clip_seconds %}<p class="hero-meta mono">{{ "%.1f"|format(clip_seconds) }}s clip · seg {{ segment_id }}</p>{% endif %}
+      </div>
+    </div>
+    <div class="hero-nav mono">
+      <div class="nav-group call">
+        <span class="nav-lbl">Call</span>
+        <div class="nav">
+          {% if prev_clip %}
+          <a href="{{ call_href(prev_clip) }}" title="{{ prev_clip.heard_at }}">← {{ "%.3f"|format(prev_clip.peak_conf) }}</a>
+          {% else %}<a class="off" href="#">← Prev</a>{% endif %}
+          <span class="clip-pos">{{ clip_no }} / {{ clip_total }}</span>
+          {% if next_clip %}
+          <a href="{{ call_href(next_clip) }}" title="{{ next_clip.heard_at }}">{{ "%.3f"|format(next_clip.peak_conf) }} →</a>
+          {% else %}<a class="off" href="#">Next →</a>{% endif %}
+        </div>
+      </div>
+      <div class="nav-group bird">
+        <span class="nav-lbl">Bird</span>
+        <div class="nav">
+          {% if prev_call %}
+          <a href="{{ call_href(prev_call) }}" title="{{ prev_call.name }}">← {{ prev_call.name }}</a>
+          {% else %}<a class="off" href="#">← Prev</a>{% endif %}
+          {% if next_call %}
+          <a href="{{ call_href(next_call) }}" title="{{ next_call.name }}">{{ next_call.name }} →</a>
+          {% else %}<a class="off" href="#">Next →</a>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="stage" id="stage">
+    <div class="stage-load mono" id="stage-load"><span>Loading analyzer</span></div>
+    <div class="stage-hud mono">
+      <div class="hud-top">
+        <span class="time-readout" id="time-readout">0:00 / 0:00</span>
+      </div>
+    </div>
+    <div class="play-overlay" id="play-overlay">
+      <span class="play-chip"><i>▶</i> Space to play</span>
+    </div>
+    <canvas id="chamber-canvas"></canvas>
+    <div id="chamber-fallback">Analyzer unavailable — use transport below for audio.</div>
+  </div>
+  <div class="transport mono">
+    <button class="t-btn" id="t-btn" type="button" aria-label="Play">▶</button>
+    <div class="t-track">
+      <div class="t-bar" id="t-bar">
+        <div class="t-fill" id="t-fill"></div>
+        <div class="t-thumb" id="t-thumb"></div>
+      </div>
+      <div class="t-meta"><span id="t-status">Paused</span><span id="t-dur">—</span></div>
+    </div>
+    <audio id="chamber-audio" preload="metadata"
+           src="/audio/{{ segment_id }}?start={{ start }}&end={{ end }}"></audio>
+  </div>
+</div>
+<script>
+(function(){
+  var canvas=document.getElementById('chamber-canvas');
+  var fallback=document.getElementById('chamber-fallback');
+  var audio=document.getElementById('chamber-audio');
+  var tBtn=document.getElementById('t-btn');
+  var tBar=document.getElementById('t-bar');
+  var tFill=document.getElementById('t-fill');
+  var tStatus=document.getElementById('t-status');
+  var tDur=document.getElementById('t-dur');
+  var timeReadout=document.getElementById('time-readout');
+  var playOverlay=document.getElementById('play-overlay');
+  var stage=document.getElementById('stage');
+  var stageLoad=document.getElementById('stage-load');
+  var tThumb=document.getElementById('t-thumb');
+  var vizUrl='/callviz/{{ segment_id }}.json?start={{ start }}&end={{ end }}';
+  var vizDuration=0;
+  function togglePlay(){
+    if(audio.paused)audio.play().catch(function(){});else audio.pause();
+  }
+  function seekTo(clientX){
+    var dur=vizDuration||audio.duration;
+    if(!dur||isNaN(dur))return;
+    var r=tBar.getBoundingClientRect();
+    audio.currentTime=Math.max(0,Math.min(1,(clientX-r.left)/r.width))*dur;
+  }
+  function syncTransport(){
+    var playing=!audio.paused&&!audio.ended;
+    tBtn.textContent=playing?'⏸':'▶';
+    tBtn.setAttribute('aria-label',playing?'Pause':'Play');
+    if(tStatus){
+      tStatus.textContent=playing?'Playing':'Paused';
+      tStatus.className=playing?'on':'';
+    }
+    if(playOverlay)playOverlay.classList.toggle('hide',playing);
+  }
+  function updateProgress(t){
+    var dur=vizDuration||audio.duration||1;
+    var pct=Math.max(0,Math.min(100,(t/dur)*100));
+    if(tFill)tFill.style.width=pct+'%';
+    if(tThumb)tThumb.style.left=pct+'%';
+    if(timeReadout)timeReadout.textContent=fmtTime(t)+' / '+fmtTime(dur);
+  }
+  function fmtTime(t){
+    if(!isFinite(t)||t<0)t=0;
+    var s=Math.floor(t%60),m=Math.floor(t/60);
+    return m+':'+(s<10?'0':'')+s;
+  }
+  tBtn.addEventListener('click',togglePlay);
+  tBar.addEventListener('click',function(e){seekTo(e.clientX);});
+  document.addEventListener('keydown',function(e){
+    if(e.target&&/input|textarea|select/i.test(e.target.tagName))return;
+    if(e.code==='Space'){e.preventDefault();togglePlay();}
+    else if(e.code==='ArrowRight'){
+      e.preventDefault();
+      audio.currentTime=Math.min(vizDuration||audio.duration||0,(audio.currentTime||0)+0.15);
+    }
+    else if(e.code==='ArrowLeft'){
+      e.preventDefault();
+      audio.currentTime=Math.max(0,(audio.currentTime||0)-0.15);
+    }
+  });
+  audio.addEventListener('play',syncTransport);
+  audio.addEventListener('pause',syncTransport);
+  audio.addEventListener('ended',syncTransport);
+  audio.addEventListener('timeupdate',function(){
+    if(!vizDuration)updateProgress(audio.currentTime||0);
+  });
+  syncTransport();
+  if(!canvas||!canvas.getContext){
+    if(stageLoad)stageLoad.classList.add('hide');
+    fallback.style.display='flex';
+    return;
+  }
+  fetch(vizUrl).then(function(r){
+    if(!r.ok)throw new Error('viz');
+    return r.json();
+  }).then(function(data){
+    try{
+      initSpectrogram(data);
+      if(stage)stage.classList.add('ready');
+      if(stageLoad)stageLoad.classList.add('hide');
+    }catch(e){
+      if(stageLoad)stageLoad.classList.add('hide');
+      fallback.style.display='flex';
+      fallback.textContent='Analyzer unavailable — use transport below for audio.';
+    }
+  }).catch(function(){
+    if(stageLoad)stageLoad.classList.add('hide');
+    fallback.style.display='flex';
+    fallback.textContent='Analyzer data unavailable — use transport below for audio.';
+  });
+
+  function initSpectrogram(data){
+    var ctx=canvas.getContext('2d');
+    var rows=data.rows,cols=data.cols,mag=data.mag;
+    var duration=data.duration||1;
+    vizDuration=duration;
+    if(tDur)tDur.textContent=fmtTime(duration);
+    var playheadFrac=0.33;
+    var scopeFrac=0.21;
+    var marginL=12,marginB=8,marginT=34,marginR=12;
+    var lut=new Uint8ClampedArray(256*3);
+    for(var i=0;i<256;i++){
+      var v=i/255;
+      var t=v*v;
+      lut[i*3]=Math.min(255,Math.floor(8+t*140+v*55));
+      lut[i*3+1]=Math.min(255,Math.floor(16+v*200+t*40));
+      lut[i*3+2]=Math.min(255,Math.floor(30+v*35+t*10));
+    }
+    var HSCALE=8;
+    var off=document.createElement('canvas');
+    off.width=cols*HSCALE;off.height=rows;
+    var offCtx=off.getContext('2d');
+    var img=offCtx.createImageData(off.width,rows);
+    var px=img.data;
+    for(var xc=0;xc<off.width;xc++){
+      var colF=xc/HSCALE;
+      var c0=Math.floor(colF);
+      var c1=Math.min(cols-1,c0+1);
+      var cf=colF-c0;
+      for(var r=0;r<rows;r++){
+        var m0=(mag[r]&&mag[r][c0]!=null)?mag[r][c0]:0;
+        var m1=(mag[r]&&mag[r][c1]!=null)?mag[r][c1]:0;
+        var m=m0*(1-cf)+m1*cf;
+        var idx=Math.min(255,Math.max(0,Math.floor(m*255)))*3;
+        var y=rows-1-r;
+        var o=(y*off.width+xc)*4;
+        px[o]=lut[idx];px[o+1]=lut[idx+1];px[o+2]=lut[idx+2];px[o+3]=255;
+      }
+    }
+    offCtx.putImageData(img,0,0);
+    var syncT=0,syncWall=0;
+    function syncAudioClock(){
+      syncT=audio.currentTime||0;
+      syncWall=performance.now();
+    }
+    audio.addEventListener('timeupdate',syncAudioClock);
+    audio.addEventListener('seeked',syncAudioClock);
+    audio.addEventListener('play',syncAudioClock);
+    audio.addEventListener('pause',syncAudioClock);
+    syncAudioClock();
+    function playbackTime(){
+      if(audio.paused||audio.ended)return audio.currentTime||0;
+      if(!syncWall)return audio.currentTime||0;
+      return Math.min(duration,syncT+(performance.now()-syncWall)*0.001);
+    }
+    var dpr=1;
+    function resize(){
+      var nw=canvas.clientWidth,nh=canvas.clientHeight;
+      if(!nw||!nh)return;
+      dpr=Math.min(window.devicePixelRatio||1,2);
+      canvas.width=Math.floor(nw*dpr);
+      canvas.height=Math.floor(nh*dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+    }
+    window.addEventListener('resize',resize);
+    resize();
+    canvas.addEventListener('click',togglePlay);
+    var smoothPulse=0,lastPulse=0,headGlow=0;
+    function spectrumAt(colF){
+      var c0=Math.floor(colF);
+      var c1=Math.min(cols-1,c0+1);
+      var f=colF-c0;
+      var out=[];
+      for(var r=0;r<rows;r++){
+        var m0=(mag[r]&&mag[r][c0]!=null)?mag[r][c0]:0;
+        var m1=(mag[r]&&mag[r][c1]!=null)?mag[r][c1]:0;
+        out.push(m0*(1-f)+m1*f);
+      }
+      return out;
+    }
+    function scrollGeom(plotW,plotH,colF,playing){
+      var gap=8;
+      var specH=plotH*(1-scopeFrac)-gap;
+      var scopeH=plotH*scopeFrac;
+      var specTop=marginT;
+      var scopeTop=marginT+specH+gap;
+      var visCols=Math.max(8,Math.min(cols,Math.ceil(cols*0.55)));
+      var dx,dw,headX;
+      if(playing){
+        var colW=plotW/visCols;
+        dx=marginL+playheadFrac*plotW-colF*colW;
+        dw=cols*colW;
+        headX=marginL+playheadFrac*plotW;
+      }else{
+        dx=marginL;
+        dw=plotW;
+        headX=marginL+(colF/Math.max(1,cols-1))*plotW;
+      }
+      return{visCols:visCols,dx:dx,dw:dw,headX:headX,
+             specTop:specTop,specH:specH,scopeTop:scopeTop,scopeH:scopeH};
+    }
+    function scopePath(spec,midY,amp,x0,x1){
+      var pts=[];
+      for(var r=0;r<rows;r++){
+        pts.push([
+          x0+(r/(rows-1||1))*(x1-x0),
+          midY-(spec[r]-0.3)*amp
+        ]);
+      }
+      return pts;
+    }
+    function strokePath(pts,color,width){
+      ctx.strokeStyle=color;
+      ctx.lineWidth=width;
+      ctx.lineJoin='round';
+      ctx.lineCap='round';
+      ctx.beginPath();
+      for(var i=0;i<pts.length;i++){
+        if(i===0)ctx.moveTo(pts[i][0],pts[i][1]);
+        else ctx.lineTo(pts[i][0],pts[i][1]);
+      }
+      ctx.stroke();
+    }
+    function fillUnderPath(pts,midY,top,hgt,color){
+      if(pts.length<2)return;
+      var fg=ctx.createLinearGradient(0,top,0,top+hgt);
+      fg.addColorStop(0,color);
+      fg.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=fg;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0],midY);
+      for(var i=0;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);
+      ctx.lineTo(pts[pts.length-1][0],midY);
+      ctx.closePath();
+      ctx.fill();
+    }
+    function drawPulseScope(g,plotW,colF,pulse){
+      var traces=[
+        {lag:4,color:'rgba(168,40,38,0.15)',w:1,fill:0},
+        {lag:2,color:'rgba(168,40,38,0.35)',w:1.2,fill:0},
+        {lag:0,color:'rgba(125,28,27,0.88)',w:1.6,fill:1}
+      ];
+      var midY=g.scopeTop+g.scopeH*0.54;
+      var amp=g.scopeH*0.38*(0.78+pulse*0.5);
+      var x0=marginL,x1=marginL+plotW;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(marginL,g.scopeTop,plotW,g.scopeH);
+      ctx.clip();
+      for(var ti=0;ti<traces.length;ti++){
+        var tr=traces[ti];
+        var spec=spectrumAt(Math.max(0,colF-tr.lag));
+        var pts=scopePath(spec,midY,amp,x0,x1);
+        if(tr.fill)fillUnderPath(pts,midY,g.scopeTop,g.scopeH,'rgba(216,58,54,0.1)');
+        strokePath(pts,tr.color,tr.w);
+      }
+      ctx.restore();
+    }
+    function drawSpecGrid(g,plotW){
+      ctx.strokeStyle='rgba(42,62,72,0.22)';
+      ctx.lineWidth=1;
+      var bands=5;
+      for(var b=1;b<bands;b++){
+        var y=g.specTop+(b/bands)*g.specH;
+        ctx.beginPath();
+        ctx.moveTo(marginL,y);
+        ctx.lineTo(marginL+plotW,y);
+        ctx.stroke();
+      }
+    }
+    function drawVignette(g,plotW,w,h){
+      var vg=ctx.createLinearGradient(marginL,0,marginL+28,0);
+      vg.addColorStop(0,'rgba(8,17,14,0.55)');
+      vg.addColorStop(1,'rgba(8,17,14,0)');
+      ctx.fillStyle=vg;
+      ctx.fillRect(marginL,g.specTop,28,g.specH);
+      vg=ctx.createLinearGradient(marginL+plotW,0,marginL+plotW-28,0);
+      vg.addColorStop(0,'rgba(8,17,14,0.55)');
+      vg.addColorStop(1,'rgba(8,17,14,0)');
+      ctx.fillStyle=vg;
+      ctx.fillRect(marginL+plotW-28,g.specTop,28,g.specH);
+    }
+    function draw(){
+      requestAnimationFrame(draw);
+      var w=canvas.clientWidth,h=canvas.clientHeight;
+      if(!w||!h)return;
+      var plotW=w-marginL-marginR,plotH=h-marginT-marginB;
+      var playing=!audio.paused&&!audio.ended;
+      var t=Math.max(0,Math.min(duration,playbackTime()));
+      var colF=(t/duration)*Math.max(1,cols-1);
+      var g=scrollGeom(plotW,plotH,colF,playing);
+      ctx.fillStyle='#f7f6f2';
+      ctx.fillRect(0,0,w,h);
+      ctx.fillStyle='#0d1b14';
+      ctx.fillRect(marginL,g.specTop,plotW,g.specH);
+      ctx.imageSmoothingEnabled=true;
+      ctx.drawImage(off,0,0,off.width,rows,g.dx,g.specTop,g.dw,g.specH);
+      drawSpecGrid(g,plotW);
+      drawVignette(g,plotW,w,h);
+      ctx.fillStyle='#f3efe2';
+      ctx.fillRect(marginL,g.scopeTop,plotW,g.scopeH);
+      ctx.strokeStyle='#e2e0d8';
+      ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.moveTo(marginL,g.scopeTop-1);
+      ctx.lineTo(marginL+plotW,g.scopeTop-1);
+      ctx.stroke();
+      var midY=g.scopeTop+g.scopeH*0.54;
+      ctx.strokeStyle='rgba(138,133,122,0.35)';
+      ctx.beginPath();
+      ctx.moveTo(marginL,midY);
+      ctx.lineTo(marginL+plotW,midY);
+      ctx.stroke();
+      var specNow=spectrumAt(colF);
+      var energy=0;
+      for(var ri=0;ri<rows;ri++)energy+=specNow[ri];
+      energy/=rows;
+      var beat=Math.max(0,energy-lastPulse)*5.5;
+      lastPulse=energy;
+      smoothPulse+=(energy+beat*0.18-smoothPulse)*(playing?0.28:0.14);
+      headGlow+=(smoothPulse-headGlow)*(playing?0.22:0.1);
+      drawPulseScope(g,plotW,colF,smoothPulse);
+      var headW=1.5+headGlow*1.5;
+      ctx.strokeStyle='rgba(216,58,54,0.85)';
+      ctx.lineWidth=headW;
+      ctx.beginPath();
+      ctx.moveTo(g.headX,marginT);
+      ctx.lineTo(g.headX,h-marginB);
+      ctx.stroke();
+      ctx.fillStyle='#d83a36';
+      ctx.beginPath();
+      ctx.arc(g.headX,g.specTop,3+headGlow,0,6.28318);
+      ctx.fill();
+      updateProgress(t);
+    }
+    draw();
+  }
+})();
+</script>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>

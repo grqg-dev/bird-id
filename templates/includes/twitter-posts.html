@@ -1,0 +1,32 @@
+{% for e in feed.events %}
+<article class="post">
+  <div class="post-avatar">
+    {% if e.sprite_slug %}
+    <img src="/sprite/{{ e.sprite_slug }}.png" alt="">
+    {% else %}
+    <span class="initials">{{ e.initials }}</span>
+    {% endif %}
+  </div>
+  <div class="post-body">
+    <div class="post-meta">
+      <a href="{{ e.bird_url }}" class="name">{{ e.common_name }}</a>
+      <span class="handle">{{ e.scientific_name }}</span>
+      <span class="dot">·</span>
+      <time datetime="{{ e.heard_at }}">{{ e.time_label }}</time>
+    </div>
+    <div class="post-text">
+      Detected with <strong>{{ "%.0f"|format(e.peak_conf * 100) }}%</strong> confidence
+    </div>
+    {% if e.has_audio %}
+    <div class="post-media">
+      <img src="/spectrogram/{{ e.segment_id }}.png?start={{ e.start_time }}&end={{ e.end_time }}" alt="spectrogram">
+      <audio controls preload="none" src="/audio/{{ e.segment_id }}?start={{ e.start_time }}&end={{ e.end_time }}"></audio>
+    </div>
+    {% endif %}
+    <div class="post-actions">
+      <a href="{{ e.bird_url }}">Profile →</a>
+      <a href="{{ e.call_url }}">Call Chamber →</a>
+    </div>
+  </div>
+</article>
+{% endfor %}

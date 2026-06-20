@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bird feed · Bird-Dex</title>
+  <style>
+    :root {
+      --bg: #000;
+      --surface: #15202b;
+      --surface-hover: #1e2732;
+      --border: #2f3336;
+      --text: #e7e9ea;
+      --text-secondary: #71767b;
+      --accent: #1d9bf0;
+      --accent-hover: #1a8cd8;
+      --success: #00ba7c;
+      --warning: #ffad1f;
+      --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    }
+    [data-theme="light"] {
+      --bg: #fff;
+      --surface: #fff;
+      --surface-hover: #f7f7f7;
+      --border: #eff3f4;
+      --text: #0f1419;
+      --text-secondary: #536471;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:var(--font-stack);background:var(--bg);color:var(--text);min-height:100vh}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{color:var(--accent-hover);text-decoration:underline}
+    .mono{font-family:var(--mono)}
+    .layout{display:grid;grid-template-columns:260px 1fr 320px;max-width:1280px;margin:0 auto;min-height:100vh}
+    @media(max-width:1024px){.layout{grid-template-columns:80px 1fr 260px}}
+    @media(max-width:768px){.layout{grid-template-columns:1fr}}
+    .left-col{border-right:1px solid var(--border);padding:16px}
+    @media(max-width:768px){.left-col{display:none}}
+    .feed-col{border-right:1px solid var(--border);min-width:0}
+    .feed-header{position:sticky;top:0;z-index:10;background:rgba(0,0,0,.75);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:14px 16px}
+    [data-theme="light"] .feed-header{background:rgba(255,255,255,.85)}
+    .feed-header h1{margin:0;font-size:20px;font-weight:800}
+    .feed-controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:13px}
+    .feed-controls a{padding:5px 11px;border-radius:999px;border:1px solid var(--border);color:var(--text-secondary);font-weight:600}
+    .feed-controls a.on{background:var(--accent);border-color:var(--accent);color:#fff}
+    .feed-controls a:hover:not(.on){background:var(--surface-hover);color:var(--text)}
+    #theme-toggle{margin-left:auto;background:none;border:none;color:var(--text);font-size:18px;cursor:pointer}
+    .feed{min-height:200px}
+    .post{display:grid;grid-template-columns:48px 1fr;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);transition:background .15s}
+    .post:hover{background:var(--surface-hover)}
+    .post-avatar{width:48px;height:48px;border-radius:50%;overflow:hidden;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center}
+    .post-avatar img{width:100%;height:100%;object-fit:contain;padding:3px}
+    .post-avatar .initials{font-size:15px;font-weight:800;color:var(--text-secondary)}
+    .post-body{min-width:0}
+    .post-meta{font-size:14px;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .post-meta .name{font-weight:800;color:var(--text)}
+    .post-meta .handle,.post-meta .dot,.post-meta time{color:var(--text-secondary);margin-left:4px}
+    .post-text{font-size:15px;line-height:1.45;margin-bottom:10px}
+    .post-media{border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:10px}
+    .post-media img{display:block;width:100%;height:180px;object-fit:cover;background:#0d1b14}
+    .post-media audio{display:block;width:100%;height:40px}
+    .post-actions{display:flex;gap:18px;font-size:13px;color:var(--text-secondary)}
+    .post-actions a{color:var(--text-secondary)}
+    .post-actions a:hover{color:var(--accent)}
+    .load-more{padding:18px;text-align:center;border-bottom:1px solid var(--border)}
+    .load-more button{background:var(--accent);color:#fff;border:none;border-radius:999px;padding:10px 24px;font-size:14px;font-weight:700;cursor:pointer}
+    .load-more button:hover{background:var(--accent-hover)}
+    .load-more button:disabled{opacity:.5;cursor:default}
+    .right-col{padding:16px}
+    @media(max-width:768px){.right-col{display:none}}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:16px}
+    .card h2{margin:0 0 12px;font-size:17px;font-weight:800}
+    .stat{margin-bottom:8px;font-size:14px;color:var(--text-secondary)}
+    .stat b{display:block;font-size:22px;font-weight:800;color:var(--text)}
+    .trend-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px}
+    .trend-item:last-child{border-bottom:none}
+    .trend-item a{font-weight:700;color:var(--text)}
+    .trend-item span{margin-left:auto;color:var(--text-secondary);font-size:12px}
+    .scope-form{display:flex;gap:8px;margin:10px 0}
+    .scope-form input[type=date]{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:6px 8px;font-family:inherit}
+    .scope-form button{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}
+    .empty{padding:48px 16px;text-align:center;color:var(--text-secondary)}
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="left-col">
+      {% from "includes/site-nav.html" import site_nav %}
+      {{ site_nav(active='twitter') }}
+    </aside>
+
+    <main class="feed-col">
+      <header class="feed-header">
+        <h1>Bird feed</h1>
+        <div class="feed-controls">
+          <a href="{{ qs(sort='time') }}" class="{{ 'on' if sort == 'time' else '' }}">Latest</a>
+          <a href="{{ qs(sort='conf') }}" class="{{ 'on' if sort == 'conf' else '' }}">Top conf</a>
+          <a href="{{ qs(hide_low=not hide_low) }}" class="{{ 'on' if hide_low else '' }}">Conf ≥ {{ "%.1f"|format(conf_floor) }}</a>
+          <button id="theme-toggle" aria-label="Toggle theme">🌙</button>
+        </div>
+      </header>
+
+      <div class="feed" id="feed">
+        {% include "includes/twitter-posts.html" %}
+        {% if not feed.events %}
+        <div class="empty mono">No detections yet.</div>
+        {% endif %}
+      </div>
+
+      <div class="load-more">
+        <button id="load-more" data-next="{{ page + 1 }}" {% if not feed.has_more %}hidden{% endif %}>
+          Load more
+        </button>
+      </div>
+    </main>
+
+    <aside class="right-col">
+      <div class="card">
+        <h2>Stats</h2>
+        <div class="stat"><b>{{ total_detections }}</b> detections</div>
+        <div class="stat"><b>{{ total_species }}</b> species</div>
+      </div>
+      <div class="card">
+        <h2>Trending this week</h2>
+        {% for t in trending %}
+        <div class="trend-item">
+          <a href="/bird/{{ t.slug }}">{{ t.common_name }}</a>
+          <span class="mono">{{ t.windows }} detections</span>
+        </div>
+        {% endfor %}
+        {% if not trending %}<div class="empty" style="padding:12px 0">No trend data yet.</div>{% endif %}
+      </div>
+      <div class="card">
+        <h2>Scope</h2>
+        {% if not show_all %}
+        <div style="margin-bottom:10px">
+          <a href="/twitter?day={{ prev_day }}">← Prev</a>
+          <a href="/twitter?day={{ next_day }}" style="margin-left:12px">Next →</a>
+        </div>
+        {% endif %}
+        <form method="get" action="/twitter" class="scope-form">
+          <input type="date" name="day" value="{{ selected_day }}" max="{{ today }}">
+          <button type="submit">Go</button>
+        </form>
+        <a href="/twitter?day=all">All time</a>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    // Theme toggle
+    (function(){
+      const root = document.documentElement;
+      const btn = document.getElementById('theme-toggle');
+      const saved = localStorage.getItem('birdid-theme');
+      const preferred = saved || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      root.setAttribute('data-theme', preferred);
+      btn.textContent = preferred === 'dark' ? '☀️' : '🌙';
+      btn.addEventListener('click', () => {
+        const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        localStorage.setItem('birdid-theme', next);
+        btn.textContent = next === 'dark' ? '☀️' : '🌙';
+      });
+    })();
+
+    function buildPostHTML(e){
+      const sprite = e.sprite_slug
+        ? '<img src="/sprite/'+e.sprite_slug+'.png" alt="">'
+        : '<span class="initials">'+e.initials+'</span>';
+      const media = e.has_audio
+        ? '<div class="post-media">'+
+            '<img src="/spectrogram/'+e.segment_id+'.png?start='+e.start_time+'&end='+e.end_time+'" alt="spectrogram">'+
+            '<audio controls preload="none" src="/audio/'+e.segment_id+'?start='+e.start_time+'&end='+e.end_time+'"></audio>'+
+          '</div>'
+        : '';
+      return '<div class="post-avatar">'+sprite+'</div>'+
+        '<div class="post-body">'+
+          '<div class="post-meta">'+
+            '<a href="'+e.bird_url+'" class="name">'+e.common_name+'</a>'+
+            '<span class="handle">'+e.scientific_name+'</span>'+
+            '<span class="dot">·</span>'+
+            '<time datetime="'+e.heard_at+'">'+e.time_label+'</time>'+
+          '</div>'+
+          '<div class="post-text">Detected with <strong>'+Math.round(e.peak_conf*100)+'%</strong> confidence</div>'+
+          media+
+          '<div class="post-actions">'+
+            '<a href="'+e.bird_url+'">Profile →</a>'+
+            '<a href="'+e.call_url+'">Call Chamber →</a>'+
+          '</div>'+
+        '</div>';
+    }
+
+    // Infinite scroll
+    (function(){
+      const feed = document.getElementById('feed');
+      const btn = document.getElementById('load-more');
+      if (!btn || btn.hidden) return;
+
+      const baseSearch = location.search.replace(/[?&]page=\d+/g, '').replace(/^[?&]/, '');
+      const baseUrl = '/api/twitter' + (baseSearch ? '?' + baseSearch : '');
+      function loadMore(){
+        const page = btn.dataset.next;
+        btn.disabled = true;
+        fetch(baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'page=' + page)
+          .then(r => r.json())
+          .then(data => {
+            if (!data.events.length) {
+              btn.hidden = true;
+              return;
+            }
+            data.events.forEach(e => {
+              const article = document.createElement('article');
+              article.className = 'post';
+              article.innerHTML = buildPostHTML(e);
+              feed.appendChild(article);
+            });
+            if (data.has_more) {
+              btn.dataset.next = parseInt(page, 10) + 1;
+              btn.disabled = false;
+            } else {
+              btn.hidden = true;
+            }
+          })
+          .catch(() => { btn.disabled = false; });
+      }
+      btn.addEventListener('click', loadMore);
+    })();
+  </script>
+  {% if dev %}{{ dev_script|safe }}{% endif %}
+</body>
+</html>

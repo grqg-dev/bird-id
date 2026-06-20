@@ -1,0 +1,268 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bird-ID — Data report</title>
+<style>
+  :root{
+    --ink:#1a1a1a;--body:#33363d;--bg:#ffffff;
+    --teal:#1f7a8c;--orange:#e8590c;--accent:#b3261e;
+    --paper:#fafaf7;--rule:#e7e9ec;--gray-d:#6b7079;
+    --g1:#efece4;--g2:#c8c2b5;--g3:#6b665d;
+  }
+  *{box-sizing:border-box}
+  html{background:#eceef1}
+  body{margin:0 auto;max-width:820px;background:var(--bg);color:var(--body);
+       font:16px/1.5 -apple-system,"Helvetica Neue",Arial,sans-serif;
+       padding:0 0 80px;-webkit-font-smoothing:antialiased}
+  .topbar{height:7px;background:linear-gradient(90deg,var(--teal) 0 70%,var(--orange) 70% 100%)}
+  .wrap{padding:34px 44px 0}
+  .nav{font-size:12px;margin-bottom:18px}
+  .nav a{color:var(--teal);text-decoration:none;font-weight:700}
+  .nav a:hover{text-decoration:underline}
+  .day-nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;font-size:12px}
+  .day-nav a{color:var(--teal);text-decoration:none;padding:4px 10px;border:1px solid var(--rule);border-radius:6px}
+  .day-nav a.on{border-color:var(--accent);color:var(--accent);font-weight:700}
+  .kicker{font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--teal);margin:0 0 12px}
+  .kicker b{color:var(--orange)}
+  h1{font-size:32px;line-height:1.08;font-weight:800;letter-spacing:-.02em;color:var(--ink);margin:0 0 16px}
+  .lede{font-size:17px;line-height:1.45;color:var(--ink);margin:0 0 6px}
+  .lede b{font-weight:800}
+  .brev{margin:18px 0;padding:0;list-style:none}
+  .brev li{position:relative;padding-left:22px;margin:0 0 9px;font-size:15px;line-height:1.45}
+  .brev li::before{content:"";position:absolute;left:0;top:7px;width:9px;height:9px;background:var(--teal)}
+  .brev li.o::before{background:var(--orange)}
+  .brev b{color:var(--ink);font-weight:800}
+  h2{font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ink);
+     margin:46px 0 2px;padding-top:18px;border-top:2px solid var(--ink);display:flex;align-items:center;gap:9px}
+  h2::before{content:"";width:11px;height:11px;background:var(--orange);flex:none}
+  .say{font-size:14px;color:var(--body);margin:6px 0 18px}
+  .say b{color:var(--ink);font-weight:800}
+  table{border-collapse:collapse;width:100%}
+  th{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--gray-d);
+     text-align:right;padding:0 0 8px;vertical-align:bottom;border-bottom:2px solid var(--ink)}
+  th.l{text-align:left}
+  td{padding:7px 0;border-bottom:1px solid var(--rule);vertical-align:middle}
+  td.name{font-size:14px;font-weight:700;color:var(--ink)}
+  td.sci{font-style:italic;color:var(--gray-d);font-size:12px;padding-left:8px;font-weight:400}
+  td.num{text-align:right;font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;font-family:"SF Mono",ui-monospace,monospace}
+  td.num.dim{color:var(--gray-d);font-weight:500}
+  td.num.low{color:var(--accent)}
+  svg{display:block;overflow:visible}
+  .foot{margin-top:54px;padding-top:18px;border-top:1px solid var(--ink);font-size:12.5px;line-height:1.5;color:var(--g3)}
+  .foot ol{margin:0;padding-left:20px}
+  .foot li{margin:0 0 9px}
+  .foot b{color:var(--ink);font-weight:600}
+  .mono{font-family:"SF Mono",ui-monospace,monospace;font-size:.92em}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px 40px;align-items:start}
+  .empty-box{margin-top:40px;padding:32px;background:var(--paper);border:1px solid var(--rule);text-align:center;color:var(--gray-d)}
+  .meta{font-family:"SF Mono",ui-monospace,monospace;font-size:11px;color:var(--g3);
+        border-top:1px solid var(--ink);border-bottom:1px solid var(--rule);padding:9px 0;margin:0 0 32px;
+        display:flex;flex-wrap:wrap;gap:4px 18px}
+  .meta b{color:var(--ink);font-weight:600}
+  @media(max-width:660px){.grid2{grid-template-columns:1fr}.wrap{padding:24px 20px 0}}
+</style>
+</head>
+<body>
+<div class="topbar"></div>
+<div class="wrap">
+  {% from "includes/site-nav.html" import site_nav %}
+  {{ site_nav(active='data') }}
+  <div class="nav"><a href="{{ back_href }}">← Bird-Dex</a></div>
+  <div class="day-nav">
+    {% if not show_all %}
+    <a href="/data?day={{ prev_day }}">← Prev</a>
+    <a href="/data?day={{ next_day }}">Next →</a>
+    {% if selected_day != today %}<a href="/data">Today</a>{% endif %}
+    {% endif %}
+    {% if show_all %}<a href="/data" class="on">All time</a>{% else %}<a href="/data?day=all">All time</a>{% endif %}
+    <span style="color:var(--gray-d);margin-left:auto">{{ scope_label }}</span>
+  </div>
+
+  {% if empty %}
+  <div class="empty-box">
+    <p>No detections {{ scope_label }}.</p>
+    <p><a href="{{ back_href }}">Back to Bird-Dex</a></p>
+  </div>
+  {% else %}
+  <p class="kicker">Bird-ID · backyard acoustics &nbsp;//&nbsp; <b>Data report</b></p>
+  <h1>{{ headline }}</h1>
+  <p class="lede">{{ lede|safe }}</p>
+  <ul class="brev">
+    {% for b in bullets %}
+    <li class="{{ 'o' if b.orange else '' }}">{{ b.text|safe }}</li>
+    {% endfor %}
+  </ul>
+  <div class="meta">
+    {% if not show_all %}<span><b>{{ selected_day }}</b></span>{% else %}<span><b>All time</b></span>{% endif %}
+    <span>{{ "%.2f"|format(lat) }}°N {{ "%.2f"|format(lon) }}°W</span>
+    <span><b>{{ meta.windows }}</b> windows</span>
+    <span><b>{{ meta.audio_min }}</b> min audio</span>
+    <span><b>{{ meta.detections }}</b> detections</span>
+    <span><b>{{ meta.species }}</b> species</span>
+    <span>BirdNET · min_conf <b>{{ min_conf }}</b></span>
+  </div>
+
+  <h2>Who showed up</h2>
+  <p class="say"><b>The big picture:</b> Detections per species, with every call plotted at the model's confidence ({{ min_conf }}&ndash;1.00). The red dot is each bird's best hit.</p>
+  <table id="roll"><thead><tr>
+    <th class="l">Species</th><th class="l">&nbsp;</th><th>n</th>
+    <th class="l" style="padding-left:14px">count</th>
+    <th class="l" style="padding-left:14px">confidence</th>
+    <th>best</th><th>wins</th>
+  </tr></thead><tbody></tbody></table>
+
+  <h2>Morning bird or afternoon bird?</h2>
+  <p class="say"><b>Between the lines:</b> Share of each species' calls from the morning block vs the afternoon window. The dashed line is the expected morning share given recording duration alone.</p>
+  <svg id="diel" width="100%" viewBox="0 0 760 300"></svg>
+
+  <div class="grid2">
+  <div>
+  <h2 id="panel3-title">Detections per minute</h2>
+  <p class="say" id="panel3-say"></p>
+  <svg id="rate" width="100%" viewBox="0 0 360 230"></svg>
+  </div>
+  <div>
+  <h2 id="panel4-title">Activity curve</h2>
+  <p class="say" id="panel4-say"></p>
+  <svg id="curve" width="100%" viewBox="0 0 360 230"></svg>
+  </div>
+  </div>
+
+  <div class="foot">
+  <ol>
+    <li><b>Recording is discontinuous.</b> Gaps between windows are <b>unrecorded, not quiet</b>.</li>
+    <li><b>Counts are calls, not birds.</b> One persistent bird near the mic inflates counts freely.</li>
+    <li><b>Confidence ≠ correctness.</b> Left edge is <b>censored at <span class="mono">min_conf {{ min_conf }}</span></b> — pileups there reflect the cutoff.</li>
+    {% if tentative %}<li><b>Tentative IDs:</b> {{ tentative|join(', ') }} — treat as unconfirmed.</li>{% endif %}
+    {% if not show_all %}<li><b>One day, one yard.</b> Morning vs afternoon here means which recording, not bird behavior.</li>{% endif %}
+  </ol>
+  </div>
+  {% endif %}
+</div>
+{% if not empty %}
+<script>
+const R={{ report_json|safe }};
+const T={ink:"#1a1a1a",accent:"#b3261e",teal:"#1f7a8c",orange:"#e8590c",g1:"#efece4",g2:"#c8c2b5",g3:"#6b665d",gray:"#c2c6cd"};
+const NS="http://www.w3.org/2000/svg";
+function el(t,a){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function txt(p,x,y,s,a){const t=el("text",Object.assign({x,y},a));t.textContent=s;p.appendChild(t);return t;}
+const FM='"SF Mono",ui-monospace,monospace';
+
+(function(){
+ const tb=document.querySelector("#roll tbody");
+ const SP=R.species, CW=120, cMax=Math.max(...SP.map(s=>s.c),1), SW=260, lo=R.min_conf, hi=1.0;
+ const sx=c=>Math.max(0,(c-lo)/(hi-lo)*SW);
+ SP.forEach(s=>{
+   const tr=document.createElement("tr");
+   tr.innerHTML=`<td class="name">${s.n}</td><td class="sci">${s.sci}</td><td class="num">${s.c}</td>`;
+   const tdC=document.createElement("td");tdC.style.paddingLeft="14px";
+   const svgC=el("svg",{width:CW,height:14,viewBox:`0 0 ${CW} 14`});
+   svgC.appendChild(el("line",{x1:0,y1:7,x2:s.c/cMax*CW,y2:7,stroke:T.ink,"stroke-width":6,opacity:.85}));
+   tdC.appendChild(svgC);tr.appendChild(tdC);
+   const tdS=document.createElement("td");tdS.style.paddingLeft="14px";const H=16;
+   const svgS=el("svg",{width:SW+8,height:H,viewBox:`0 0 ${SW+8} ${H}`});
+   svgS.appendChild(el("line",{x1:0,y1:H-2,x2:SW,y2:H-2,stroke:T.g2,"stroke-width":.5}));
+   s.conf.forEach(c=>svgS.appendChild(el("line",{x1:sx(c),y1:2,x2:sx(c),y2:H-2,stroke:T.g3,"stroke-width":1,opacity:.32})));
+   svgS.appendChild(el("circle",{cx:sx(s.max),cy:H/2,r:2.6,fill:T.accent}));
+   tdS.appendChild(svgS);tr.appendChild(tdS);
+   const tdB=document.createElement("td");tdB.className="num"+(s.tentative?" low":"");tdB.textContent=s.max.toFixed(3);
+   tr.appendChild(tdB);
+   const tdW=document.createElement("td");tdW.className="num dim";
+   const sw=el("svg",{width:Math.max(34,s.wins.length*8+10),height:10,viewBox:`0 0 ${Math.max(34,s.wins.length*8+10)} 10`});
+   s.wins.forEach((w,i)=>sw.appendChild(el("circle",{cx:5+i*8,cy:5,r:2.4,fill:w?T.ink:"none",stroke:T.g2,"stroke-width":w?0:1})));
+   tdW.appendChild(sw);tr.appendChild(tdW);
+   tb.appendChild(tr);
+ });
+})();
+
+(function(){
+ const svg=document.getElementById("diel");
+ const x0=190,x1=620,top=26,rh=23,baseAM=R.base_am_pct/100,W=x1-x0;
+ const data=[...R.species].filter(s=>s.am+s.pm>0).sort((a,b)=>(b.am/(b.am+b.pm))-(a.am/(a.am+b.pm))||b.c-a.c);
+ const bx=x0+baseAM*W;
+ svg.appendChild(el("line",{x1:bx,y1:top-9,x2:bx,y2:top+data.length*rh+2,stroke:T.accent,"stroke-width":.8,"stroke-dasharray":"3 3"}));
+ txt(svg,bx,top-13,R.base_am_pct+"% = expected morning share",{"text-anchor":"middle","font-family":FM,"font-size":9.5,fill:T.accent});
+ txt(svg,x0,top-13,"morning",{"font-family":FM,"font-size":9.5,fill:T.orange});
+ txt(svg,x1,top-13,"afternoon",{"font-family":FM,"font-size":9.5,fill:T.teal,"text-anchor":"end"});
+ data.forEach((s,i)=>{
+   const y=top+i*rh,tot=s.am+s.pm,amShare=tot?s.am/tot:0,split=x0+amShare*W;
+   svg.appendChild(el("line",{x1:x0,y1:y+8,x2:split,y2:y+8,stroke:T.orange,"stroke-width":7,opacity:.85}));
+   svg.appendChild(el("line",{x1:split,y1:y+8,x2:x1,y2:y+8,stroke:T.teal,"stroke-width":7,opacity:.85}));
+   txt(svg,x0-10,y+11,s.n,{"text-anchor":"end","font-size":12,fill:T.ink});
+   if(s.am)txt(svg,x0+3,y+11,s.am,{"font-family":FM,"font-size":9.5,fill:"#fff"});
+   if(s.pm)txt(svg,x1-3,y+11,s.pm,{"font-family":FM,"font-size":9.5,fill:"#fff","text-anchor":"end"});
+ });
+})();
+
+if(R.show_all){
+ document.getElementById("panel3-title").textContent="Activity by day";
+ document.getElementById("panel3-say").innerHTML="<b>Zoom out:</b> Detections per minute of tape, by calendar day.";
+ document.getElementById("panel4-title").textContent="Daily rhythm";
+ document.getElementById("panel4-say").innerHTML="<b>All hours:</b> Aggregate detections by clock hour across every recorded day.";
+ (function(){
+   const svg=document.getElementById("rate");
+   const DR=R.daily_rates,x0=58,x1=300,top=18,rh=Math.min(34,180/Math.max(DR.length,1)),rMax=Math.max(...DR.map(d=>d.rate),1);
+   const sx=v=>x0+v/rMax*(x1-x0);
+   [0,Math.round(rMax/2),Math.round(rMax)].filter((v,i,a)=>a.indexOf(v)===i).forEach(v=>txt(svg,sx(v),top-8,v,{"text-anchor":"middle","font-family":FM,"font-size":9,fill:T.g3}));
+   txt(svg,x0+(x1-x0)/2,top+DR.length*rh+4,"det / min",{"text-anchor":"middle","font-family":FM,"font-size":9,fill:T.g3});
+   DR.forEach((d,i)=>{
+     const y=top+i*rh+8;
+     svg.appendChild(el("line",{x1:x0,y1:y,x2:sx(d.rate),y2:y,stroke:T.g2,"stroke-width":.5}));
+     svg.appendChild(el("circle",{cx:sx(d.rate),cy:y,r:3.5,fill:T.accent}));
+     txt(svg,x0-8,y+3,d.day.slice(5),{"text-anchor":"end","font-family":FM,"font-size":9,fill:T.ink});
+     txt(svg,sx(d.rate)+8,y+3,d.rate.toFixed(1),{"font-family":FM,"font-size":10,fill:T.ink,"font-weight":600});
+   });
+ })();
+ (function(){
+   const svg=document.getElementById("curve");
+   const H=R.hourly,x0=30,x1=345,y0=170,y1=20,yMax=Math.max(...H,1);
+   const sx=i=>x0+i/23*(x1-x0),sy=v=>y0-v/yMax*(y0-y1);
+   [0,Math.round(yMax/2),yMax].filter((v,i,a)=>a.indexOf(v)===i).forEach(v=>txt(svg,x0-7,sy(v)+3,v,{"text-anchor":"end","font-family":FM,"font-size":9,fill:T.g3}));
+   svg.appendChild(el("line",{x1:x0,y1:y0,x2:x0,y2:sy(yMax),stroke:T.g3,"stroke-width":.5}));
+   let l="";H.forEach((v,i)=>l+=(i?"L":"M")+` ${sx(i)} ${sy(v)} `);
+   svg.appendChild(el("path",{d:l,fill:"none",stroke:T.ink,"stroke-width":1.4}));
+   const pk=H.indexOf(yMax);
+   svg.appendChild(el("circle",{cx:sx(pk),cy:sy(yMax),r:3,fill:T.accent}));
+   txt(svg,sx(pk),sy(yMax)-7,yMax+" @ "+pk+":00",{"text-anchor":"middle","font-family":FM,"font-size":9,fill:T.accent});
+   txt(svg,x0,y0+14,"0h",{"font-family":FM,"font-size":9,fill:T.g3});
+   txt(svg,x1,y0+14,"23h",{"text-anchor":"end","font-family":FM,"font-size":9,fill:T.g3});
+ })();
+}else{
+ document.getElementById("panel3-say").innerHTML="Rate per recording window — dawn blocks vs the long afternoon window.";
+ document.getElementById("panel4-say").innerHTML="Calls per minute across the longest afternoon segment ("+R.curve.start+"&ndash;"+R.curve.end+").";
+ (function(){
+   const svg=document.getElementById("rate");
+   const WIN=R.windows,x0=58,x1=300,top=18,rh=40,rMax=Math.max(...WIN.map(w=>w.det/w.min),1);
+   const sx=v=>x0+v/rMax*(x1-x0);
+   [0,Math.round(rMax/2),Math.round(rMax)].filter((v,i,a)=>a.indexOf(v)===i).forEach(v=>txt(svg,sx(v),top-8,v,{"text-anchor":"middle","font-family":FM,"font-size":9,fill:T.g3}));
+   txt(svg,x0+(x1-x0)/2,top+WIN.length*rh+4,"det / min",{"text-anchor":"middle","font-family":FM,"font-size":9,fill:T.g3});
+   WIN.forEach((w,i)=>{
+     const y=top+i*rh+8,r=w.det/w.min;
+     svg.appendChild(el("line",{x1:x0,y1:y,x2:sx(r),y2:y,stroke:T.g2,"stroke-width":.5}));
+     svg.appendChild(el("circle",{cx:sx(r),cy:y,r:4,fill:i===WIN.length-1?T.accent:T.ink}));
+     txt(svg,x0-8,y+3,w.clock,{"text-anchor":"end","font-family":FM,"font-size":10,fill:T.ink});
+     txt(svg,sx(r)+8,y+3,r.toFixed(1),{"font-family":FM,"font-size":10,fill:T.ink,"font-weight":600});
+   });
+ })();
+ (function(){
+   const svg=document.getElementById("curve");
+   const SEG4=R.curve.bins,x0=30,x1=345,y0=170,y1=20,n=SEG4.length,yMax=Math.max(...SEG4,1);
+   const sx=i=>n>1?x0+i/(n-1)*(x1-x0):x0,sy=v=>y0-v/yMax*(y0-y1);
+   [0,Math.round(yMax/2),yMax].filter((v,i,a)=>a.indexOf(v)===i).forEach(v=>txt(svg,x0-7,sy(v)+3,v,{"text-anchor":"end","font-family":FM,"font-size":9,fill:T.g3}));
+   svg.appendChild(el("line",{x1:x0,y1:y0,x2:x0,y2:sy(yMax),stroke:T.g3,"stroke-width":.5}));
+   let l="";SEG4.forEach((v,i)=>l+=(i?"L":"M")+` ${sx(i)} ${sy(v)} `);
+   svg.appendChild(el("path",{d:l,fill:"none",stroke:T.ink,"stroke-width":1.4}));
+   const pk=SEG4.indexOf(yMax);
+   svg.appendChild(el("circle",{cx:sx(pk),cy:sy(yMax),r:3,fill:T.accent}));
+   txt(svg,sx(pk),sy(yMax)-7,String(yMax),{"text-anchor":"middle","font-family":FM,"font-size":10,fill:T.accent});
+   txt(svg,x0,y0+14,R.curve.start,{"font-family":FM,"font-size":9,fill:T.g3});
+   txt(svg,x1,y0+14,R.curve.end,{"text-anchor":"end","font-family":FM,"font-size":9,fill:T.g3});
+ })();
+}
+</script>
+{% endif %}
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>

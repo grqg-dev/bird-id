@@ -12,7 +12,7 @@ absolute wall-clock time of that 3s window = segment start + window offset.
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -564,6 +564,54 @@ def recent_feed(
     return conn.execute(
         _RECENT_FEED_SELECT.format(since_clause=since_clause),
         params,
+    ).fetchall()
+
+
+def detection_feed(
+    conn: sqlite3.Connection,
+    *,
+    day: str | None = None,
+    show_all: bool = True,
+    min_conf: float = 0.3,
+    limit: int = 50,
+    offset: int = 0,
+    sort: str = "time",  # "time" or "conf"
+) -> list[sqlite3.Row]:
+    """Chronological or confidence-sorted detection feed for /twitter."""
+    if show_all or not day:
+        where = "WHERE d.confidence >= ?"
+        params: list = [min_conf]
+    else:
+        next_day = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+        where = "WHERE d.heard_at >= ? AND d.heard_at < ? AND d.confidence >= ?"
+        params = [day, next_day, min_conf]
+
+    order = "heard_at DESC" if sort == "time" else "confidence DESC, heard_at DESC"
+
+    return conn.execute(
+        f"""
+        SELECT common_name, scientific_name,
+               segment_id, confidence AS peak_conf,
+               heard_at, start_time, end_time, has_audio
+        FROM (
+            SELECT d.common_name, d.scientific_name,
+                   d.segment_id, d.confidence, d.heard_at,
+                   d.start_time, d.end_time,
+                   {_HAS_AUDIO} AS has_audio,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY d.segment_id, d.common_name
+                       ORDER BY d.confidence DESC, d.heard_at DESC
+                   ) AS rn
+            FROM detections d
+            JOIN segments s ON s.id = d.segment_id
+            LEFT JOIN tracks t ON t.id = d.track_id
+            {where}
+        )
+        WHERE rn = 1
+        ORDER BY {order}
+        LIMIT ? OFFSET ?
+        """,
+        (*params, limit, offset),
     ).fetchall()
 
 

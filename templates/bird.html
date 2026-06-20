@@ -1,0 +1,256 @@
+
+<!doctype html><html><head><meta charset="utf-8"><title>{{ common_name }} · Bird-Dex</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;--cream:#f3efe2;--ink:#21232a;
+        --gold:#ffcf3f;--grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8}
+  *{box-sizing:border-box}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);min-height:100vh;background:#fff}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .lbl{font-size:11px;letter-spacing:1.5px;color:#8a857a;text-transform:uppercase}
+  .wrap{max-width:960px;margin:0 auto;padding:28px 22px}
+  .top-bar{margin-bottom:22px}
+  .nav-panel{margin-bottom:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);
+             border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+  .nav-group{display:flex;align-items:center;gap:8px;flex:1 1 220px}
+  .nav-group.bird{justify-content:flex-end}
+  .nav-lbl{font-size:9px;letter-spacing:1.3px;text-transform:uppercase;color:#8a857a;width:34px;flex:0 0 34px}
+  .nav{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .nav a{color:var(--red-dark);text-decoration:none;font-size:11px;font-weight:600;padding:6px 12px;
+         border:1px solid var(--border);border-radius:8px;background:#fff;max-width:168px;
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav a:hover{background:var(--surface)}
+  .nav a.off,.nav .off{opacity:.35;pointer-events:none;color:#b0aca2;padding:6px 12px}
+  .clip-pos{font-size:11px;color:#8a857a;letter-spacing:.4px;padding:0 4px}
+  .back{font-size:12px;letter-spacing:.5px}
+  .back a{color:var(--red-dark);text-decoration:none}
+  .back a:hover{text-decoration:underline}
+  .hero{display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:start;margin-bottom:24px}
+  @media(max-width:640px){.hero{grid-template-columns:1fr}}
+  .hero-art{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center}
+  .hero-art img{display:block;width:254px;height:254px;object-fit:contain}
+  @media(max-width:640px){.hero-art img{width:100%;height:auto;max-width:254px}}
+  .hero-art .no-art{color:#b0aca2;font-size:12px;padding:40px 8px}
+  .hero h1{margin:0 0 4px;font-size:28px;font-weight:800;letter-spacing:.2px}
+  .hero .latin{font-style:italic;color:#7a766a;font-size:14px;margin:0 0 14px}
+  .scope{font-size:12px;color:#8a857a;letter-spacing:.5px}
+  .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+  @media(max-width:800px){.stat-grid{grid-template-columns:repeat(2,1fr)}}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+  .stat .val{font-size:22px;font-weight:800;letter-spacing:-.3px}
+  .stat .lbl{margin-top:2px}
+  .panel{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:18px;
+         box-shadow:0 1px 4px rgba(0,0,0,.05)}
+  .panel h2{margin:0 0 14px;font-size:13px;letter-spacing:1.2px;text-transform:uppercase;color:#7a766a;font-weight:700}
+  .bars{display:flex;align-items:flex-end;gap:3px;height:72px;padding-top:4px}
+  .bars .bar{flex:1;background:var(--red);border-radius:3px 3px 0 0;min-width:4px;position:relative}
+  .bars .bar.zero{background:#eceae3;min-height:2px}
+  .bar-lbls{display:flex;gap:3px;margin-top:4px}
+  .bar-lbls span{flex:1;text-align:center;font-size:9px;color:#8a857a;letter-spacing:.3px}
+  .conf-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:12px}
+  .conf-row .bucket{width:72px;color:#7a766a}
+  .conf-row .track{flex:1;height:14px;background:#eceae3;border-radius:4px;overflow:hidden}
+  .conf-row .fill{height:100%;background:var(--red);border-radius:4px}
+  .conf-row .n{width:36px;text-align:right;color:#8a857a}
+  .daily-table{width:100%;border-collapse:collapse;font-size:12px}
+  .daily-table th,.daily-table td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)}
+  .daily-table th{color:#8a857a;font-weight:600;font-size:11px;letter-spacing:.5px}
+  .daily-table .mono{text-align:right}
+  .clips{display:flex;flex-direction:column;gap:14px}
+  .clip{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff}
+  .clip-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;
+            background:var(--surface);border-bottom:1px solid var(--border);font-size:12px}
+  .clip-hdr .conf{font-weight:700;color:var(--red-deep)}
+  .clip .spectro{background:#0d1b14}
+  .clip .spectro img{display:block;width:100%;height:72px;object-fit:cover}
+  .clip .play{padding:8px 10px;background:#f7f6f2;border-top:1px solid var(--border)}
+  .clip .play audio{display:block;width:100%;height:32px}
+  .pager{display:flex;gap:10px;justify-content:center;margin-top:16px;font-size:12px}
+  .pager a{color:var(--red-dark);text-decoration:none;padding:6px 12px;border:1px solid var(--border);border-radius:8px}
+  .pager a:hover{background:var(--surface)}
+  .pager .off{color:#b0aca2;padding:6px 12px}
+  .extra-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;color:#7a766a}
+  @media(max-width:640px){.extra-stats{grid-template-columns:1fr}}
+  .extra-stats b{color:var(--ink)}
+  .tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .tag{font-size:11px;letter-spacing:.5px;padding:4px 10px;border-radius:20px;border:1px solid var(--border);
+       background:#fff;color:#7a766a}
+  .tag.group{background:var(--red);border-color:var(--red);color:#fff;font-weight:700}
+  .tag.season{background:var(--surface)}
+  .notes-grid{display:flex;flex-direction:column;gap:14px}
+  .note-item{display:grid;grid-template-columns:88px 1fr;gap:14px;align-items:baseline}
+  @media(max-width:640px){.note-item{grid-template-columns:1fr;gap:2px}}
+  .note-item .k{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#8a857a;font-weight:700;padding-top:1px}
+  .note-item .v{font-size:14px;line-height:1.55;color:var(--ink)}
+  .field-notes h2 .src{float:right;font-size:9px;letter-spacing:.5px;color:#b0aca2;font-weight:600;text-transform:none}
+</style></head><body>
+{% from "includes/site-nav.html" import site_nav %}
+{{ site_nav(active='bird') }}
+<div class="wrap">
+  <div class="top-bar">
+    <div class="nav-panel mono">
+      <div class="nav-group call">
+        <span class="nav-lbl">Call</span>
+        <div class="nav">
+          {% if prev_clip %}
+          <a href="{{ call_href(prev_clip) }}" title="{{ prev_clip.heard_at }}">← {{ "%.3f"|format(prev_clip.peak_conf) }}</a>
+          {% else %}<a class="off" href="#">← Prev</a>{% endif %}
+          <span class="clip-pos">{{ clip_no }} / {{ clip_total }}</span>
+          {% if next_clip %}
+          <a href="{{ call_href(next_clip) }}" title="{{ next_clip.heard_at }}">{{ "%.3f"|format(next_clip.peak_conf) }} →</a>
+          {% else %}<a class="off" href="#">Next →</a>{% endif %}
+        </div>
+      </div>
+      <div class="nav-group bird">
+        <span class="nav-lbl">Bird</span>
+        <div class="nav">
+          {% if prev_bird %}
+          <a href="{{ bird_href(prev_bird.slug) }}" title="{{ prev_bird.name }}">← {{ prev_bird.name }}</a>
+          {% else %}<a class="off" href="#">← Prev</a>{% endif %}
+          <span class="clip-pos">Nº {{ dex_no }} / {{ dex_total }}</span>
+          {% if next_bird %}
+          <a href="{{ bird_href(next_bird.slug) }}" title="{{ next_bird.name }}">{{ next_bird.name }} →</a>
+          {% else %}<a class="off" href="#">Next →</a>{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="back mono"><a href="{{ back_href }}">← Back to Bird-Dex</a> · <a href="/live">Live feed</a> · <a href="/realtime">Real time</a> · <a href="/timeline{{ timeline_qs }}">Timeline</a> · <a href="/trends">Trends</a></div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-art">
+      {% if sprite_slug %}
+      <img src="/sprite/{{ sprite_slug }}.png" alt="{{ common_name }}">
+      {% else %}
+      <div class="no-art lbl">No illustration</div>
+      {% endif %}
+    </div>
+    <div>
+      <h1>{{ common_name }}</h1>
+      <p class="latin">{{ scientific_name }}</p>
+      <p class="scope mono">{{ scope_label }}</p>
+      {% if discovered_at %}
+      <p class="scope mono" style="margin-top:6px">Discovered {{ discovered_at[:10] }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if info %}
+  <div class="panel field-notes">
+    <h2>Field notes <span class="src">Santa Barbara soundscape</span></h2>
+    <div class="notes-grid">
+      {% if info.sound %}
+      <div class="note-item"><div class="k">Sound</div><div class="v">{{ info.sound }}</div></div>
+      {% endif %}
+      {% if info.habitat %}
+      <div class="note-item"><div class="k">Where</div><div class="v">{{ info.habitat }}</div></div>
+      {% endif %}
+      {% if info.note %}
+      <div class="note-item"><div class="k">Notes</div><div class="v">{{ info.note }}</div></div>
+      {% endif %}
+    </div>
+    <div class="tags">
+      {% if info.group %}<span class="tag group">{{ info.group }}</span>{% endif %}
+      {% if info.season %}<span class="tag season">{{ info.season }}</span>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="stat-grid">
+    <div class="stat"><div class="val mono">{{ stats.windows }}</div><div class="lbl">Windows heard</div></div>
+    <div class="stat"><div class="val mono">{{ "%.3f"|format(stats.peak_conf) }}</div><div class="lbl">Peak conf</div></div>
+    <div class="stat"><div class="val mono">{{ "%.3f"|format(stats.avg_conf) }}</div><div class="lbl">Avg conf</div></div>
+    <div class="stat"><div class="val mono">{{ stats.segments }}</div><div class="lbl">Segments</div></div>
+    <div class="stat"><div class="val mono">{{ "%.3f"|format(stats.min_conf) }}</div><div class="lbl">Min conf</div></div>
+    <div class="stat"><div class="val mono">{{ streak }}</div><div class="lbl">Longest streak</div></div>
+    <div class="stat"><div class="val mono">{{ per_seg }}</div><div class="lbl">Win / segment</div></div>
+    <div class="stat"><div class="val mono">{{ peak_hour }}</div><div class="lbl">Peak hour</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Timing</h2>
+    <div class="extra-stats mono">
+      <div><b>First heard</b> {{ stats.first_heard[11:19] }} · {{ stats.first_heard[:10] }}</div>
+      <div><b>Last heard</b> {{ stats.last_heard[11:19] }} · {{ stats.last_heard[:10] }}</div>
+      <div><b>Active span</b> {{ span_label }}</div>
+      <div><b>All-time windows</b> {{ all_time_windows }}</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Hourly activity</h2>
+    <div class="bars">
+      {% for h in range(24) %}
+      {% set n = hourly.get("%02d"|format(h), 0) %}
+      {% set pct = (n * 100 / hourly_max) if hourly_max else 0 %}
+      <div class="bar{{ ' zero' if not n else '' }}" style="height:{{ pct if n else 2 }}%" title="{{ h }}:00 — {{ n }}"></div>
+      {% endfor %}
+    </div>
+    <div class="bar-lbls mono">
+      {% for h in [0,6,12,18,23] %}
+      <span style="flex:6">{{ h }}h</span>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Confidence distribution</h2>
+    {% for b in conf_buckets %}
+    <div class="conf-row mono">
+      <span class="bucket">{{ b.bucket }}</span>
+      <div class="track"><div class="fill" style="width:{{ (b.n * 100 / conf_max) if conf_max else 0 }}%"></div></div>
+      <span class="n">{{ b.n }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if daily %}
+  <div class="panel">
+    <h2>Daily breakdown</h2>
+    <table class="daily-table mono">
+      <thead><tr><th>Day</th><th class="mono">Windows</th><th class="mono">Peak conf</th></tr></thead>
+      <tbody>
+        {% for d in daily %}
+        <tr>
+          <td><a href="/bird/{{ slug }}?day={{ d.day }}" style="color:var(--red-dark);text-decoration:none">{{ d.day }}</a></td>
+          <td class="mono">{{ d.n }}</td>
+          <td class="mono">{{ "%.3f"|format(d.peak_conf) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="panel">
+    <h2>All clips ({{ total_clips }}) · sorted by confidence</h2>
+    <div class="clips">
+      {% for c in clips %}
+      {% set clip_qs = "?start=%.1f&end=%.1f"|format(c.start_time, c.end_time) %}
+      <div class="clip">
+        <div class="clip-hdr mono">
+          <span>#{{ loop.index + clip_offset }} · {{ c.heard_at[11:19] }} · seg {{ c.segment_id }}</span>
+          <span class="conf">{{ "%.3f"|format(c.confidence) }}</span>
+        </div>
+        {% if c.has_audio %}
+        <div class="spectro">
+          <img loading="lazy" src="/spectrogram/{{ c.segment_id }}.png{{ clip_qs }}" alt="spectrogram">
+        </div>
+        <div class="play"><audio controls preload="none" src="/audio/{{ c.segment_id }}{{ clip_qs }}"></audio></div>
+        {% else %}
+        <div class="clip-hdr" style="border-top:1px solid var(--border);color:#b0aca2">Audio discarded</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% if page > 1 or has_more %}
+    <div class="pager mono">
+      {% if page > 1 %}<a href="{{ page_qs(page - 1) }}">← Prev</a>{% else %}<span class="off">← Prev</span>{% endif %}
+      <span class="off">Page {{ page }}</span>
+      {% if has_more %}<a href="{{ page_qs(page + 1) }}">Next →</a>{% else %}<span class="off">Next →</span>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>

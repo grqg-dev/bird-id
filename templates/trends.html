@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trends · Bird-Dex</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;
+        --cream:#f3efe2;--ink:#21232a;--gold:#ffcf3f;
+        --grn:#46c66b;--surface:#f7f6f2;--border:#e2e0d8;
+        --dawn:#d98a4a;--dusk:#c0563f;--night:#1d2238;--day:#7fbfd4}
+  *{box-sizing:border-box}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);
+       background:radial-gradient(1200px 480px at 50% -8%,#fbfaf6 0,#f2f1ec 60%,#edece6 100%);
+       min-height:100vh}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .lbl{font-size:11px;letter-spacing:1.5px;color:#8a857a;text-transform:uppercase}
+  .wrap{max-width:960px;margin:0 auto;padding:26px 22px 80px}
+  .day-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px;
+           padding:10px 14px;background:rgba(255,255,255,.7);backdrop-filter:blur(6px);
+           border:1px solid var(--border);border-radius:12px}
+  .day-bar a{font-size:12px;letter-spacing:.5px;text-decoration:none;padding:6px 12px;
+             border-radius:8px;border:1px solid var(--border);color:#7a766a;background:#fff;
+             transition:.15s}
+  .day-bar a.on{border-color:var(--red);color:var(--red-deep);font-weight:700}
+  .day-bar a:hover{border-color:#c8c4ba;color:var(--ink)}
+  .day-bar .spacer{flex:1}
+  h1{font-size:32px;font-weight:800;letter-spacing:-.6px;margin:0 0 4px}
+  .subtitle{font-size:13px;color:#8a857a;margin:0 0 28px}
+  .section{margin-bottom:44px}
+  .section-head{font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
+                color:var(--red-dark);margin:0 0 14px;padding-bottom:8px;
+                border-bottom:2px solid var(--border)}
+  /* Briefing */
+  .briefing{background:#fff;border:1px solid var(--border);border-radius:14px;
+            padding:24px 28px;font-size:16px;line-height:1.7;color:#2a2a2a;
+            box-shadow:0 2px 12px rgba(0,0,0,.04)}
+  .briefing-byline{font-size:11px;letter-spacing:.8px;color:#a09890;margin-top:12px}
+  /* Clock */
+  .clock-wrap{display:flex;gap:32px;flex-wrap:wrap;align-items:flex-start}
+  .clock-legend{font-size:12px;color:#8a857a;line-height:2}
+  .clock-legend span{display:inline-block;width:10px;height:10px;border-radius:2px;
+                     margin-right:6px;vertical-align:middle}
+  /* Leaderboard */
+  .leader-cols{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media(max-width:600px){.leader-cols{grid-template-columns:1fr}}
+  .leader-list{list-style:none;margin:0;padding:0}
+  .leader-item{display:flex;align-items:center;gap:12px;padding:8px 0;
+               border-bottom:1px solid var(--border)}
+  .leader-item:last-child{border-bottom:none}
+  .leader-rank{font-size:11px;color:#a09890;font-weight:700;min-width:20px}
+  .leader-sprite{width:36px;height:36px;border-radius:50%;overflow:hidden;
+                 background:#f7f6f2;border:1px solid var(--border);flex-shrink:0;
+                 display:flex;align-items:center;justify-content:center}
+  .leader-sprite img{width:100%;height:100%;object-fit:contain}
+  .leader-sprite .ini{font-size:11px;color:#a09890;font-weight:700}
+  .leader-name{flex:1;font-size:14px;font-weight:600}
+  .leader-name a{color:inherit;text-decoration:none}
+  .leader-name a:hover{color:var(--red-deep)}
+  .leader-bar-wrap{flex:1;max-width:120px}
+  .leader-bar{height:6px;border-radius:3px;background:var(--dawn)}
+  .leader-pct{font-size:11px;color:#8a857a;margin-left:6px}
+  .night-bar{background:var(--night)}
+  /* Chronotypes */
+  .chrono-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+  .chrono-card{background:#fff;border:1px solid var(--border);border-radius:10px;
+               padding:12px 14px}
+  .chrono-name{font-size:13px;font-weight:700;margin:0 0 4px}
+  .chrono-name a{color:inherit;text-decoration:none}
+  .chrono-name a:hover{color:var(--red-deep)}
+  .chrono-type{font-size:10px;letter-spacing:.8px;text-transform:uppercase;
+               color:#8a857a;margin:0 0 8px}
+  .chrono-spark{margin-top:6px}
+  .badge{display:inline-block;font-size:9px;letter-spacing:.6px;text-transform:uppercase;
+         padding:2px 6px;border-radius:4px;font-weight:700;margin-left:6px}
+  .badge-dawn{background:#fff3e0;color:#b06010}
+  .badge-mid{background:#e3f4f9;color:#1a6a82}
+  .badge-eve{background:#f0ece0;color:#705030}
+  .badge-night{background:#e8eaf2;color:#2a3a6a}
+  .badge-all{background:#f2f0e8;color:#706858}
+  /* Risers & Fallers */
+  .rf-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media(max-width:560px){.rf-grid{grid-template-columns:1fr}}
+  .rf-list{list-style:none;margin:0;padding:0}
+  .rf-item{display:flex;align-items:center;gap:10px;padding:7px 0;
+           border-bottom:1px solid var(--border);font-size:13px}
+  .rf-item:last-child{border-bottom:none}
+  .rf-arrow{font-size:16px;font-weight:700;min-width:20px}
+  .rf-up{color:#2a7a40}
+  .rf-down{color:var(--red)}
+  .rf-new{color:var(--dawn)}
+  .rf-gone{color:#8a857a}
+  .rf-name{flex:1;font-weight:600}
+  .rf-delta{font-size:11px;color:#8a857a;font-family:"SF Mono",ui-monospace,monospace}
+  .baseline-note{background:var(--surface);border:1px solid var(--border);
+                 border-radius:10px;padding:20px 24px;color:#8a857a;font-size:14px;
+                 font-style:italic;text-align:center}
+  /* Window strip */
+  .window-strip{display:flex;gap:6px;margin-bottom:24px;flex-wrap:wrap}
+  .window-day{padding:5px 10px;border-radius:7px;background:#fff;
+              border:1px solid var(--border);font-size:12px;color:#8a857a}
+  .window-day.best{border-color:var(--dawn);color:#7a5020;font-weight:700}
+  .empty-state{padding:40px;text-align:center;color:#a09890;font-size:15px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  {% from "includes/site-nav.html" import site_nav %}
+  {{ site_nav(active='trends') }}
+
+  <h1>The Week in Song</h1>
+  <p class="subtitle mono lbl">Rolling {{ span }}-day window · {{ window_label }} · {{ total_species }} species · {{ total_detections | format_int }} detections</p>
+
+  {% if not visible_days %}
+  <div class="empty-state">No usable data in the current window. Check back once recording has been running for a few days.</div>
+  {% else %}
+
+  <!-- visible day strip -->
+  <div class="window-strip mono">
+    {% for d in visible_days %}
+    <div class="window-day {% if d == busiest_day %}best{% endif %}">
+      {{ d[5:] }}{% if d == busiest_day %} ★{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- 1. The Briefing -->
+  <div class="section">
+    <p class="section-head">The Briefing</p>
+    <div class="briefing">
+      <p style="margin:0">{{ briefing }}</p>
+      <p class="briefing-byline mono">Generated from {{ total_detections | format_int }} detections · {{ visible_days | length }} clean days · {{ window_label }}</p>
+    </div>
+  </div>
+
+  <!-- 2. Activity Clock -->
+  <div class="section">
+    <p class="section-head">Activity Clock</p>
+    <div class="clock-wrap">
+      <div>{{ clock_svg | safe }}</div>
+      <div class="clock-legend mono">
+        <div><span style="background:#d98a4a"></span> Dawn (04–09)</div>
+        <div><span style="background:#7fbfd4"></span> Day (09–17)</div>
+        <div><span style="background:#a09080"></span> Dusk (18–19)</div>
+        <div><span style="background:#1d2238"></span> Night (20–03)</div>
+        <div style="margin-top:10px;font-size:11px;color:#b0aba0">
+          Bar height = detections ÷ recorded audio-seconds<br>
+          (normalised for uneven recording effort)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Dawn Chorus + Night Shift leaderboards -->
+  <div class="section">
+    <p class="section-head">Dawn Chorus &amp; Night Shift</p>
+    <div class="leader-cols">
+      <div>
+        <p class="lbl" style="margin:0 0 10px">Dawn Chorus <span style="color:#d98a4a">▲</span> — most active 05:00–08:59</p>
+        {% if dawn_leaders %}
+        <ul class="leader-list">
+          {% for s in dawn_leaders %}
+          <li class="leader-item">
+            <span class="leader-rank mono">{{ loop.index }}</span>
+            <div class="leader-sprite">
+              {% if s.sprite_slug %}
+              <img src="/sprite/{{ s.sprite_slug }}.png" alt="">
+              {% else %}
+              <span class="ini">{{ s.common_name[:2].upper() }}</span>
+              {% endif %}
+            </div>
+            <div class="leader-name">
+              <a href="/bird/{{ s.bird_slug }}">{{ s.common_name }}</a>
+            </div>
+            <div class="leader-bar-wrap">
+              <div class="leader-bar" style="width:{{ (s.morning_share * 100) | int }}%"></div>
+            </div>
+            <span class="leader-pct mono">{{ "%.0f"|format(s.morning_share * 100) }}%</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color:#a09890;font-size:13px">Not enough data yet.</p>
+        {% endif %}
+      </div>
+      <div>
+        <p class="lbl" style="margin:0 0 10px">Night Shift <span style="color:#1d2238">▼</span> — most active 20:00–00:59</p>
+        {% if night_owls %}
+        <ul class="leader-list">
+          {% for s in night_owls %}
+          <li class="leader-item">
+            <span class="leader-rank mono">{{ loop.index }}</span>
+            <div class="leader-sprite">
+              {% if s.sprite_slug %}
+              <img src="/sprite/{{ s.sprite_slug }}.png" alt="">
+              {% else %}
+              <span class="ini">{{ s.common_name[:2].upper() }}</span>
+              {% endif %}
+            </div>
+            <div class="leader-name">
+              <a href="/bird/{{ s.bird_slug }}">{{ s.common_name }}</a>
+            </div>
+            <div class="leader-bar-wrap">
+              <div class="leader-bar night-bar" style="width:{{ (s.night_share * 100) | int }}%"></div>
+            </div>
+            <span class="leader-pct mono">{{ "%.0f"|format(s.night_share * 100) }}%</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color:#a09890;font-size:13px">Not enough data yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Chronotypes -->
+  <div class="section">
+    <p class="section-head">Chronotypes</p>
+    {% if chronotypes %}
+    <div class="chrono-grid">
+      {% for c in chronotypes %}
+      <div class="chrono-card">
+        <p class="chrono-name"><a href="/bird/{{ c.bird_slug }}">{{ c.common_name }}</a>
+          {% if c.chrono_type == "Early Riser" %}<span class="badge badge-dawn">Early Riser</span>
+          {% elif c.chrono_type == "Midday" %}<span class="badge badge-mid">Midday</span>
+          {% elif c.chrono_type == "Evening" %}<span class="badge badge-eve">Evening</span>
+          {% elif c.chrono_type == "Night Owl" %}<span class="badge badge-night">Night Owl</span>
+          {% else %}<span class="badge badge-all">All-day</span>{% endif %}
+        </p>
+        <p class="chrono-type mono">{{ c.total | format_int }} detections · peak {{ c.peak_hour_label }}</p>
+        <div class="chrono-spark">{{ c.sparkline | safe }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color:#a09890;font-size:13px">Not enough data yet.</p>
+    {% endif %}
+  </div>
+
+  <!-- 5. Risers & Fallers -->
+  <div class="section">
+    <p class="section-head">Risers &amp; Fallers</p>
+    {% if has_prior_week %}
+      {% if risers_fallers %}
+      <div class="rf-grid">
+        <div>
+          <p class="lbl" style="margin:0 0 10px">Trending up ↑</p>
+          {% if risers_fallers.risers or risers_fallers.new %}
+          <ul class="rf-list">
+            {% for m in risers_fallers.risers %}
+            <li class="rf-item">
+              <span class="rf-arrow rf-up">↑</span>
+              <span class="rf-name">{{ m.name }}</span>
+              <span class="rf-delta">+{{ "%.0f"|format(m.pct) }}%</span>
+            </li>
+            {% endfor %}
+            {% for m in risers_fallers.new %}
+            <li class="rf-item">
+              <span class="rf-arrow rf-new">★</span>
+              <span class="rf-name">{{ m.name }}</span>
+              <span class="rf-delta">new arrival</span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p style="color:#a09890;font-size:13px">No significant risers this week.</p>
+          {% endif %}
+        </div>
+        <div>
+          <p class="lbl" style="margin:0 0 10px">Trending down ↓</p>
+          {% if risers_fallers.fallers or risers_fallers.gone %}
+          <ul class="rf-list">
+            {% for m in risers_fallers.fallers %}
+            <li class="rf-item">
+              <span class="rf-arrow rf-down">↓</span>
+              <span class="rf-name">{{ m.name }}</span>
+              <span class="rf-delta">{{ "%.0f"|format(m.pct) }}%</span>
+            </li>
+            {% endfor %}
+            {% for m in risers_fallers.gone %}
+            <li class="rf-item">
+              <span class="rf-arrow rf-gone">–</span>
+              <span class="rf-name">{{ m.name }}</span>
+              <span class="rf-delta">gone quiet</span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p style="color:#a09890;font-size:13px">No significant fallers this week.</p>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+    {% else %}
+    <div class="baseline-note">Collecting baseline — check back next week once the system has two full weeks of clean data to compare.</div>
+    {% endif %}
+  </div>
+
+  {% endif %}
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>

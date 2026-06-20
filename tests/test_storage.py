@@ -637,6 +637,22 @@ def test_recent_feed_includes_clip_without_segment_wav(db_conn, tmp_path):
     assert rows[0]["has_audio"] == 1
 
 
+def test_detection_feed_all_time(seeded_conn):
+    rows = storage.detection_feed(seeded_conn, show_all=True, limit=10)
+    assert len(rows) == 2
+
+
+def test_detection_feed_day_scope(seeded_conn):
+    rows = storage.detection_feed(seeded_conn, day="2026-05-30", show_all=False, limit=10)
+    assert len(rows) == 2
+
+
+def test_detection_feed_sort_by_confidence(seeded_conn):
+    rows = storage.detection_feed(seeded_conn, show_all=True, sort="conf", limit=1)
+    assert rows[0]["common_name"] == "Bewick's Wren"
+    assert rows[0]["peak_conf"] == pytest.approx(0.92)
+
+
 def test_species_detections_has_audio_from_clip(db_conn, tmp_path):
     clip = tmp_path / "clip.wav"
     clip.write_bytes(b"wav")

@@ -1,0 +1,22 @@
+{% macro nav_link(href, label, active=False) %}
+<a href="{{ href }}" class="{{ 'on' if active else '' }}">{{ label }}</a>
+{% endmacro %}
+
+{% macro site_nav(active=None) %}
+<style>
+  .site-nav{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:14px;padding:10px 14px;background:#fff;border:1px solid var(--border, #e2e0d8);border-radius:10px;font-size:12px}
+  .site-nav a{text-decoration:none;padding:5px 10px;border-radius:8px;border:1px solid transparent;color:#7a766a;font-weight:600}
+  .site-nav a:hover{border-color:#d7d2c0;background:#f7f6f2;color:#21232a}
+  .site-nav a.on{border-color:var(--red, #d83a36);color:var(--red-deep, #7d1c1b);background:#fff}
+</style>
+<div class="site-nav mono">
+  {{ nav_link('/', 'Bird-Dex', active == 'dex') }}
+  {{ nav_link('/heard', 'Heard', active == 'heard') }}
+  {{ nav_link('/live', 'Live feed', active == 'live') }}
+  {{ nav_link('/realtime', 'Real time', active == 'realtime') }}
+  {{ nav_link('/twitter', 'Twitter', active == 'twitter') }}
+  {{ nav_link('/timeline', 'Timeline', active == 'timeline') }}
+  {{ nav_link('/data', 'Data report', active == 'data') }}
+  {{ nav_link('/trends', 'Trends', active == 'trends') }}
+</div>
+{% endmacro %}
