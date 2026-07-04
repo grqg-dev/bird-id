@@ -8,8 +8,12 @@ birdid.db
 birdid.db-wal
 birdid.db-shm
 birdid.db.local-backup*
+birdid.prod.db
 *.wav
 *.m4a
+
+# dashboard-ui — deploy artifact (dist/) is committed, deps are not
+dashboard-ui/node_modules/
 
 # WIP retro pixel sprites — tracked on branch retro-sprites, not main
 sprites/

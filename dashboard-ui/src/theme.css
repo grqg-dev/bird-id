@@ -1,0 +1,350 @@
+@font-face {
+  font-family: 'Press Start 2P';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/press-start-2p-latin.woff2') format('woff2');
+}
+
+/* ------------------------------------------------------------------ */
+/* Tokens — one component tree, two skins.                             */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --font-body: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+
+:root[data-theme='clean'] {
+  --bg: #f7f6f2;
+  --panel: #ffffff;
+  --panel-inner: #ffffff;
+  --well: #f1efe8;
+  --ink: #22242b;
+  --muted: #6f6a5e;
+  --faint: #a8a396;
+  --line: #e4e1d6;
+  --line-strong: #d3cfc2;
+  --accent: #b4552d;
+  --accent-deep: #8a3a1c;
+  --accent-soft: #f3e4da;
+  --up: #3d7a4f;
+  --down: #a3543d;
+  --heat0: #edeadf;
+  --heat1: #e7c8a6;
+  --heat2: #d69a62;
+  --heat3: #bc6a33;
+  --heat4: #83381a;
+  --night-ink: #5c637e;
+  --font-display: var(--font-body);
+  --font-label: var(--font-mono);
+  --radius: 10px;
+  --panel-border: 1px solid var(--line);
+  --panel-shadow: 0 1px 4px rgba(40, 36, 26, 0.07);
+  --label-size: 11px;
+  --pixelate: auto;
+}
+
+:root[data-theme='game'] {
+  --bg: #ac3229;
+  --panel: #cadc9f;
+  --panel-inner: #c2d494;
+  --well: #b5c98b;
+  --ink: #0f380f;
+  --muted: #2f5c2a;
+  --faint: #5d7a46;
+  --line: #9fb877;
+  --line-strong: #306230;
+  --accent: #0f380f;
+  --accent-deep: #0f380f;
+  --accent-soft: #a8bf7d;
+  --up: #0f380f;
+  --down: #6b4416;
+  --heat0: #d8e5b4;
+  --heat1: #a3c058;
+  --heat2: #6f9738;
+  --heat3: #35652c;
+  --heat4: #0f380f;
+  --night-ink: #2f5c2a;
+  --font-display: 'Press Start 2P', var(--font-mono);
+  --font-label: 'Press Start 2P', var(--font-mono);
+  --font-body: 'Press Start 2P', var(--font-mono);
+  --font-mono: 'Press Start 2P', monospace;
+  --radius: 6px;
+  --panel-border: 3px solid #23231f;
+  --panel-shadow: inset 0 0 0 2px #a9bd82, 0 3px 0 rgba(35, 26, 24, 0.45);
+  --label-size: 8px;
+  --pixelate: pixelated;
+}
+
+/* ------------------------------------------------------------------ */
+/* Base                                                                */
+/* ------------------------------------------------------------------ */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme='game'] body {
+  font-size: 10px;
+  line-height: 1.7;
+  -webkit-font-smoothing: none;
+  background-image: radial-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+  background-size: 4px 4px;
+}
+
+img.sprite-img {
+  image-rendering: var(--pixelate);
+}
+
+a {
+  color: var(--accent-deep);
+}
+
+.wrap {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 20px 18px 60px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Panels — every widget lives in one                                  */
+/* ------------------------------------------------------------------ */
+
+.panel {
+  background: var(--panel);
+  border: var(--panel-border);
+  border-radius: var(--radius);
+  box-shadow: var(--panel-shadow);
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.panel-title {
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.panel-title .sub {
+  text-transform: none;
+  letter-spacing: 0.3px;
+  color: var(--faint);
+  font-weight: 400;
+  margin-left: auto;
+  text-align: right;
+}
+
+:root[data-theme='game'] .panel-title::before {
+  content: '▶';
+  font-size: 7px;
+  position: relative;
+  top: -1px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Chips & controls                                                    */
+/* ------------------------------------------------------------------ */
+
+.chip {
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  letter-spacing: 0.5px;
+  padding: 5px 10px;
+  border-radius: calc(var(--radius) - 3px);
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.chip.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--panel);
+  font-weight: 700;
+}
+
+:root[data-theme='game'] .chip {
+  border-width: 2px;
+  border-color: var(--line-strong);
+  box-shadow: 0 2px 0 rgba(35, 26, 24, 0.35);
+}
+
+:root[data-theme='game'] .chip:active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+:root[data-theme='game'] .chip.on {
+  background: var(--ink);
+  color: var(--panel);
+}
+
+.search {
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: calc(var(--radius) - 3px);
+  background: var(--panel);
+  color: var(--ink);
+  min-width: 150px;
+}
+
+.search::placeholder {
+  color: var(--faint);
+}
+
+:root[data-theme='game'] .search {
+  border-width: 2px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared bits                                                         */
+/* ------------------------------------------------------------------ */
+
+.lbl {
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  font-family: var(--font-label);
+  font-size: calc(var(--label-size) - 1px);
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+:root[data-theme='game'] .badge {
+  border-radius: 3px;
+}
+
+.badge.new {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+
+.badge.night {
+  color: var(--night-ink);
+}
+
+/* Tooltip layer */
+.tip {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  background: var(--ink);
+  color: var(--panel);
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  letter-spacing: 0.4px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  max-width: 260px;
+  line-height: 1.5;
+  transform: translate(-50%, calc(-100% - 10px));
+  white-space: nowrap;
+}
+
+:root[data-theme='game'] .tip {
+  border-radius: 3px;
+  border: 2px solid var(--panel);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+/* Drawer */
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 18, 14, 0.45);
+  z-index: 90;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(460px, 94vw);
+  background: var(--panel);
+  border-left: var(--panel-border);
+  z-index: 100;
+  overflow-y: auto;
+  padding: 20px 22px 40px;
+  animation: drawer-in 0.18s ease-out;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(30px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: none;
+  }
+}
+
+/* Focus visibility */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Widget grid layout */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 860px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}

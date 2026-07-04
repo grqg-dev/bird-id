@@ -2595,6 +2595,216 @@ def vibe_view(segment_id: int):
         conn.close()
 
 
+# ---------------------------------------------------------------------------
+# /dash — React dashboard (SPA built from dashboard-ui/, one JSON cube API)
+# ---------------------------------------------------------------------------
+
+_DASH_DIST = _ROOT / "dashboard-ui" / "dist"
+_PIXEL_SPRITES_DIR = _ROOT / "sprites"
+# Confidence bucket edges: bucket 0 = [min_conf, .5), 1 = [.5, .7), 2 = [.7, .9), 3 = [.9, 1]
+_DASH_CONF_EDGES = (0.5, 0.7, 0.9)
+
+_dash_summary_cache: dict | None = None  # {"key": (count, max_id), "body": bytes}
+
+
+def _dash_cache_key(conn) -> tuple:
+    row = conn.execute(
+        "SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS m FROM detections"
+    ).fetchone()
+    return (row["n"], row["m"])
+
+
+def _dash_best_clips(conn) -> dict[str, dict]:
+    """Highest-confidence *playable* window per species.
+
+    Takes the top-8 windows per species and keeps the first whose audio still
+    exists on disk (track clip preferred, else the kept segment wav)."""
+    rows = conn.execute(
+        """
+        WITH ranked AS (
+          SELECT d.common_name AS name, d.segment_id AS seg,
+                 d.start_time AS s, d.end_time AS e, d.confidence AS conf,
+                 t.clip_path AS clip_path, sg.wav_path AS wav_path,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY d.common_name ORDER BY d.confidence DESC
+                 ) AS rn
+          FROM detections d
+          LEFT JOIN tracks t ON t.id = d.track_id
+          JOIN segments sg ON sg.id = d.segment_id
+        )
+        SELECT * FROM ranked WHERE rn <= 8
+        """
+    ).fetchall()
+    best: dict[str, dict] = {}
+    for r in rows:
+        if r["name"] in best:
+            continue
+        playable = (r["clip_path"] and os.path.exists(r["clip_path"])) or (
+            r["wav_path"] and os.path.exists(r["wav_path"])
+        )
+        if playable:
+            best[r["name"]] = {
+                "seg": r["seg"],
+                "s": round(r["s"], 2),
+                "e": round(r["e"], 2),
+                "conf": round(r["conf"], 3),
+            }
+    return best
+
+
+def _dash_conf_bucket_sql() -> str:
+    lo, mid, hi = _DASH_CONF_EDGES
+    return (
+        f"CASE WHEN confidence >= {hi} THEN 3 "
+        f"WHEN confidence >= {mid} THEN 2 "
+        f"WHEN confidence >= {lo} THEN 1 ELSE 0 END"
+    )
+
+
+def _build_dash_summary(conn) -> dict:
+    excluded = sorted(EXCLUDED_DAYS)
+    not_excluded = "date(heard_at) NOT IN (%s)" % ",".join("?" * len(excluded)) if excluded else "1=1"
+
+    sp_rows = conn.execute(
+        f"""
+        SELECT common_name AS name, scientific_name AS sci, COUNT(*) AS total,
+               MAX(confidence) AS peak, MIN(heard_at) AS first, MAX(heard_at) AS last
+        FROM detections WHERE {not_excluded}
+        GROUP BY common_name ORDER BY total DESC, name
+        """,
+        excluded,
+    ).fetchall()
+
+    slugs = _slug_map()
+    info = _bird_info()
+    clips = _dash_best_clips(conn)
+    species = []
+    index_of: dict[str, int] = {}
+    for i, r in enumerate(sp_rows):
+        slug = slugs.get(r["name"]) or _common_to_slug(r["name"])
+        entry = {
+            "name": r["name"],
+            "sci": r["sci"],
+            "slug": slug,
+            "art": (_SPRITES_DIR / f"{slug}.png").is_file(),
+            "pixel": (_PIXEL_SPRITES_DIR / f"{slug}.png").is_file(),
+            "total": r["total"],
+            "peak": round(r["peak"], 3),
+            "first": r["first"],
+            "last": r["last"],
+        }
+        clip = clips.get(r["name"])
+        if clip:
+            entry["clip"] = clip
+        blurb = info.get(slug)
+        if blurb:
+            entry["info"] = blurb
+        species.append(entry)
+        index_of[r["name"]] = i
+
+    day_row = conn.execute(
+        "SELECT date(MIN(heard_at)) AS lo, date(MAX(heard_at)) AS hi FROM detections"
+    ).fetchone()
+    days: list[str] = []
+    sun: list[dict] = []
+    if day_row["lo"]:
+        d = date.fromisoformat(day_row["lo"])
+        hi = date.fromisoformat(day_row["hi"])
+        lat = _CFG.get("lat") or 34.4208
+        lon = _CFG.get("lon") or -119.6982
+        while d <= hi:
+            days.append(d.isoformat())
+            arc = _solar_arc(lat, lon, d)
+            sun.append(
+                {
+                    "rise": round(arc["sunrise_pct"] / 100 * 24, 2),
+                    "set": round(arc["sunset_pct"] / 100 * 24, 2),
+                }
+            )
+            d += timedelta(days=1)
+    day_index = {day: i for i, day in enumerate(days)}
+
+    cube_rows = conn.execute(
+        f"""
+        SELECT date(heard_at) AS day, CAST(strftime('%H', heard_at) AS INTEGER) AS hour,
+               common_name AS name, {_dash_conf_bucket_sql()} AS cb, COUNT(*) AS n
+        FROM detections WHERE {not_excluded}
+        GROUP BY day, hour, name, cb
+        """,
+        excluded,
+    ).fetchall()
+    cube = [
+        [day_index[r["day"]], r["hour"], index_of[r["name"]], r["cb"], r["n"]]
+        for r in cube_rows
+        if r["day"] in day_index and r["name"] in index_of
+    ]
+
+    return {
+        "meta": {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "location": "Santa Barbara, CA",
+            "tz": "America/Los_Angeles",
+            "min_conf": _CFG.get("min_conf", 0.3),
+            "conf_edges": list(_DASH_CONF_EDGES),
+            "excluded_days": excluded,
+        },
+        "days": days,
+        "sun": sun,
+        "species": species,
+        "cube": cube,
+    }
+
+
+@app.route("/api/dash/summary")
+def api_dash_summary():
+    global _dash_summary_cache
+    conn = _db()
+    try:
+        key = _dash_cache_key(conn)
+        if _dash_summary_cache is None or _dash_summary_cache["key"] != key:
+            body = json.dumps(_build_dash_summary(conn), separators=(",", ":"))
+            _dash_summary_cache = {"key": key, "body": body.encode()}
+    finally:
+        conn.close()
+
+    etag = f'"{key[0]}-{key[1]}"'
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304, headers={"ETag": etag})
+    return Response(
+        _dash_summary_cache["body"],
+        mimetype="application/json",
+        headers={"ETag": etag, "Cache-Control": "no-cache"},
+    )
+
+
+@app.route("/dash")
+@app.route("/dash/")
+def dash_index():
+    index = _DASH_DIST / "index.html"
+    if not index.is_file():
+        return Response(
+            "dashboard UI not built yet — run: cd dashboard-ui && npm install && npm run build",
+            status=503,
+            mimetype="text/plain",
+        )
+    return send_file(index)
+
+
+@app.route("/dash/<path:relpath>")
+def dash_asset(relpath: str):
+    from flask import send_from_directory
+
+    return send_from_directory(_DASH_DIST, relpath)
+
+
+@app.route("/psprite/<slug>.png")
+def pixel_sprite(slug: str):
+    path = _PIXEL_SPRITES_DIR / f"{slug}.png"
+    if not path.is_file():
+        abort(404)
+    return send_file(path, mimetype="image/png")
+
+
 @app.route("/sprite/<slug>.png")
 def sprite(slug: str):
     path = _SPRITES_DIR / f"{slug}.png"
