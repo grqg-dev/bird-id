@@ -7,7 +7,7 @@ significant infra changes.
 
 | Item | Value |
 |------|-------|
-| Branch | `pre-refactor-readiness` (from `main` @ `6e124ba`) |
+| Branch | `pre-refactor-readiness` @ `24df1fd` (from `main` @ `6e124ba`) |
 | Parent commit | `6e124ba` — feat: add /dash React dashboard |
 | Prod mini HEAD | `6e124ba` (synced with `origin/main`) |
 
