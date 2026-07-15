@@ -568,8 +568,9 @@ etc.). The test suite's `requirements-dev.txt` omits these, so tests run fast.
 ./.venv/bin/python -m pytest -q
 ```
 
-**Dev fixture:** `~/Desktop/bird.wav` (3 s clip → Bewick's Wren, ~0.92 confidence).
-Use for manual smoke tests of `identify`, `monitor`, and `listen`.
+**Dev fixture:** `tests/fixtures/bewicks_wren.wav` (~2.75 s → Bewick's Wren, ~0.92 @ `-c 0.1`).
+Use for manual smoke tests of `identify`, `monitor`, and `listen`. Optional:
+`./scripts/smoke_identify.sh`.
 
 ---
 

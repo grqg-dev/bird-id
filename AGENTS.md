@@ -16,9 +16,9 @@ file map. Start here for environment rules; go there for code details.
 | Path | local checkout | `/Users/matt/bird-id` (user `matt`) |
 | Python | Apple Silicon → `requirements.txt` | **Intel** → `requirements-intel-mac.txt` |
 | `birdid.db` | Small / stale unless pulled from prod | **Source of truth** — live detections |
-| `recordings/` | Optional pull for playback tests | Full segment + clip history |
+| `recordings/` | Optional pull for playback tests | Clip MP3s + caches; segment wavs dropped after clip |
 | `config.json` | Local copy (gitignored) | Prod copy on mini (gitignored) |
-| Monitor | Manual smoke tests only | Runs 24/7 (`birdid.py monitor -d 0`) |
+| Monitor | Manual smoke tests only | **Often** a long-lived Terminal session (`birdid.py monitor -d 0`); launchd optional |
 | Dashboard | `127.0.0.1:8080` when hacking | `0.0.0.0:8080` via launchd (LAN) |
 
 **Rules for agents:**
@@ -34,6 +34,31 @@ file map. Start here for environment rules; go there for code details.
 
 Santa Barbara coords (`34.4208`, `-119.6982`) and `min_conf` **0.3** apply on both
 environments. Prod `config.json` lives only on the mini — do not commit it.
+
+### Dev checkout (separate from prod)
+
+Use a **local clone** for all refactor work — not the Mac mini checkout:
+
+```bash
+git clone git@github.com:grqg-dev/bird-id.git ~/bird-id
+cd ~/bird-id
+git checkout -b your-feature-branch
+./scripts/dev-setup.sh
+```
+
+Prod (`ssh mac-mini`, `/Users/matt/bird-id`) receives changes only after explicit
+user confirmation via `git pull` + `deploy/mac-mini/deploy.sh`.
+
+**Prerequisites:**
+
+| Tool | Dev | Prod (Intel mini) |
+|------|-----|-------------------|
+| Python | **3.12** (not 3.13) | 3.12 in `.venv` |
+| ffmpeg | `brew install ffmpeg` — mic capture + clip encoding | `~/bin/ffmpeg` or PATH (launchd omits Homebrew) |
+| Node.js | 20+ for `dashboard-ui/` (`npm ci`, `npm run dev`) | Not required unless rebuilding `/dash` dist |
+
+Fast CI/tests install only `requirements-dev.txt` (pytest + Flask). Full BirdNET
+smokes need `requirements.txt` (Apple Silicon) or `requirements-intel-mac.txt` (Intel).
 
 ## What this is
 
@@ -96,24 +121,52 @@ Key invariants:
 ## Setup
 
 ```bash
+./scripts/dev-setup.sh   # venv + requirements.txt + requirements-dev.txt + config.json
+```
+
+Or manually:
+
+```bash
 python3.12 -m venv .venv
 ./.venv/bin/python -m pip install -r requirements.txt          # Apple Silicon
 ./.venv/bin/python -m pip install -r requirements-intel-mac.txt  # Intel Mac (TF ≤2.16)
+./.venv/bin/python -m pip install -r requirements-dev.txt    # pytest (dev only)
+cp config.example.json config.json   # first time
 ```
 
 Always run via `./.venv/bin/python`, not the system Python.
+
+**React `/dash` dashboard** (`dashboard-ui/`):
+
+```bash
+cd dashboard-ui && npm ci && npm run dev   # http://localhost:5173/dash/ (proxies API to Flask)
+./.venv/bin/python birdid.py dashboard   # Flask on :8080 serves built dist/ at /dash
+cd dashboard-ui && npm run build           # commit dist/ when shipping UI changes
+```
 
 **Config:** `config.DEFAULTS` in `config.py` is the built-in fallback. Operational
 `min_conf` is **0.3** (`config.json`, dashboard, docs). `identifier.identify()` uses
 the same default as a literal (it does not import `config` — keep that boundary).
 
+Key defaults (see `config.example.json` for the full set):
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `clip_format` | `mp3` | Per-window clips under `recordings/clips/` |
+| `drop_segment_after_clips` | `true` | Prod has **no** `seg_*.wav` — only clip MP3s remain |
+| `retention_days` | `30` | Segment wav expiry; clips trimmed separately |
+| `db` / `recordings_dir` | relative paths | Resolve from **CWD** — launchd sets `WorkingDirectory` |
+
 ## How to test (do this before claiming a change works)
 
-The fixed dev fixture is `~/Desktop/bird.wav` (a 3s clip → Bewick's Wren ~0.92).
+The tracked dev fixture is `tests/fixtures/bewicks_wren.wav` (~2.75 s → Bewick's Wren
+~0.92 @ `-c 0.1`). See `tests/fixtures/README.md`.
 
 ```bash
-# mic-free identify loop — fastest check
-./.venv/bin/python birdid.py identify ~/Desktop/bird.wav -c 0.1
+# mic-free identify loop — fastest check (requires full runtime venv + TensorFlow)
+./scripts/smoke_identify.sh
+# equivalent:
+./.venv/bin/python birdid.py identify tests/fixtures/bewicks_wren.wav -c 0.1
 
 # monitor smoke test; confirm model loads once, seg lines appear every ~8-12s,
 # rows land in the CONFIGURED db
@@ -126,6 +179,9 @@ pkill -INT -f "birdid.py monitor"
 # dashboard
 ./.venv/bin/python birdid.py dashboard      # http://127.0.0.1:8080
 ```
+
+**Never point tests or smokes at prod.** Use a pulled DB snapshot (`pull_db_from_mini.sh`)
+and optional clip sample (`pull_clips_from_mini.sh`) for local dashboard playback.
 
 ## Automated tests
 
@@ -152,6 +208,10 @@ need them.
 
 Run pytest after any change to `storage.py`, `config.py`, `dashboard.py`, or
 `birdid.py`. Manual smokes above still apply after touching `cmd_monitor`.
+
+**Optional integration** (not CI): `./scripts/smoke_identify.sh` or
+`pytest -m integration` when integration tests exist. Mark slow BirdNET/mic tests
+with `@pytest.mark.integration`.
 
 **Lesson from history:** every time the monitor loop was changed, *running* it
 found a bug (stdout buffering) that reading the code did not. Re-run the monitor
@@ -184,13 +244,44 @@ smoke test after touching `cmd_monitor`.
 
 ### Prod services (launchd)
 
-| Label | What | Logs |
-|---|---|---|
-| `com.birdid.monitor` | `BirdID Monitor.app` → `birdid.py monitor -d 0` | `logs/monitor.log`, `monitor.err` |
-| `com.birdid.dashboard` | `birdid.py dashboard --host 0.0.0.0 --port 8080` | `logs/dashboard.log`, `dashboard.err` |
+| Label | What | Logs | Typical state |
+|---|---|---|---|
+| `com.birdid.monitor` | `BirdID Monitor.app` → `birdid.py monitor -d 0` | `logs/monitor.log`, `monitor.err` | **Often not loaded** — Matt runs monitor in Terminal instead |
+| `com.birdid.dashboard` | `birdid.py dashboard --host 0.0.0.0 --port 8080` | `logs/dashboard.log`, `dashboard.err` | Loaded via launchd; survives reboot |
 
 Both use `WorkingDirectory=/Users/matt/bird-id`. **CWD matters** — relative
 `db` and `recordings_dir` in `config.json` resolve from there.
+
+**Observed prod split (2026-07-14):** dashboard is launchd-managed and responds on
+`:8080`; monitor may be a weeks-old manual Terminal process while
+`com.birdid.monitor` is unloaded. Do not assume both are launchd-managed. Restarting
+the monitor launch agent without user OK can kill an intentional Terminal session.
+
+### Cloudflare Tunnel (public URL for dashboard)
+
+The dashboard runs on `localhost:8080`. To expose it publicly via Cloudflare:
+
+```bash
+# Start tunnel (quick tunnel, no account needed)
+/Users/matt/.local/bin/cloudflared tunnel --url http://localhost:8080 > /tmp/cloudflared-birdid.log 2>&1 &
+
+# Get the URL (wait ~5-10s for it to appear)
+grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cloudflared-birdid.log | head -1
+
+# Check if tunnel is running
+ps aux | grep cloudflared | grep -v grep
+
+# Stop tunnel
+pkill -f "cloudflared tunnel"
+```
+
+**Notes:**
+- Quick tunnels (`trycloudflare.com`) are ephemeral — URL changes each restart
+- Log file: `/tmp/cloudflared-birdid.log` (runtime; `logs/` is gitignored)
+- Dashboard must be running on `:8080` before starting tunnel
+- For persistent URL, set up a named tunnel with Cloudflare account
+
+**First-time setup:** `cloudflared` is installed at `/Users/matt/.local/bin/cloudflared`
 
 **First-time monitor setup** (mic permission — macOS grants mic to `.app`
 bundles, not bare Python under launchd):
@@ -236,15 +327,19 @@ Read-only snapshots for local dashboard / identify testing:
 ./scripts/pull_db_from_mini.sh
 ./scripts/pull_db_from_mini.sh --activate   # → ./birdid.db
 
-# Segment wavs (default: 30 newest; --all for everything)
+# Clip MP3s for dashboard playback (prod keeps clips, not segment wavs)
+./scripts/pull_clips_from_mini.sh                  # 30 newest
+./scripts/pull_clips_from_mini.sh --recent 50
+
+# Legacy segment wavs (only if still present on mini)
 ./scripts/pull_recordings_from_mini.sh
-./scripts/pull_recordings_from_mini.sh --recent 50
 ```
 
 Override host/path: `BIRD_MINI_HOST`, `BIRD_MINI_DIR`, `BIRD_MINI_DB`.
 
-Pulled DB paths are absolute from the mini — dashboard playback needs
-`--activate` **and** matching `seg_*.wav` files under `./recordings/`.
+Pulled DB `clip_path` values are relative (`recordings/clips/...`) — they resolve
+locally after `pull_clips_from_mini.sh`. Spectrogram routes may still need segment
+wavs; most playback uses clip MP3s.
 
 ### Querying prod from dev
 
@@ -309,3 +404,8 @@ the parent segment's full `wav_path` for fallback playback/spectrograms.
 - [ ] **Pi: ALSA capture path in `recorder.py`** (only non-portable module).
 - [ ] Rare/new-species alerts (desktop or email).
 - [ ] Optional HTTP backend behind `identify()`.
+
+## Pre-refactor baseline
+
+See [`docs/pre-refactor-baseline.md`](docs/pre-refactor-baseline.md) for the verified
+gate before large refactors: commit SHA, test commands, and prod service caveats.

@@ -7,7 +7,7 @@ Two independent chunks wired together:
   listen   - record, then identify (the live end-to-end path)
 
 The identify path is mic-free, so the dev test loop is just:
-    python birdid.py identify ~/Desktop/bird.wav
+    python birdid.py identify tests/fixtures/bewicks_wren.wav
 """
 
 from __future__ import annotations

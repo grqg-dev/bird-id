@@ -1,5 +1,6 @@
 .venv/
 recordings/
+logs/
 __pycache__/
 *.pyc
 
@@ -9,8 +10,17 @@ birdid.db-wal
 birdid.db-shm
 birdid.db.local-backup*
 birdid.prod.db
+config.json
 *.wav
+!tests/fixtures/*.wav
 *.m4a
+!tests/fixtures/*.m4a
+
+# local scratch (not part of the repo)
+.ndemo/
+demo/
+biglog.sh
+docs/plan-twitter-view.md
 
 # dashboard-ui — deploy artifact (dist/) is committed, deps are not
 dashboard-ui/node_modules/

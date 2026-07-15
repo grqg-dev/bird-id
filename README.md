@@ -49,12 +49,22 @@ You can also point it at an existing recording file if you already have one.
 
 Requires **Python 3.12** on macOS (Apple Silicon tested). **Intel Macs** (e.g. an
 older Mac mini) must use `requirements-intel-mac.txt` instead — pip only ships
-TensorFlow through 2.16.2 on x86_64.
+TensorFlow through 2.16.2 on x86_64. **ffmpeg** is required for mic capture and
+clip encoding (`brew install ffmpeg`). For the React `/dash` UI, install **Node.js 20+**.
+
+```bash
+git clone git@github.com:grqg-dev/bird-id.git && cd bird-id
+./scripts/dev-setup.sh
+```
+
+Or manually:
 
 ```bash
 python3.12 -m venv .venv
 ./.venv/bin/python -m pip install -r requirements.txt          # Apple Silicon
 ./.venv/bin/python -m pip install -r requirements-intel-mac.txt  # Intel Mac
+./.venv/bin/python -m pip install -r requirements-dev.txt      # pytest
+cp config.example.json config.json
 ```
 
 Copy `config.example.json` to `config.json` and set your latitude/longitude so
@@ -64,13 +74,13 @@ set for Santa Barbara, CA.
 **Try it on a recording** (no microphone needed):
 
 ```bash
-./.venv/bin/python birdid.py identify ~/Desktop/bird.wav
+./.venv/bin/python birdid.py identify tests/fixtures/bewicks_wren.wav
 ```
 
 **Import a file into the database** (same as identify, but writes a segment row):
 
 ```bash
-./.venv/bin/python birdid.py identify ~/Desktop/bird.wav --save
+./.venv/bin/python birdid.py identify tests/fixtures/bewicks_wren.wav --save
 ```
 
 **Run it continuously** (the main idea — leave it going):
@@ -147,6 +157,19 @@ For contributors — fast tests with no mic or BirdNET (see `AGENTS.md` for manu
 
 CI runs the same suite on push (`.github/workflows/test.yml`).
 
+**Optional BirdNET smoke** (full runtime venv, not CI):
+
+```bash
+./scripts/smoke_identify.sh
+```
+
+**React `/dash` UI** (optional):
+
+```bash
+cd dashboard-ui && npm ci && npm run dev   # hot reload at :5173
+./.venv/bin/python birdid.py dashboard     # Flask serves built dist at /dash
+```
+
 ## Project layout
 
 For contributors and the curious — see `AGENTS.md` for design notes and invariants.
@@ -175,13 +198,20 @@ chmod +x scripts/pull_db_from_mini.sh   # once
 Writes `birdid.db.local-backup-YYYYMMDD-HHMMSS` in the repo root (gitignored).
 Uses SQLite `.backup` on the mini so it is safe while the monitor is writing.
 
-**Segment wavs for local testing** (identify replays, dashboard playback — not a full sync):
+**Clip MP3s for local dashboard playback** (prod drops segment wavs after clipping):
 
 ```bash
-./scripts/pull_recordings_from_mini.sh              # 30 newest segments
+./scripts/pull_clips_from_mini.sh              # 30 newest clips
+./scripts/pull_clips_from_mini.sh --recent 50
+```
+
+Pair with `pull_db_from_mini.sh --activate` so `clip_path` rows resolve locally.
+
+**Legacy segment wavs** (only if still on the mini):
+
+```bash
+./scripts/pull_recordings_from_mini.sh
 ./scripts/pull_recordings_from_mini.sh --recent 50
-./scripts/pull_recordings_from_mini.sh --all        # every seg_*.wav on the mini
-./scripts/pull_recordings_from_mini.sh seg_20260601_131822.wav
 ```
 
 ## Roadmap
