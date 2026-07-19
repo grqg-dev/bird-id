@@ -47,6 +47,28 @@ export interface Summary {
   cube: CubeRow[]
 }
 
+export interface SureSpecies {
+  name: string
+  sci: string
+  slug: string
+  art: boolean
+  pixel: boolean
+  count: number
+  peak: number
+  clips: ClipRef[]
+  info?: BirdInfo
+}
+
+export interface SureSummary {
+  meta: {
+    generated_at: string
+    location: string
+    min_conf: number
+    excluded_days: string[]
+  }
+  species: SureSpecies[]
+}
+
 export type Band = 'all' | 'dawn' | 'day' | 'dusk' | 'night'
 export type RangeKey = '7d' | '14d' | '30d' | 'all'
 

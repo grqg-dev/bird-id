@@ -2605,6 +2605,7 @@ _PIXEL_SPRITES_DIR = _ROOT / "sprites"
 _DASH_CONF_EDGES = (0.5, 0.7, 0.9)
 
 _dash_summary_cache: dict | None = None  # {"key": (count, max_id), "body": bytes}
+_dash_sure_cache: dict | None = None
 
 
 def _dash_cache_key(conn) -> tuple:
@@ -2614,42 +2615,70 @@ def _dash_cache_key(conn) -> tuple:
     return (row["n"], row["m"])
 
 
-def _dash_best_clips(conn) -> dict[str, dict]:
-    """Highest-confidence *playable* window per species.
+def _dash_sample_clips(
+    conn,
+    *,
+    min_conf: float | None = None,
+    per_species: int = 1,
+    excluded_days: tuple[str, ...] = (),
+) -> dict[str, list[dict]]:
+    """Highest-confidence playable windows per species."""
+    filters = []
+    params: list[object] = []
+    if min_conf is not None:
+        filters.append("d.confidence >= ?")
+        params.append(min_conf)
+    if excluded_days:
+        placeholders = ",".join("?" * len(excluded_days))
+        filters.append(f"date(d.heard_at) NOT IN ({placeholders})")
+        params.extend(excluded_days)
+    where = f"WHERE {' AND '.join(filters)}" if filters else ""
 
-    Takes the top-8 windows per species and keeps the first whose audio still
-    exists on disk (track clip preferred, else the kept segment wav)."""
     rows = conn.execute(
-        """
+        f"""
         WITH ranked AS (
           SELECT d.common_name AS name, d.segment_id AS seg,
                  d.start_time AS s, d.end_time AS e, d.confidence AS conf,
                  t.clip_path AS clip_path, sg.wav_path AS wav_path,
                  ROW_NUMBER() OVER (
-                   PARTITION BY d.common_name ORDER BY d.confidence DESC
+                   PARTITION BY d.common_name
+                   ORDER BY d.confidence DESC, d.id DESC
                  ) AS rn
           FROM detections d
           LEFT JOIN tracks t ON t.id = d.track_id
           JOIN segments sg ON sg.id = d.segment_id
+          {where}
         )
         SELECT * FROM ranked WHERE rn <= 8
-        """
+        """,
+        params,
     ).fetchall()
-    best: dict[str, dict] = {}
+    samples: dict[str, list[dict]] = {}
     for r in rows:
-        if r["name"] in best:
+        species_samples = samples.setdefault(r["name"], [])
+        if len(species_samples) >= per_species:
             continue
         playable = (r["clip_path"] and os.path.exists(r["clip_path"])) or (
             r["wav_path"] and os.path.exists(r["wav_path"])
         )
         if playable:
-            best[r["name"]] = {
-                "seg": r["seg"],
-                "s": round(r["s"], 2),
-                "e": round(r["e"], 2),
-                "conf": round(r["conf"], 3),
-            }
-    return best
+            species_samples.append(
+                {
+                    "seg": r["seg"],
+                    "s": round(r["s"], 2),
+                    "e": round(r["e"], 2),
+                    "conf": round(r["conf"], 3),
+                }
+            )
+    return {name: clips for name, clips in samples.items() if clips}
+
+
+def _dash_best_clips(conn) -> dict[str, dict]:
+    """Highest-confidence playable window per species."""
+    return {
+        name: clips[0]
+        for name, clips in _dash_sample_clips(conn).items()
+    }
 
 
 def _dash_conf_bucket_sql() -> str:
@@ -2755,6 +2784,64 @@ def _build_dash_summary(conn) -> dict:
     }
 
 
+def _build_dash_sure(conn) -> dict:
+    """All-time species leaderboard for detections at 0.9+ confidence."""
+    min_conf = _DASH_CONF_EDGES[-1]
+    excluded = tuple(sorted(EXCLUDED_DAYS))
+    not_excluded = (
+        "date(heard_at) NOT IN (%s)" % ",".join("?" * len(excluded))
+        if excluded
+        else "1=1"
+    )
+    rows = conn.execute(
+        f"""
+        SELECT common_name AS name, scientific_name AS sci, COUNT(*) AS count,
+               MAX(confidence) AS peak
+        FROM detections
+        WHERE confidence >= ? AND {not_excluded}
+        GROUP BY common_name
+        ORDER BY count DESC, name
+        """,
+        (min_conf, *excluded),
+    ).fetchall()
+
+    slugs = _slug_map()
+    info = _bird_info()
+    clips = _dash_sample_clips(
+        conn,
+        min_conf=min_conf,
+        per_species=3,
+        excluded_days=excluded,
+    )
+    species = []
+    for row in rows:
+        slug = slugs.get(row["name"]) or _common_to_slug(row["name"])
+        entry = {
+            "name": row["name"],
+            "sci": row["sci"],
+            "slug": slug,
+            "art": (_SPRITES_DIR / f"{slug}.png").is_file(),
+            "pixel": (_PIXEL_SPRITES_DIR / f"{slug}.png").is_file(),
+            "count": row["count"],
+            "peak": round(row["peak"], 3),
+            "clips": clips.get(row["name"], []),
+        }
+        blurb = info.get(slug)
+        if blurb:
+            entry["info"] = blurb
+        species.append(entry)
+
+    return {
+        "meta": {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "location": "Santa Barbara, CA",
+            "min_conf": min_conf,
+            "excluded_days": list(excluded),
+        },
+        "species": species,
+    }
+
+
 @app.route("/api/dash/summary")
 def api_dash_summary():
     global _dash_summary_cache
@@ -2777,6 +2864,28 @@ def api_dash_summary():
     )
 
 
+@app.route("/api/dash/sure")
+def api_dash_sure():
+    global _dash_sure_cache
+    conn = _db()
+    try:
+        key = _dash_cache_key(conn)
+        if _dash_sure_cache is None or _dash_sure_cache["key"] != key:
+            body = json.dumps(_build_dash_sure(conn), separators=(",", ":"))
+            _dash_sure_cache = {"key": key, "body": body.encode()}
+    finally:
+        conn.close()
+
+    etag = f'"sure-{key[0]}-{key[1]}"'
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304, headers={"ETag": etag})
+    return Response(
+        _dash_sure_cache["body"],
+        mimetype="application/json",
+        headers={"ETag": etag, "Cache-Control": "no-cache"},
+    )
+
+
 @app.route("/dash")
 @app.route("/dash/")
 def dash_index():
@@ -2794,7 +2903,11 @@ def dash_index():
 def dash_asset(relpath: str):
     from flask import send_from_directory
 
-    return send_from_directory(_DASH_DIST, relpath)
+    if (_DASH_DIST / relpath).is_file():
+        return send_from_directory(_DASH_DIST, relpath)
+    if relpath.startswith("assets/") or Path(relpath).suffix:
+        abort(404)
+    return dash_index()
 
 
 @app.route("/psprite/<slug>.png")

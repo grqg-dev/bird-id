@@ -17,8 +17,14 @@ import { DexEntry } from './components/DexEntry'
 import { Discoveries } from './components/Discoveries'
 import { RareNight } from './components/RareNight'
 import { FieldNote } from './components/FieldNote'
+import { SureCalls } from './components/SureCalls'
 
 export default function App() {
+  const path = window.location.pathname.replace(/\/+$/, '')
+  return path === '/dash/sure' ? <SureCalls /> : <Dashboard />
+}
+
+function Dashboard() {
   const { theme, toggle } = useTheme()
   const [summary, setSummary] = useState<Summary | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -77,6 +83,9 @@ export default function App() {
             <button className="chip theme-toggle" onClick={toggle}>
               {theme === 'game' ? 'Clean mode' : 'Game mode'}
             </button>
+            <a className="lbl" href="/dash/sure">
+              sure calls ↗
+            </a>
             <a className="lbl" href="/">
               old dex ↗
             </a>

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import type { Species } from '../lib/types'
 import { useTheme } from '../theme'
 
+type SpriteSpecies = Pick<Species, 'name' | 'slug' | 'art' | 'pixel'>
+
 function initials(name: string): string {
   return name
     .split(/[\s-]+/)
@@ -15,7 +17,7 @@ function initials(name: string): string {
  * Species artwork: pixel sprite in game mode, illustration in clean mode,
  * with a lettered tile fallback when no art exists for the skin.
  */
-export function Sprite({ sp, size = 64 }: { sp: Species; size?: number }) {
+export function Sprite({ sp, size = 64 }: { sp: SpriteSpecies; size?: number }) {
   const { theme } = useTheme()
   const [broken, setBroken] = useState(false)
   const pixelFirst = theme === 'game'

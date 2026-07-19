@@ -425,3 +425,59 @@ def test_twitter_nav_link_present_on_index(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert b"/twitter" in resp.data
+
+
+def test_dash_sure_ranks_high_confidence_and_returns_three_clips(
+    client, seeded_conn, tmp_path, monkeypatch
+):
+    clip = tmp_path / "sure.wav"
+    clip.write_bytes(b"RIFF" + b"\x00" * 100)
+    day = datetime(2026, 7, 1, 7, 0, 0)
+    sure_detections = [
+        identifier.Detection("Sure Bird", "Certus avis", 0.99, 0.0, 3.0),
+        identifier.Detection("Sure Bird", "Certus avis", 0.97, 3.0, 6.0),
+        identifier.Detection("Sure Bird", "Certus avis", 0.95, 6.0, 9.0),
+        identifier.Detection("Sure Bird", "Certus avis", 0.89, 9.0, 12.0),
+        identifier.Detection("Second Bird", "Secundus avis", 0.94, 12.0, 15.0),
+        identifier.Detection("Second Bird", "Secundus avis", 0.91, 15.0, 18.0),
+    ]
+    storage.record_segment(
+        seeded_conn,
+        started_at=day,
+        ended_at=day + timedelta(seconds=18),
+        duration=18.0,
+        detections=sure_detections,
+        wav_path=None,
+        clip_paths={
+            (d.start_time, d.end_time): str(clip)
+            for d in sure_detections
+        },
+    )
+    monkeypatch.setattr(dashboard, "_dash_sure_cache", None)
+
+    resp = client.get("/api/dash/sure")
+
+    assert resp.status_code == 200
+    assert resp.headers["Cache-Control"] == "no-cache"
+    data = resp.get_json()
+    assert data["meta"]["min_conf"] == 0.9
+    assert [bird["name"] for bird in data["species"][:3]] == [
+        "Sure Bird",
+        "Second Bird",
+        "Bewick's Wren",
+    ]
+    assert data["species"][0]["count"] == 3
+    assert len(data["species"][0]["clips"]) == 3
+    assert all(clip["conf"] >= 0.9 for clip in data["species"][0]["clips"])
+    assert "Oak Titmouse" not in {bird["name"] for bird in data["species"]}
+
+
+def test_dash_sure_path_serves_spa_index(client, tmp_path, monkeypatch):
+    index = tmp_path / "index.html"
+    index.write_text("<main>React dashboard</main>")
+    monkeypatch.setattr(dashboard, "_DASH_DIST", tmp_path)
+
+    resp = client.get("/dash/sure")
+
+    assert resp.status_code == 200
+    assert b"React dashboard" in resp.data
