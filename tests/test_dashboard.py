@@ -472,6 +472,71 @@ def test_dash_sure_ranks_high_confidence_and_returns_three_clips(
     assert "Oak Titmouse" not in {bird["name"] for bird in data["species"]}
 
 
+def test_dash_sure_aged_out_peaks_stay_in_totals_without_fake_clips(
+    client, seeded_conn, tmp_path, monkeypatch
+):
+    """Aged-out high-conf rows stay in counts; samples only use kept audio."""
+    kept = tmp_path / "kept.wav"
+    kept.write_bytes(b"RIFF" + b"\x00" * 100)
+    day = datetime(2026, 7, 2, 7, 0, 0)
+
+    # Eight peak-confidence windows with audio already discarded (NULL paths).
+    aged = [
+        identifier.Detection("Aged Wren", "Troglodytes aetatis", 0.999, float(i * 3), float(i * 3 + 3))
+        for i in range(8)
+    ]
+    storage.record_segment(
+        seeded_conn,
+        started_at=day,
+        ended_at=day + timedelta(seconds=24),
+        duration=24.0,
+        detections=aged,
+        wav_path=None,
+        clip_paths={},
+    )
+
+    # Slightly lower 0.9+ windows that still have clips on disk.
+    kept_dets = [
+        identifier.Detection("Aged Wren", "Troglodytes aetatis", 0.95, 0.0, 3.0),
+        identifier.Detection("Aged Wren", "Troglodytes aetatis", 0.94, 3.0, 6.0),
+        identifier.Detection("Aged Wren", "Troglodytes aetatis", 0.93, 6.0, 9.0),
+    ]
+    storage.record_segment(
+        seeded_conn,
+        started_at=day + timedelta(hours=1),
+        ended_at=day + timedelta(hours=1, seconds=9),
+        duration=9.0,
+        detections=kept_dets,
+        wav_path=None,
+        clip_paths={(d.start_time, d.end_time): str(kept) for d in kept_dets},
+    )
+
+    # Fully aged-out species: still ranked by count, but no sample players.
+    ghost = [identifier.Detection("Ghost Bird", "Phasma avis", 0.96, 0.0, 3.0)]
+    storage.record_segment(
+        seeded_conn,
+        started_at=day + timedelta(hours=2),
+        ended_at=day + timedelta(hours=2, seconds=3),
+        duration=3.0,
+        detections=ghost,
+        wav_path=None,
+        clip_paths={},
+    )
+
+    monkeypatch.setattr(dashboard, "_dash_sure_cache", None)
+    data = client.get("/api/dash/sure").get_json()
+    by_name = {bird["name"]: bird for bird in data["species"]}
+
+    aged_row = by_name["Aged Wren"]
+    assert aged_row["count"] == 11  # 8 aged-out + 3 kept
+    assert len(aged_row["clips"]) == 3
+    assert all(c["conf"] <= 0.95 for c in aged_row["clips"])
+
+    ghost_row = by_name["Ghost Bird"]
+    assert ghost_row["count"] == 1
+    assert ghost_row["clips"] == []
+
+
 def test_dash_sure_path_serves_spa_index(client, tmp_path, monkeypatch):
     index = tmp_path / "index.html"
     index.write_text("<main>React dashboard</main>")

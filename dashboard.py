@@ -2609,10 +2609,17 @@ _dash_sure_cache: dict | None = None
 
 
 def _dash_cache_key(conn) -> tuple:
+    """Invalidate when detections change *or* retention clears audio paths."""
     row = conn.execute(
-        "SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS m FROM detections"
+        """
+        SELECT
+          (SELECT COUNT(*) FROM detections) AS n,
+          (SELECT COALESCE(MAX(id), 0) FROM detections) AS m,
+          (SELECT COUNT(*) FROM segments WHERE wav_path IS NOT NULL) AS segs,
+          (SELECT COUNT(*) FROM tracks WHERE clip_path IS NOT NULL) AS clips
+        """
     ).fetchone()
-    return (row["n"], row["m"])
+    return (row["n"], row["m"], row["segs"], row["clips"])
 
 
 def _dash_sample_clips(
@@ -2622,8 +2629,13 @@ def _dash_sample_clips(
     per_species: int = 1,
     excluded_days: tuple[str, ...] = (),
 ) -> dict[str, list[dict]]:
-    """Highest-confidence playable windows per species."""
-    filters = []
+    """Highest-confidence *still-kept* playable windows per species.
+
+    Retention NULLs `wav_path` / `clip_path` but leaves detection rows. Sample
+    selection only considers rows that still have a path so aged-out peaks do
+    not hide (or get offered as) recordings. Totals stay elsewhere.
+    """
+    filters = ["(t.clip_path IS NOT NULL OR sg.wav_path IS NOT NULL)"]
     params: list[object] = []
     if min_conf is not None:
         filters.append("d.confidence >= ?")
@@ -2632,7 +2644,9 @@ def _dash_sample_clips(
         placeholders = ",".join("?" * len(excluded_days))
         filters.append(f"date(d.heard_at) NOT IN ({placeholders})")
         params.extend(excluded_days)
-    where = f"WHERE {' AND '.join(filters)}" if filters else ""
+    where = "WHERE " + " AND ".join(filters)
+    # Enough candidates per species to survive missing-on-disk path checks.
+    candidate_limit = max(8, per_species * 4)
 
     rows = conn.execute(
         f"""
@@ -2649,9 +2663,9 @@ def _dash_sample_clips(
           JOIN segments sg ON sg.id = d.segment_id
           {where}
         )
-        SELECT * FROM ranked WHERE rn <= 8
+        SELECT * FROM ranked WHERE rn <= ?
         """,
-        params,
+        (*params, candidate_limit),
     ).fetchall()
     samples: dict[str, list[dict]] = {}
     for r in rows:
@@ -2854,7 +2868,7 @@ def api_dash_summary():
     finally:
         conn.close()
 
-    etag = f'"{key[0]}-{key[1]}"'
+    etag = f'"{key[0]}-{key[1]}-{key[2]}-{key[3]}"'
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304, headers={"ETag": etag})
     return Response(
@@ -2876,7 +2890,7 @@ def api_dash_sure():
     finally:
         conn.close()
 
-    etag = f'"sure-{key[0]}-{key[1]}"'
+    etag = f'"sure-{key[0]}-{key[1]}-{key[2]}-{key[3]}"'
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304, headers={"ETag": etag})
     return Response(
