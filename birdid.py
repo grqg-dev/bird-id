@@ -149,6 +149,9 @@ def _run_audio_cleanup(
     _run_dashboard_cleanup(conn, rec_dir, args.cfg, label=label, state=dash_state)
     orphans, orphan_freed = storage.purge_orphan_recordings(conn, rec_dir)
     clip_orphans, clip_orphan_freed = storage.purge_orphan_clips(conn, rec_dir / "clips")
+    cache_removed, cache_freed = storage.purge_stale_cache(
+        rec_dir / "cache", retention_days=days
+    )
     if expired:
         print(f"[{label}] expired {expired} segment wav(s), freed {freed / 1e6:.1f} MB")
     if clip_expired:
@@ -162,6 +165,11 @@ def _run_audio_cleanup(
         print(
             f"[{label}] removed {clip_orphans} orphan clip(s), "
             f"freed {clip_orphan_freed / 1e6:.1f} MB"
+        )
+    if cache_removed:
+        print(
+            f"[{label}] purged {cache_removed} stale cache file(s), "
+            f"freed {cache_freed / 1e6:.1f} MB"
         )
 
 

@@ -1191,7 +1191,7 @@ def purge_orphan_clips(
     *,
     min_age_sec: float = ORPHAN_MIN_AGE_SEC,
 ) -> tuple[int, int]:
-    """Remove clip wav files under `clips_dir` not referenced by any track.
+    """Remove clip files (wav/mp3) under `clips_dir` not referenced by any track.
 
     Skips files modified within `min_age_sec`. Returns (files_removed, bytes_freed).
     """
@@ -1209,7 +1209,9 @@ def purge_orphan_clips(
     }
     now = time.time()
     removed = freed = 0
-    for path in clips_dir.glob("*.wav"):
+    for path in clips_dir.iterdir():
+        if path.suffix not in (".wav", ".mp3"):
+            continue
         if path.resolve() in kept:
             continue
         if now - path.stat().st_mtime < min_age_sec:
@@ -1219,6 +1221,41 @@ def purge_orphan_clips(
         removed += 1
     return removed, freed
 
+
+
+def purge_stale_cache(
+    cache_dir: str | Path,
+    *,
+    retention_days: int,
+) -> tuple[int, int]:
+    """Remove cached files (spectrograms, callviz, vibeviz) older than `retention_days`.
+
+    Returns (files_removed, bytes_freed). No-op when retention_days <= 0.
+    """
+    import time
+
+    if retention_days <= 0:
+        return 0, 0
+
+    cache_dir = Path(cache_dir).expanduser()
+    if not cache_dir.is_dir():
+        return 0, 0
+
+    cutoff = time.time() - retention_days * 86400
+    removed = freed = 0
+    for subdir in ("spectrograms", "callviz", "vibeviz"):
+        d = cache_dir / subdir
+        if not d.is_dir():
+            continue
+        for path in d.iterdir():
+            if not path.is_file():
+                continue
+            if path.stat().st_mtime >= cutoff:
+                continue
+            freed += path.stat().st_size
+            path.unlink()
+            removed += 1
+    return removed, freed
 
 def hourly_in_range(
     conn: sqlite3.Connection, days: tuple[str, ...]
