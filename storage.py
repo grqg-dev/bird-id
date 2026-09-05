@@ -496,7 +496,12 @@ def species_detections(
     limit: int = 200,
     offset: int = 0,
 ) -> list[sqlite3.Row]:
-    """All detection windows for a species, highest confidence first."""
+    """Detection windows for a species with audio still on disk, highest confidence first.
+
+    Rows whose clip/segment audio has been discarded (retention expiry, or
+    never kept) are excluded rather than shown as a dead "Audio discarded"
+    placeholder.
+    """
     extra, params = _species_day_clause(day, show_all)
     return conn.execute(
         f"""
@@ -505,7 +510,7 @@ def species_detections(
         FROM detections d
         JOIN segments s ON s.id = d.segment_id
         LEFT JOIN tracks t ON t.id = d.track_id
-        WHERE d.common_name = ?{extra}
+        WHERE d.common_name = ?{extra} AND ({_HAS_AUDIO} = 1)
         ORDER BY d.confidence DESC, d.heard_at DESC
         LIMIT ? OFFSET ?
         """,
@@ -622,9 +627,16 @@ def species_detection_count(
     day: str | None = None,
     show_all: bool = True,
 ) -> int:
+    """Count of species detections with audio still on disk (see species_detections)."""
     extra, params = _species_day_clause(day, show_all)
     row = conn.execute(
-        f"SELECT COUNT(*) AS n FROM detections d WHERE d.common_name = ?{extra}",
+        f"""
+        SELECT COUNT(*) AS n
+        FROM detections d
+        JOIN segments s ON s.id = d.segment_id
+        LEFT JOIN tracks t ON t.id = d.track_id
+        WHERE d.common_name = ?{extra} AND ({_HAS_AUDIO} = 1)
+        """,
         (common_name, *params),
     ).fetchone()
     return row["n"]

@@ -723,3 +723,29 @@ def test_species_detections_has_audio_from_clip(db_conn, tmp_path):
     rows = storage.species_detections(db_conn, "Clipper")
     assert len(rows) == 1
     assert rows[0]["has_audio"] == 1
+
+
+def test_species_detections_excludes_discarded_audio(db_conn, tmp_path):
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"wav")
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[
+            identifier.Detection("HasAudio", "Sp a", 0.9, 0.0, 3.0),
+            identifier.Detection("NoAudio", "Sp b", 0.95, 10.0, 13.0),
+        ],
+        wav_path=None,
+        clip_paths={(0.0, 3.0): str(clip)},
+    )
+    # HasAudio's clip exists on disk; NoAudio's detection was recorded with no
+    # clip_paths entry, so its track has clip_path = NULL and no segment wav.
+    assert storage.species_detection_count(db_conn, "NoAudio") == 0
+    assert storage.species_detections(db_conn, "NoAudio") == []
+    assert storage.species_detection_count(db_conn, "HasAudio") == 1
+    rows = storage.species_detections(db_conn, "HasAudio")
+    assert len(rows) == 1
+    assert rows[0]["has_audio"] == 1
