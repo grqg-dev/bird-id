@@ -2234,6 +2234,35 @@ def data_view():
         conn.close()
 
 
+@app.route("/prevalence")
+def prevalence_view():
+    conn = _db()
+    try:
+        slugs = _slug_map()
+        rows = storage.species_dex(conn)
+        rows = sorted(rows, key=lambda r: (-r["windows"], -r["peak_conf"]))
+        birds = [
+            dict(
+                r,
+                rank=i + 1,
+                bird_slug=slugs.get(r["common_name"]) or _common_to_slug(r["common_name"]),
+                sprite_slug=_sprite_slug(r["common_name"], slugs),
+            )
+            for i, r in enumerate(rows)
+        ]
+        all_totals = storage.totals(conn)
+        return render_template(
+            "prevalence.html",
+            birds=birds,
+            total_species=len(birds),
+            all_totals=all_totals,
+            dev=_dev_mode(),
+            dev_script=_DEV_RELOAD_SCRIPT,
+        )
+    finally:
+        conn.close()
+
+
 @app.route("/trends")
 def trends_view():
     today = _today()

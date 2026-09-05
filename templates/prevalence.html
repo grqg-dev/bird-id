@@ -1,0 +1,84 @@
+
+<!doctype html><html><head><meta charset="utf-8"><title>Bird-Dex · Prevalence</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--red:#d83a36;--red-dark:#a82826;--red-deep:#7d1c1b;--surface:#f7f6f2;--border:#e2e0d8;--ink:#21232a}
+  *{box-sizing:border-box}
+  body{font-family:"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);background:#fff}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .lbl{font-size:11px;letter-spacing:1.5px;color:#8a857a}
+  .wrap{max-width:900px;margin:0 auto;padding:28px 22px}
+  .screen-bar{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 20px;margin-bottom:22px;
+              display:flex;gap:26px;align-items:center;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .screen-bar .count{font-size:28px;font-weight:800;letter-spacing:-.5px}
+  .screen-bar .seg{border-left:1px solid var(--border);padding-left:26px}
+  .list{display:flex;flex-direction:column;gap:10px}
+  .row{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--border);
+       border-radius:12px;padding:10px 14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .rank{font-weight:800;color:#b0aca2;width:34px;flex:none;text-align:right}
+  .art{width:52px;height:52px;flex:none;border:1px solid #eceae3;border-radius:8px;background:#fff;
+       display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .art img{width:100%;height:100%;object-fit:contain;padding:3px}
+  .art.no-art{color:#c8c4ba;font-size:9px;letter-spacing:.4px;text-align:center}
+  .info{flex:1;min-width:0}
+  .name{font-size:15px;font-weight:800;margin:0}
+  .name a{color:inherit;text-decoration:none}
+  .name a:hover{color:var(--red-deep);text-decoration:underline}
+  .latin{font-style:italic;color:#7a766a;font-size:12px;margin:1px 0 0}
+  .stats{flex:none;text-align:right;min-width:110px}
+  .count{font-weight:800;font-size:15px}
+  .peak{font-size:11px;color:#8a857a}
+  .play{flex:none;width:220px}
+  .play audio{display:block;width:100%;height:32px}
+  @media(max-width:680px){
+    .row{flex-wrap:wrap}
+    .play{width:100%;order:5}
+    .stats{min-width:0}
+  }
+  .empty{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:46px;text-align:center;color:#7a766a;font-size:15px}
+</style></head><body>
+
+<div class="wrap">
+  {% from "includes/site-nav.html" import site_nav %}
+  {{ site_nav(active='prevalence') }}
+
+  <div class="screen-bar">
+    <div><div class="count mono">{{ total_species }}</div><div class="lbl">Species</div></div>
+    <div class="seg"><div class="count mono">{{ all_totals.detections|format_int }}</div><div class="lbl">Detections (all time)</div></div>
+  </div>
+
+  {% if birds %}
+  <div class="list">
+    {% for b in birds %}
+    {% set clip_qs = "?start=%.1f&end=%.1f"|format(b.start_time, b.end_time) %}
+    <div class="row">
+      <div class="rank mono">{{ b.rank }}</div>
+      <div class="art{{ ' no-art' if not b.sprite_slug else '' }}">
+        {% if b.sprite_slug %}
+        <img loading="lazy" src="/sprite/{{ b.sprite_slug }}.png" alt="{{ b.common_name }}">
+        {% else %}NO ART{% endif %}
+      </div>
+      <div class="info">
+        <p class="name"><a href="/bird/{{ b.bird_slug }}">{{ b.common_name }}</a></p>
+        <p class="latin">{{ b.scientific_name }}</p>
+      </div>
+      <div class="stats mono">
+        <div class="count">×{{ b.windows }}</div>
+        <div class="peak">peak {{ "%.3f"|format(b.peak_conf) }}</div>
+      </div>
+      <div class="play">
+        {% if b.has_audio %}
+        <audio controls preload="none" src="/audio/{{ b.segment_id }}{{ clip_qs }}"></audio>
+        {% else %}
+        <div class="lbl" style="text-align:right">no audio</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">No species discovered yet — run <b>birdid.py monitor</b> to start filling the dex.</div>
+  {% endif %}
+</div>
+{% if dev %}{{ dev_script|safe }}{% endif %}
+</body></html>
