@@ -428,6 +428,58 @@ def test_expire_track_clips_disabled(db_conn, tmp_path):
     assert clip.exists()
 
 
+def test_expire_track_clips_high_confidence_exemption(db_conn, tmp_path):
+    clip_weak = tmp_path / "weak_clip.wav"
+    clip_strong = tmp_path / "strong_clip.wav"
+    clip_weak.write_bytes(b"x" * 100)
+    clip_strong.write_bytes(b"y" * 200)
+    started = datetime(2026, 1, 1, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[identifier.Detection("Weak", "Sp", 0.4, 0.0, 3.0)],
+        wav_path=str(tmp_path / "seg_weak.wav"),
+        clip_paths={(0.0, 3.0): str(clip_weak)},
+    )
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[identifier.Detection("Strong", "Sp", 0.99, 0.0, 3.0)],
+        wav_path=str(tmp_path / "seg_strong.wav"),
+        clip_paths={(0.0, 3.0): str(clip_strong)},
+    )
+
+    # 60 days out: past the normal 30-day retention, but short of the 90-day
+    # high-confidence floor. The weak clip is expired; the strong one is kept.
+    n, freed = storage.expire_track_clips(
+        db_conn,
+        retention_days=30,
+        now=datetime(2026, 3, 2, 12, 0, 0),
+        high_conf_threshold=0.9,
+        high_conf_retention_days=90,
+    )
+    assert n == 1
+    assert freed == 100
+    assert not clip_weak.exists()
+    assert clip_strong.exists()
+
+    # Past the 90-day floor too: the strong clip is finally expired.
+    n, freed = storage.expire_track_clips(
+        db_conn,
+        retention_days=30,
+        now=datetime(2026, 4, 5, 12, 0, 0),
+        high_conf_threshold=0.9,
+        high_conf_retention_days=90,
+    )
+    assert n == 1
+    assert freed == 200
+    assert not clip_strong.exists()
+
+
 def test_purge_orphan_clips(db_conn, tmp_path):
     import os
     import time
@@ -669,5 +721,31 @@ def test_species_detections_has_audio_from_clip(db_conn, tmp_path):
         clip_paths={(0.0, 3.0): str(clip)},
     )
     rows = storage.species_detections(db_conn, "Clipper")
+    assert len(rows) == 1
+    assert rows[0]["has_audio"] == 1
+
+
+def test_species_detections_excludes_discarded_audio(db_conn, tmp_path):
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"wav")
+    started = datetime(2026, 5, 30, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+        duration=60.0,
+        detections=[
+            identifier.Detection("HasAudio", "Sp a", 0.9, 0.0, 3.0),
+            identifier.Detection("NoAudio", "Sp b", 0.95, 10.0, 13.0),
+        ],
+        wav_path=None,
+        clip_paths={(0.0, 3.0): str(clip)},
+    )
+    # HasAudio's clip exists on disk; NoAudio's detection was recorded with no
+    # clip_paths entry, so its track has clip_path = NULL and no segment wav.
+    assert storage.species_detection_count(db_conn, "NoAudio") == 0
+    assert storage.species_detections(db_conn, "NoAudio") == []
+    assert storage.species_detection_count(db_conn, "HasAudio") == 1
+    rows = storage.species_detections(db_conn, "HasAudio")
     assert len(rows) == 1
     assert rows[0]["has_audio"] == 1
