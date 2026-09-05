@@ -144,8 +144,15 @@ def _run_audio_cleanup(
 ) -> None:
     """Expire old kept wavs, trim non-dashboard audio, drop orphans."""
     days = _retention_days(args)
+    high_conf_threshold = config.resolve(None, "high_conf_threshold", args.cfg)
+    high_conf_retention_days = config.resolve(None, "high_conf_retention_days", args.cfg)
     expired, freed = storage.expire_segment_audio(conn, retention_days=days)
-    clip_expired, clip_freed = storage.expire_track_clips(conn, retention_days=days)
+    clip_expired, clip_freed = storage.expire_track_clips(
+        conn,
+        retention_days=days,
+        high_conf_threshold=high_conf_threshold,
+        high_conf_retention_days=high_conf_retention_days,
+    )
     _run_dashboard_cleanup(conn, rec_dir, args.cfg, label=label, state=dash_state)
     orphans, orphan_freed = storage.purge_orphan_recordings(conn, rec_dir)
     clip_orphans, clip_orphan_freed = storage.purge_orphan_clips(conn, rec_dir / "clips")
