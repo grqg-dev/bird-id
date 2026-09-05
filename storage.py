@@ -1152,8 +1152,16 @@ def expire_track_clips(
     *,
     retention_days: int,
     now: Optional[datetime] = None,
+    high_conf_threshold: Optional[float] = None,
+    high_conf_retention_days: Optional[int] = None,
 ) -> tuple[int, int]:
     """Delete per-detection clip wavs older than `retention_days`.
+
+    A track whose detections peak at or above `high_conf_threshold` is held
+    to the longer `high_conf_retention_days` floor instead — a strong ID is
+    worth keeping around well past the normal cutoff. Pass either as None
+    (or <= 0) to disable the exemption and fall back to `retention_days` for
+    everything.
 
     Track rows stay; only `clip_path` is cleared and the file is removed.
     Returns (tracks_expired, bytes_freed). No-op when retention_days <= 0.
@@ -1163,15 +1171,51 @@ def expire_track_clips(
 
     now = now or datetime.now()
     cutoff = (now - timedelta(days=retention_days)).isoformat(timespec="seconds")
-    rows = conn.execute(
-        """
-        SELECT t.id, t.clip_path
-        FROM tracks t
-        JOIN segments s ON s.id = t.segment_id
-        WHERE t.clip_path IS NOT NULL AND s.started_at < ?
-        """,
-        (cutoff,),
-    ).fetchall()
+
+    use_high_conf = bool(high_conf_threshold) and bool(high_conf_retention_days) and (
+        high_conf_retention_days > retention_days
+    )
+    if use_high_conf:
+        high_cutoff = (now - timedelta(days=high_conf_retention_days)).isoformat(
+            timespec="seconds"
+        )
+        rows = conn.execute(
+            """
+            SELECT t.id, t.clip_path
+            FROM tracks t
+            JOIN segments s ON s.id = t.segment_id
+            WHERE t.clip_path IS NOT NULL
+              AND (
+                (
+                    COALESCE(
+                        (SELECT MAX(d.confidence) FROM detections d
+                         WHERE d.track_id = t.id),
+                        0
+                    ) >= ?
+                    AND s.started_at < ?
+                )
+                OR (
+                    COALESCE(
+                        (SELECT MAX(d.confidence) FROM detections d
+                         WHERE d.track_id = t.id),
+                        0
+                    ) < ?
+                    AND s.started_at < ?
+                )
+              )
+            """,
+            (high_conf_threshold, high_cutoff, high_conf_threshold, cutoff),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT t.id, t.clip_path
+            FROM tracks t
+            JOIN segments s ON s.id = t.segment_id
+            WHERE t.clip_path IS NOT NULL AND s.started_at < ?
+            """,
+            (cutoff,),
+        ).fetchall()
 
     freed = 0
     for row in rows:

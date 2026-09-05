@@ -34,6 +34,8 @@ DEFAULTS: dict[str, Any] = {
     "db": "birdid.db",
     "recordings_dir": "recordings",
     "retention_days": 30,   # drop kept segment wavs after N days; 0 = keep forever
+    "high_conf_threshold": 0.9,      # tracks peaking at/above this confidence get the longer floor below
+    "high_conf_retention_days": 90,  # ...instead of retention_days; 0/None = no exemption
     "clip_format": "mp3",   # mp3 | wav — per-window clips written by the monitor
     "clip_mp3_bitrate": "64k",
     "proactive_cleanup": True,       # trim non-dashboard audio during monitor/deploy cleanup
