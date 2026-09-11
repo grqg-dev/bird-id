@@ -10,7 +10,8 @@
   .site-nav a.on{border-color:var(--red, #d83a36);color:var(--red-deep, #7d1c1b);background:#fff}
 </style>
 <div class="site-nav mono">
-  {{ nav_link('/', 'Bird-Dex', active == 'dex') }}
+  {{ nav_link('/dash', 'Dashboard', active == 'dash') }}
+  {{ nav_link('/dex', 'Bird-Dex', active == 'dex') }}
   {{ nav_link('/prevalence', 'Prevalence', active == 'prevalence') }}
   {{ nav_link('/heard', 'Heard', active == 'heard') }}
   {{ nav_link('/live', 'Live feed', active == 'live') }}

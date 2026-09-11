@@ -59,6 +59,19 @@ CREATE TABLE IF NOT EXISTS tracks (
 CREATE INDEX IF NOT EXISTS idx_tracks_segment ON tracks(segment_id);
 CREATE INDEX IF NOT EXISTS idx_detections_species ON detections(common_name);
 CREATE INDEX IF NOT EXISTS idx_detections_heard_at ON detections(heard_at);
+
+-- Expression index: SQLite matches this against existing `date(heard_at) = ?`
+-- predicates with no query rewrites (verified: EXPLAIN QUERY PLAN shows
+-- SEARCH ... USING INDEX for this build's date()/'now' handling).
+CREATE INDEX IF NOT EXISTS idx_detections_day ON detections(date(heard_at));
+CREATE INDEX IF NOT EXISTS idx_detections_segment ON detections(segment_id);
+CREATE INDEX IF NOT EXISTS idx_detections_species_conf ON detections(common_name, confidence DESC);
+CREATE INDEX IF NOT EXISTS idx_segments_started ON segments(started_at);
+CREATE INDEX IF NOT EXISTS idx_segments_day ON segments(date(started_at));
+
+-- Partial indexes keep the dashboard's cache-key counts index-only.
+CREATE INDEX IF NOT EXISTS idx_segments_wav ON segments(id) WHERE wav_path IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tracks_clip ON tracks(id) WHERE clip_path IS NOT NULL;
 """
 
 
@@ -117,14 +130,45 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def connect(db_path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
-    """Open (creating if needed) the database with sane settings and schema."""
+def connect(
+    db_path: str | Path = DEFAULT_DB, *, ensure_schema: bool = True
+) -> sqlite3.Connection:
+    """Open (creating if needed) the database with sane settings.
+
+    Writers (monitor, CLI) use the default `ensure_schema=True`, which creates
+    tables/indexes and runs migrations on every call. Dashboard request
+    handlers should use `connect_readonly()` instead, after `ensure_schema()`
+    has run once at process startup — running `executescript` + `_migrate` on
+    every page load is what made the dashboard slow.
+    """
     conn = sqlite3.connect(str(Path(db_path).expanduser()))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")  # let `stats` read while monitor writes
-    conn.executescript(_SCHEMA)
-    _migrate(conn)
+    if ensure_schema:
+        conn.executescript(_SCHEMA)
+        _migrate(conn)
+    return conn
+
+
+def ensure_schema(db_path: str | Path = DEFAULT_DB) -> None:
+    """Create tables/indexes and run migrations once for a long-lived reader
+    process (the dashboard), which then opens per-request connections via
+    `connect_readonly()` instead of paying this cost on every request."""
+    connect(db_path, ensure_schema=True).close()
+
+
+def connect_readonly(db_path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
+    """Open a cheap read-only connection for a single request.
+
+    Assumes `ensure_schema()` already ran for this db_path at process startup.
+    """
+    conn = sqlite3.connect(str(Path(db_path).expanduser()))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA query_only = 1")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA cache_size = -64000")
+    conn.execute("PRAGMA mmap_size = 268435456")
     return conn
 
 
@@ -320,6 +364,49 @@ def day_hourly(conn: sqlite3.Connection, day: str) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def digest_totals(conn: sqlite3.Connection, day: str) -> sqlite3.Row:
+    """Detections/species/audio-minutes totals for one day (for /api/digest)."""
+    return conn.execute(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM detections WHERE date(heard_at) = ?) AS detections,
+            (SELECT COUNT(DISTINCT common_name) FROM detections
+             WHERE date(heard_at) = ?)                                 AS species,
+            (SELECT COALESCE(SUM(duration), 0) FROM segments
+             WHERE date(started_at) = ?)                               AS audio_sec
+        """,
+        (day, day, day),
+    ).fetchone()
+
+
+def digest_returning_species(
+    conn: sqlite3.Connection, day: str, *, gap: int = 14
+) -> list[sqlite3.Row]:
+    """Species heard on `day` whose most recent prior detection is more than
+    `gap` days earlier (or that have never been heard before `day` at all are
+    excluded — those are `new_species_on`, not returning)."""
+    cutoff = (date.fromisoformat(day) - timedelta(days=gap)).isoformat()
+    return conn.execute(
+        """
+        SELECT d.common_name, d.scientific_name,
+               MAX(d.confidence) AS peak_conf,
+               (SELECT MAX(d2.heard_at) FROM detections d2
+                WHERE d2.common_name = d.common_name AND d2.heard_at < ?) AS last_seen_before
+        FROM detections d
+        WHERE d.heard_at >= ? AND d.heard_at < ?
+        GROUP BY d.common_name, d.scientific_name
+        HAVING last_seen_before IS NOT NULL AND last_seen_before < ?
+        ORDER BY last_seen_before
+        """,
+        (
+            day,
+            day,
+            (date.fromisoformat(day) + timedelta(days=1)).isoformat(),
+            cutoff,
+        ),
+    ).fetchall()
+
+
 def new_species_on(conn: sqlite3.Connection, day: str) -> list[str]:
     """Species whose first-ever detection (any day) falls on `day`."""
     rows = conn.execute(
@@ -340,11 +427,11 @@ _HAS_AUDIO = (
 
 _DEX_SELECT = f"""
         SELECT common_name, scientific_name, confidence AS peak_conf,
-               segment_id, start_time, end_time, has_audio,
+               segment_id, start_time, end_time, has_audio, heard_at,
                windows, first_heard, last_heard
         FROM (
             SELECT d.common_name, d.scientific_name, d.confidence,
-                   d.segment_id, d.start_time, d.end_time,
+                   d.segment_id, d.start_time, d.end_time, d.heard_at,
                    {_HAS_AUDIO} AS has_audio,
                    ROW_NUMBER() OVER (PARTITION BY d.common_name ORDER BY d.confidence DESC) AS rn,
                    COUNT(*)      OVER (PARTITION BY d.common_name) AS windows,
@@ -412,6 +499,64 @@ def species_dex_since(
         )
         WHERE rn = 1
         ORDER BY windows DESC, peak_conf DESC
+        """,
+        params,
+    ).fetchall()
+
+
+def species_clip_nav(
+    conn: sqlite3.Connection, *, show_all: bool = True, day: str | None = None
+) -> list[sqlite3.Row]:
+    """Prev/next clip and 1-based position for every species' detection
+    windows, computed in one pass instead of one `species_detections(limit=
+    500)` query per species (the index()-page N+1: ~130 species = ~130
+    round trips for a single page load).
+
+    Ordering and scope match `species_detections`/`_species_call_order`
+    exactly: `confidence DESC, heard_at DESC`, windows whose audio has been
+    discarded excluded (same `_HAS_AUDIO` join/filter — a dead "no audio"
+    entry shouldn't be reachable via prev/next either), and the 500-window-
+    per-species cap on `clip_total`/navigation is preserved — a species with
+    more than 500 (playable) windows still shows "n of 500" and `next` is
+    null at the 500th row, same as before. Look up a row by (common_name,
+    segment_id, start_time, end_time) to get that window's nav info.
+    """
+    extra = "" if show_all or not day else "AND date(d.heard_at) = ?"
+    params = () if show_all or not day else (day,)
+    return conn.execute(
+        f"""
+        SELECT common_name, segment_id, start_time, end_time, rn,
+               min(total, 500) AS total,
+               prev_segment_id, prev_start, prev_end, prev_conf, prev_heard_at,
+               CASE WHEN rn >= 500 THEN NULL ELSE next_segment_id END AS next_segment_id,
+               CASE WHEN rn >= 500 THEN NULL ELSE next_start END AS next_start,
+               CASE WHEN rn >= 500 THEN NULL ELSE next_end END AS next_end,
+               CASE WHEN rn >= 500 THEN NULL ELSE next_conf END AS next_conf,
+               CASE WHEN rn >= 500 THEN NULL ELSE next_heard_at END AS next_heard_at
+        FROM (
+            SELECT d.common_name, d.segment_id, d.start_time, d.end_time,
+                   ROW_NUMBER() OVER w AS rn,
+                   COUNT(*) OVER (PARTITION BY d.common_name) AS total,
+                   LAG(d.segment_id) OVER w  AS prev_segment_id,
+                   LAG(d.start_time) OVER w  AS prev_start,
+                   LAG(d.end_time) OVER w    AS prev_end,
+                   LAG(d.confidence) OVER w  AS prev_conf,
+                   LAG(d.heard_at) OVER w    AS prev_heard_at,
+                   LEAD(d.segment_id) OVER w AS next_segment_id,
+                   LEAD(d.start_time) OVER w AS next_start,
+                   LEAD(d.end_time) OVER w   AS next_end,
+                   LEAD(d.confidence) OVER w AS next_conf,
+                   LEAD(d.heard_at) OVER w   AS next_heard_at
+            FROM detections d
+            JOIN segments s ON s.id = d.segment_id
+            LEFT JOIN tracks t ON t.id = d.track_id
+            WHERE ({_HAS_AUDIO} = 1) {extra}
+            WINDOW w AS (
+                PARTITION BY d.common_name
+                ORDER BY d.confidence DESC, d.heard_at DESC
+            )
+        )
+        WHERE rn <= 500
         """,
         params,
     ).fetchall()
@@ -767,9 +912,31 @@ def species_confidence_buckets(
 
 
 def segments_for_scope(
-    conn: sqlite3.Connection, *, day: str | None = None
+    conn: sqlite3.Connection,
+    *,
+    day: str | None = None,
+    days: tuple[str, ...] | None = None,
 ) -> list[sqlite3.Row]:
-    """Recording segments with live detection counts, ordered by start time."""
+    """Recording segments with live detection counts, ordered by start time.
+
+    `day` scopes to one calendar day; `days` scopes to a set of calendar days
+    (for a bounded multi-day report); neither means true all-time.
+    """
+    if days:
+        ph = ",".join("?" * len(days))
+        return conn.execute(
+            f"""
+            SELECT s.id, s.started_at, s.ended_at, s.duration,
+                   COUNT(d.id) AS detections,
+                   COUNT(DISTINCT d.common_name) AS species
+            FROM segments s
+            JOIN detections d ON d.segment_id = s.id
+            WHERE date(d.heard_at) IN ({ph})
+            GROUP BY s.id
+            ORDER BY s.started_at
+            """,
+            days,
+        ).fetchall()
     if day:
         return conn.execute(
             """
@@ -798,9 +965,25 @@ def segments_for_scope(
 
 
 def report_species(
-    conn: sqlite3.Connection, *, day: str | None = None
+    conn: sqlite3.Connection,
+    *,
+    day: str | None = None,
+    days: tuple[str, ...] | None = None,
 ) -> list[sqlite3.Row]:
     """Per-species rollup for the data report, sorted by detection count."""
+    if days:
+        ph = ",".join("?" * len(days))
+        return conn.execute(
+            f"""
+            SELECT common_name, scientific_name,
+                   COUNT(*)        AS windows,
+                   MAX(confidence) AS peak_conf
+            FROM detections WHERE date(heard_at) IN ({ph})
+            GROUP BY common_name, scientific_name
+            ORDER BY windows DESC
+            """,
+            days,
+        ).fetchall()
     if day:
         return conn.execute(
             """
@@ -826,9 +1009,22 @@ def report_species(
 
 
 def report_confidences(
-    conn: sqlite3.Connection, *, day: str | None = None
+    conn: sqlite3.Connection,
+    *,
+    day: str | None = None,
+    days: tuple[str, ...] | None = None,
 ) -> list[sqlite3.Row]:
     """All confidence scores grouped by species (for confidence strips)."""
+    if days:
+        ph = ",".join("?" * len(days))
+        return conn.execute(
+            f"""
+            SELECT common_name, confidence
+            FROM detections WHERE date(heard_at) IN ({ph})
+            ORDER BY common_name, confidence
+            """,
+            days,
+        ).fetchall()
     if day:
         return conn.execute(
             """
@@ -871,6 +1067,26 @@ def report_species_segments(
     ).fetchall()
 
 
+def report_species_days(
+    conn: sqlite3.Connection, days: tuple[str, ...]
+) -> list[sqlite3.Row]:
+    """Distinct (species, day) pairs within `days` (per-day presence dots for
+    a multi-day report — cheap in row count, unlike per-segment presence)."""
+    if not days:
+        return []
+    ph = ",".join("?" * len(days))
+    return conn.execute(
+        f"""
+        SELECT common_name, date(heard_at) AS day
+        FROM detections
+        WHERE date(heard_at) IN ({ph})
+        GROUP BY common_name, day
+        ORDER BY common_name, day
+        """,
+        days,
+    ).fetchall()
+
+
 def minute_bins(conn: sqlite3.Connection, segment_id: int) -> list[sqlite3.Row]:
     """Detection count per elapsed minute within one segment."""
     return conn.execute(
@@ -890,30 +1106,28 @@ def minute_bins(conn: sqlite3.Connection, segment_id: int) -> list[sqlite3.Row]:
 
 
 def daily_rates(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Per calendar day: detection count and total recorded minutes."""
+    """Per calendar day: detection count and total recorded minutes.
+
+    Joins two grouped subqueries (each a single indexed pass) instead of a
+    correlated `SUM(duration)` subquery per day, which used to rescan all
+    segments once per distinct day. Days are driven by detections, matching
+    the old output — a day with audio but zero detections still won't appear.
+    """
     return conn.execute(
         """
-        SELECT date(d.heard_at) AS day,
-               COUNT(d.id)       AS detections,
-               COALESCE((
-                   SELECT SUM(s2.duration)
-                   FROM segments s2
-                   WHERE date(s2.started_at) = date(d.heard_at)
-               ), 0)             AS audio_sec
-        FROM detections d
-        GROUP BY day
-        ORDER BY day
-        """
-    ).fetchall()
-
-
-def hourly_aggregate(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Detection counts per hour (0–23) across all stored data."""
-    return conn.execute(
-        """
-        SELECT strftime('%H', heard_at) AS hour, COUNT(*) AS n
-        FROM detections
-        GROUP BY hour ORDER BY hour
+        SELECT d.day AS day, d.detections AS detections,
+               COALESCE(s.audio_sec, 0) AS audio_sec
+        FROM (
+            SELECT date(heard_at) AS day, COUNT(*) AS detections
+            FROM detections
+            GROUP BY day
+        ) d
+        LEFT JOIN (
+            SELECT date(started_at) AS day, SUM(duration) AS audio_sec
+            FROM segments
+            GROUP BY day
+        ) s ON s.day = d.day
+        ORDER BY d.day
         """
     ).fetchall()
 

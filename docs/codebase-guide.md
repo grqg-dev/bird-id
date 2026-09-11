@@ -208,10 +208,27 @@ Collapses per-window detections into one row per species (count, peak, span).
 
 ### `storage.py`
 
-`connect(db_path=DEFAULT_DB) → sqlite3.Connection`
+`connect(db_path=DEFAULT_DB, *, ensure_schema=True) → sqlite3.Connection`
 
 Opens/creates the DB with `WAL` journal mode, `row_factory = sqlite3.Row`,
-foreign keys ON, runs `_SCHEMA` (CREATE TABLE IF NOT EXISTS), then `_migrate()`.
+foreign keys ON. When `ensure_schema` (the default), also runs `_SCHEMA`
+(CREATE TABLE/INDEX IF NOT EXISTS) then `_migrate()`. Writers — the monitor,
+CLI commands, tests — use this default every call.
+
+`ensure_schema(db_path=DEFAULT_DB) → None`
+
+Runs schema creation + `_migrate()` once and closes the connection. For a
+long-lived reader process (the dashboard) that will then open cheap per-request
+connections — calling `connect()`'s default path on every request is what made
+the dashboard slow (an `executescript` + `_migrate()` PRAGMA-table-info scan on
+every page load).
+
+`connect_readonly(db_path=DEFAULT_DB) → sqlite3.Connection`
+
+A plain per-request connection: `PRAGMA query_only=1`, `busy_timeout=5000`,
+`cache_size=-64000`, `mmap_size=268435456`. No schema/migration work — assumes
+`ensure_schema()` already ran for this path. This is what `dashboard._db()`
+calls; `dashboard.main()` calls `storage.ensure_schema()` once at startup.
 
 **`_migrate()`** adds the `track_id` column to detections if missing, creates
 `tracks` rows for any detection windows without one, and links them.
@@ -257,6 +274,16 @@ Returns `segment_id`.
 | `get_segment(conn, id)` | One segment row |
 | `tracks_for_segment(conn, id)` | All track rows for a segment |
 | `tracks_without_clip(conn)` | Tracks needing clip backfill |
+| `daily_rates(conn)` | Per-day detections + audio seconds (two grouped subqueries joined, not a per-day correlated scan) |
+| `species_clip_nav(conn, show_all, day)` | Prev/next clip + position for every species' detection windows in one window-function pass — powers `/dex`'s per-card nav without an N+1 |
+| `segments_for_scope(conn, day=None, days=None)` / `report_species(conn, day=None, days=None)` / `report_confidences(conn, day=None, days=None)` | `/data` report queries; `days` scopes to a bounded set of calendar days instead of one day or true all-time |
+| `report_species_days(conn, days)` | Distinct (species, day) pairs — per-day presence dots for a multi-day report |
+| `digest_totals(conn, day)` | Detections/species/audio-seconds for one day |
+| `digest_returning_species(conn, day, gap=14)` | Species heard on `day` whose prior detection was more than `gap` days earlier |
+
+`species_dex`/`species_dex_day`/`species_clip_nav` all order by
+`(confidence DESC, heard_at DESC)` or `confidence DESC` — see `_DEX_SELECT` in
+`storage.py` for the shared window-function template.
 
 **Audio cleanup chain** (called by `_run_audio_cleanup` in `birdid.py`):
 
@@ -378,9 +405,16 @@ detections (
 )
 
 -- Indexes
-idx_tracks_segment         ON tracks(segment_id)
-idx_detections_species     ON detections(common_name)
-idx_detections_heard_at    ON detections(heard_at)
+idx_tracks_segment          ON tracks(segment_id)
+idx_detections_species      ON detections(common_name)
+idx_detections_heard_at     ON detections(heard_at)
+idx_detections_day          ON detections(date(heard_at))          -- expression index; matches existing `date(heard_at) = ?` predicates with no query rewrites
+idx_detections_segment      ON detections(segment_id)
+idx_detections_species_conf ON detections(common_name, confidence DESC)
+idx_segments_started        ON segments(started_at)
+idx_segments_day            ON segments(date(started_at))
+idx_segments_wav            ON segments(id) WHERE wav_path IS NOT NULL   -- partial: index-only COUNT(*) for cache keys
+idx_tracks_clip             ON tracks(id) WHERE clip_path IS NOT NULL    -- partial: same
 ```
 
 **Design decisions:**
@@ -436,10 +470,17 @@ All routes are in `dashboard.py`. The app is a single Flask file; no blueprints.
 
 | Route | Method | What it does |
 |---|---|---|
-| `/` | GET | Bird-Dex: species grid, today or all-time; `?day=YYYY-MM-DD`, `?all=1`, `?mode=gallery` |
+| `/` | GET | Redirects to `/dash` (the React dashboard is the home page) |
+| `/dash`, `/dash/<path>` | GET | React dashboard SPA (`dashboard-ui/`, built to `dashboard-ui/dist`) |
+| `/api/dash/summary` | GET | JSON cube (species × day × hour × confidence bucket) behind `/dash`; cached via `_cached()` |
+| `/api/dash/sure` | GET | All-time 0.9+-confidence leaderboard behind `/dash`; cached via `_cached()` |
+| `/api/digest` | GET | Daily digest JSON: totals, new/returning species, top detections; `?day=`, `?gap=` (default 14), `?limit=` (default 10) — same shape as `birdid.py digest --json` |
+| `/dex` | GET | Legacy species-dex grid, today or all-time; `?day=YYYY-MM-DD`, `?day=all`, `?mode=gallery` |
 | `/bird/<slug>` | GET | Species drill-down: stats, hourly chart, clip list, spectrogram |
 | `/timeline` | GET | Swimlane timeline for a day; `?day=YYYY-MM-DD` |
-| `/data` | GET | Data report: detection counts, confidence strips; `?day=YYYY-MM-DD` |
+| `/trends` | GET | Rolling 7-day trends: activity clock, dawn/night leaderboards, risers & fallers |
+| `/heard` | GET | Simple "what's around right now" view |
+| `/data` | GET | Data report: detection counts, confidence strips; `?day=YYYY-MM-DD`, or `?day=all`/no param for the **last 7 days** (not true all-time — see `_build_data_report`) |
 | `/live` | GET | Rolling 24h feed; JS polls `/api/recent` every 5s |
 | `/realtime` | GET | Realtime dashboard with detection feed (streaming) |
 | `/twitter` | GET | All-time scrollable detection timeline; dark/light, sort by latest or top confidence |
@@ -450,13 +491,22 @@ All routes are in `dashboard.py`. The app is a single Flask file; no blueprints.
 | `/vibeviz/<segment_id>.json` | GET | Pre-computed node/edge graph for `/vibe` (v2) |
 | `/vibe/<segment_id>` | GET | Fable: 3D ember-constellation sculpture of bird song |
 | `/sprite/<slug>.png` | GET | Serve a species illustration from `realistic-sprites/` |
-| `/audio/<segment_id>` | GET | Serve segment wav or clip for browser playback |
+| `/audio/<segment_id>` | GET | Serve segment wav or clip for browser playback; `?start=`, `?end=` for a windowed clip |
 | `/spectrogram/<segment_id>.png` | GET | Render spectrogram PNG; `?start=`, `?end=` params |
 | `/__dev/ping` | GET | Dev-mode reload sentinel |
 
 **Key dashboard internals:**
 
-- `_db()` — opens a new connection per request. Tests monkeypatch this.
+- `_db()` — opens a per-request read-only connection (`storage.connect_readonly()`,
+  `PRAGMA query_only=1`). Tests monkeypatch this to a writable connection to seed
+  data. Schema/migration happens once via `storage.ensure_schema()` in
+  `dashboard.main()`, not per request.
+- `_cached(name, conn, build_fn, extra_key=())` — in-memory cache keyed by a cheap
+  version tuple (`_cache_version`: `MAX(detections.id)` + two partial-index counts).
+  Backs `/api/dash/summary`, `/api/dash/sure`, `/api/digest`.
+- `species_clip_nav` / `_clip_nav_map(conn, show_all, selected_day)` — one
+  window-function query replacing a per-species `_clip_nav` loop on `/dex`
+  (previously ~130 queries for a full page load).
 - `_slug_map()` / `_slug_to_name()` — cached `common_name ↔ slug` from `docs/birds.json`.
 - `_bird_info()` — cached field notes from `docs/bird_info.json` (keyed by slug).
 - `_sprite_slug(common_name, slugs)` — checks `realistic-sprites/{slug}.png` exists.
@@ -467,7 +517,7 @@ All routes are in `dashboard.py`. The app is a single Flask file; no blueprints.
   (r134 UMD build). Never replace with a CDN link.
 
 **`PEAK_CONF_FLOOR = 0.7`** — Bird-Dex hides species whose peak confidence is below
-this (they appear in DB but are filtered in the `/` route).
+this (they appear in DB but are filtered in the `/dex` route).
 
 **`TIMELINE_CONF_FLOOR = 0.7`** — Timeline swimlane only plots detections ≥ 0.7.
 

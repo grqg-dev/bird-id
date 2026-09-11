@@ -80,17 +80,19 @@ set for Santa Barbara, CA.
 ./.venv/bin/python birdid.py dashboard    # → http://127.0.0.1:8080
 ```
 
-The dashboard works offline — no internet required once it's running. Browse by day
-or all-time, open a species for clips and spectrograms, click **◳ 3D** on a dex card
-for the **Call Chamber** (`/call`) — an orbitable 3D frequency-pole visualization
-synced to clip playback — open **Live feed** (`/live`) for a rolling 24-hour timeline
-that auto-updates while you monitor, open **Twitter view** (`/twitter`) for an
-all-time, scrollable timeline of every detection sorted by latest or top confidence,
-with dark/light mode, or open **Data report** (`/data`) for detection counts and
-confidence charts.
+The dashboard works offline — no internet required once it's running, and opens
+to the main dashboard view. Browse by day or all-time, open a species for clips
+and spectrograms, click **◳ 3D** on a dex card for the **Call Chamber** (`/call`)
+— an orbitable 3D frequency-pole visualization synced to clip playback — open
+**Live feed** (`/live`) for a rolling 24-hour timeline that auto-updates while
+you monitor, open **Twitter view** (`/twitter`) for an all-time, scrollable
+timeline of every detection sorted by latest or top confidence, with dark/light
+mode, or open **Data report** (`/data`) for the last 7 days of detection counts
+and confidence charts (or one specific day via `/data?day=YYYY-MM-DD`). The
+older species-dex page still lives at **`/dex`**.
 
-Gallery mode (`/?mode=gallery`) is a lighter grid of illustrations and stats — no
-spectrograms or audio:
+Gallery mode (`/dex?mode=gallery`) is a lighter grid of illustrations and stats
+— no spectrograms or audio:
 
 ![Bird-Dex gallery view](docs/bird-dex-gallery.png)
 
@@ -98,10 +100,14 @@ spectrograms or audio:
 
 ```bash
 ./.venv/bin/python birdid.py digest
+./.venv/bin/python birdid.py digest --json   # same shape as GET /api/digest
 ```
 
 A quick terminal summary: how many species today, busiest hour, and anything
-**new to your records**.
+**new to your records**. `--json` prints species back after an absence
+(`--gap`, default 14 days) and the day's top detections with clip links too —
+the same payload the dashboard's `/api/digest?day=YYYY-MM-DD` endpoint serves,
+so either can be cron'd or piped into something else.
 
 ---
 

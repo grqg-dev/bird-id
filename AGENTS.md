@@ -55,7 +55,7 @@ project testable and portable.
 | `storage.py` | SQLite: segments, tracks, detections, queries | no | no |
 | `clips.py` | slice segment wav → per-window clip files | no | no |
 | `config.py` | load `config.json`, resolve flag>config>default | no | no |
-| `dashboard.py` | Flask web UI (offline, server-rendered) | no | no |
+| `dashboard.py` | Flask web UI: `/dash` (React SPA, home page) + legacy server-rendered pages (`/dex`, `/twitter`, `/data`, …) + JSON APIs | no | no |
 | `birdid.py` | CLI that wires the above together | — | — |
 
 Key invariants:
@@ -92,6 +92,24 @@ Key invariants:
   precomputed JSON (`/callviz/…`). **`static/three.min.js`** and **`static/OrbitControls.js`**
   are **vendored** (pinned three.js r134 UMD build) — download once in dev, never a
   runtime CDN.
+- **`/` redirects to `/dash`** (the React dashboard, `dashboard-ui/`, is the home
+  page). The legacy server-rendered species dex lives at **`/dex`** — still linked
+  from `site-nav.html` and other legacy pages, and still the base for their
+  `back_href`/`empty=` links. Don't reintroduce a route at `/` for the dex view.
+- **Dashboard reads never write.** `dashboard._db()` opens a read-only connection
+  (`storage.connect_readonly()` — `PRAGMA query_only=1`) per request; schema
+  creation/migration happens once via `storage.ensure_schema()` in
+  `dashboard.main()`, not per request. If a new route ever needs to write via
+  `conn`, it must get its own connection through `storage.connect()` instead.
+- **`/data`'s "all time" is a bounded 7-day window**, not true all-time — an
+  unbounded species×segment matrix over the full history is what made this route
+  take ~28s once the db had ~700k segments. Species dex's all-time life list
+  (`/dex?day=all`, `species_dex()`) is unaffected; the cap is local to
+  `_build_data_report`.
+- **`birdid.py dashboard` serves via `waitress`** (multi-threaded WSGI), not
+  Flask's dev server, unless `--dev` is passed (auto-reload, single-threaded
+  `app.run(debug=True)`). A single slow request no longer stalls every other
+  client.
 
 ## Setup
 
@@ -142,7 +160,7 @@ pytest + Flask only; CI does not install `requirements.txt`):
 | `tests/test_storage.py` | Schema, tracks/clips, `record_segment`, rollups, retention, `recent_feed` |
 | `tests/test_config.py` | `load`, `resolve`, bad JSON |
 | `tests/test_identifier_summarize.py` | `summarize()`, default `min_conf` |
-| `tests/test_dashboard.py` | Helpers + `/`, `/bird/…`, `/call`, `/data`, `/live`, `/api/recent` via `test_client` |
+| `tests/test_dashboard.py` | Helpers + `/` (redirect), `/dex`, `/bird/…`, `/call`, `/data`, `/live`, `/api/recent`, `/api/digest` via `test_client` |
 | `tests/test_birdid.py` | `cmd_stats`, `_resolve_id_params` |
 
 **Dashboard test seam:** every route uses `dashboard._db()`. Tests monkeypatch it to
@@ -209,7 +227,12 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.birdid.monitor.plist
 After code that touches DB schema or clips:
 
 1. **Restart** monitor and/or dashboard (deploy script restarts launch agents;
-   a Terminal monitor needs manual restart). `storage.connect()` runs `_migrate()`.
+   a Terminal monitor needs manual restart). The monitor's `storage.connect()`
+   runs `_migrate()`/creates new indexes on its next connect; the dashboard
+   only does this once at startup (`storage.ensure_schema()` in
+   `dashboard.main()`) — restarting it is what picks up a new index or schema
+   change. On the current ~700k-segment prod db this takes seconds, not
+   minutes; WAL keeps the monitor writing throughout.
 2. **Backfill clip files** (once per DB, idempotent — **on prod, only with user OK**):
 
    ```bash

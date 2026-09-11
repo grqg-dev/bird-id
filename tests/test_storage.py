@@ -749,3 +749,179 @@ def test_species_detections_excludes_discarded_audio(db_conn, tmp_path):
     rows = storage.species_detections(db_conn, "HasAudio")
     assert len(rows) == 1
     assert rows[0]["has_audio"] == 1
+
+
+def test_indexes_exist(db_conn):
+    names = {
+        row[0]
+        for row in db_conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        ).fetchall()
+    }
+    assert {
+        "idx_detections_day",
+        "idx_detections_segment",
+        "idx_detections_species_conf",
+        "idx_segments_started",
+        "idx_segments_day",
+        "idx_segments_wav",
+        "idx_tracks_clip",
+    } <= names
+
+
+def test_expression_index_is_used_for_date_equality(db_conn):
+    plan = db_conn.execute(
+        "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM detections WHERE date(heard_at) = ?",
+        ("2026-05-30",),
+    ).fetchall()
+    assert any("idx_detections_day" in row["detail"] for row in plan)
+
+
+def test_daily_rates_joins_detections_and_segments(db_conn):
+    day1 = datetime(2026, 6, 1, 8, 0, 0)
+    day2 = datetime(2026, 6, 2, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=day1,
+        ended_at=day1 + timedelta(seconds=30),
+        duration=30.0,
+        detections=[identifier.Detection("Wren", "Sp a", 0.9, 0.0, 3.0)],
+    )
+    # A day with recording but zero detections must not appear — daily_rates
+    # is driven by detections, matching the pre-rewrite behavior.
+    storage.record_segment(
+        db_conn,
+        started_at=day2,
+        ended_at=day2 + timedelta(seconds=30),
+        duration=30.0,
+        detections=[],
+    )
+    rows = {r["day"]: r for r in storage.daily_rates(db_conn)}
+    assert rows.keys() == {"2026-06-01"}
+    assert rows["2026-06-01"]["detections"] == 1
+    assert rows["2026-06-01"]["audio_sec"] == pytest.approx(30.0)
+
+
+def test_segments_for_scope_days(seeded_conn):
+    rows = storage.segments_for_scope(seeded_conn, days=("2026-05-30", "2026-05-31"))
+    assert len(rows) == 1
+    assert storage.segments_for_scope(seeded_conn, days=("2020-01-01",)) == []
+
+
+def test_report_species_days(seeded_conn):
+    rows = storage.report_species_days(seeded_conn, ("2026-05-30",))
+    names = {r["common_name"] for r in rows}
+    assert names == {"Bewick's Wren", "Oak Titmouse"}
+    assert all(r["day"] == "2026-05-30" for r in rows)
+    assert storage.report_species_days(seeded_conn, ()) == []
+
+
+def test_species_clip_nav_prev_next_and_cap(db_conn):
+    day = datetime(2026, 6, 1, 8, 0, 0)
+    dets = [
+        identifier.Detection("Multi", "Sp m", 0.95, 0.0, 3.0),
+        identifier.Detection("Multi", "Sp m", 0.85, 3.0, 6.0),
+        identifier.Detection("Multi", "Sp m", 0.75, 6.0, 9.0),
+    ]
+    storage.record_segment(
+        db_conn,
+        started_at=day,
+        ended_at=day + timedelta(seconds=9),
+        duration=9.0,
+        detections=dets,
+        wav_path="/tmp/seg.wav",  # species_clip_nav excludes has_audio=0 rows
+    )
+    rows = {
+        (r["segment_id"], r["start_time"], r["end_time"]): r
+        for r in storage.species_clip_nav(db_conn, show_all=True)
+    }
+    seg_id = next(iter(rows))[0]
+
+    top = rows[(seg_id, 0.0, 3.0)]
+    assert top["rn"] == 1
+    assert top["total"] == 3
+    assert top["prev_segment_id"] is None
+    assert top["next_start"] == pytest.approx(3.0)
+
+    mid = rows[(seg_id, 3.0, 6.0)]
+    assert mid["prev_start"] == pytest.approx(0.0)
+    assert mid["next_start"] == pytest.approx(6.0)
+
+    last = rows[(seg_id, 6.0, 9.0)]
+    assert last["rn"] == 3
+    assert last["next_segment_id"] is None
+
+
+def test_digest_totals(seeded_conn):
+    row = storage.digest_totals(seeded_conn, "2026-05-30")
+    assert row["detections"] == 2
+    assert row["species"] == 2
+    assert row["audio_sec"] == pytest.approx(6.0)
+    assert storage.digest_totals(seeded_conn, "2020-01-01")["detections"] == 0
+
+
+def test_digest_returning_species(db_conn):
+    long_ago = datetime(2026, 5, 1, 8, 0, 0)
+    recent = datetime(2026, 5, 25, 8, 0, 0)
+    today = datetime(2026, 6, 1, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=long_ago,
+        ended_at=long_ago + timedelta(seconds=3),
+        duration=3.0,
+        detections=[identifier.Detection("Gone Long", "Sp a", 0.8, 0.0, 3.0)],
+    )
+    storage.record_segment(
+        db_conn,
+        started_at=recent,
+        ended_at=recent + timedelta(seconds=3),
+        duration=3.0,
+        detections=[identifier.Detection("Gone Short", "Sp b", 0.8, 0.0, 3.0)],
+    )
+    storage.record_segment(
+        db_conn,
+        started_at=today,
+        ended_at=today + timedelta(seconds=6),
+        duration=6.0,
+        detections=[
+            identifier.Detection("Gone Long", "Sp a", 0.85, 0.0, 3.0),
+            identifier.Detection("Gone Short", "Sp b", 0.7, 3.0, 6.0),
+        ],
+    )
+    rows = {
+        r["common_name"]: r
+        for r in storage.digest_returning_species(db_conn, "2026-06-01", gap=14)
+    }
+    assert "Gone Long" in rows  # absent 31 days > gap
+    assert "Gone Short" not in rows  # absent 7 days <= gap
+
+
+def test_species_clip_nav_excludes_discarded_audio(db_conn, tmp_path):
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"wav")
+    started = datetime(2026, 6, 1, 8, 0, 0)
+    storage.record_segment(
+        db_conn,
+        started_at=started,
+        ended_at=started + timedelta(seconds=6),
+        duration=6.0,
+        detections=[
+            identifier.Detection("Multi", "Sp m", 0.9, 0.0, 3.0),
+            identifier.Detection("Multi", "Sp m", 0.8, 3.0, 6.0),
+        ],
+        wav_path=None,
+        # Only the first window's clip exists on disk; the second has no
+        # audio and must not appear in the nav chain (matches
+        # species_detections' AND (has_audio = 1) filter).
+        clip_paths={(0.0, 3.0): str(clip)},
+    )
+    rows = {
+        (r["segment_id"], r["start_time"], r["end_time"]): r
+        for r in storage.species_clip_nav(db_conn, show_all=True)
+        if r["common_name"] == "Multi"
+    }
+    assert len(rows) == 1
+    only = next(iter(rows.values()))
+    assert only["start_time"] == pytest.approx(0.0)
+    assert only["total"] == 1
+    assert only["next_segment_id"] is None

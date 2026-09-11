@@ -83,7 +83,7 @@
   <button id="prev" aria-label="Previous bird">‹</button>
   <span class="count" id="count">1 / {{ birds|length }}</span>
   <button id="next" aria-label="Next bird">›</button>
-  <a class="home" href="/">Bird-Dex</a>
+  <a class="home" href="/dex">Bird-Dex</a>
 </div>
 <script>
 (function(){
@@ -105,7 +105,7 @@
 </script>
 {% else %}
 <div class="empty">Nothing heard in the last {{ days }} day{{ '' if days == 1 else 's' }}{{ ' at high confidence' if hi else '' }}.<br>
-  <a class="home mono" href="/">Bird-Dex</a></div>
+  <a class="home mono" href="/dex">Bird-Dex</a></div>
 {% endif %}
 {% if dev %}{{ dev_script|safe }}{% endif %}
 </body></html>

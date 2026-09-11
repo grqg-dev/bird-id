@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import date, datetime, timedelta
 
 import dashboard
@@ -68,7 +70,7 @@ def test_parse_day_arg_defaults_to_all_time():
 
 
 def test_index_defaults_all_time_discovered(client):
-    resp = client.get("/")
+    resp = client.get("/dex")
     assert resp.status_code == 200
     assert b"Species discovered (all time)" in resp.data
     assert b"Discovered" in resp.data
@@ -106,7 +108,7 @@ def test_filter_dex_rows_hide_low():
 
 
 def test_index_hide_low_toggle(client):
-    resp = client.get("/?day=2026-05-30&hide_low=1")
+    resp = client.get("/dex?day=2026-05-30&hide_low=1")
     assert resp.status_code == 200
     assert b"Peak" in resp.data
     assert b"Oak Titmouse" in resp.data
@@ -114,14 +116,14 @@ def test_index_hide_low_toggle(client):
 
 
 def test_index_renders_species(client):
-    resp = client.get("/?day=2026-05-30")
+    resp = client.get("/dex?day=2026-05-30")
     assert resp.status_code == 200
     assert b"Bewick" in resp.data
     assert b"Oak Titmouse" in resp.data
 
 
 def test_index_renders_viz_btn(client):
-    resp = client.get("/?day=2026-05-30")
+    resp = client.get("/dex?day=2026-05-30")
     assert resp.status_code == 200
     assert b"viz-btn" in resp.data
     assert b"/call/1?" in resp.data
@@ -193,7 +195,7 @@ def test_callviz_json_missing_audio(client):
 
 
 def test_index_gallery_mode(client):
-    resp = client.get("/?day=2026-05-30&mode=gallery")
+    resp = client.get("/dex?day=2026-05-30&mode=gallery")
     assert resp.status_code == 200
 
 
@@ -213,7 +215,7 @@ def test_bird_detail_unknown_slug(client):
 def test_bird_detail_back_link_is_absolute(client):
     resp = client.get("/bird/bewicks_wren?day=2026-05-30&mode=gallery")
     assert resp.status_code == 200
-    assert b'href="/?day=2026-05-30&amp;mode=gallery"' in resp.data
+    assert b'href="/dex?day=2026-05-30&amp;mode=gallery"' in resp.data
     assert b'href="?mode=gallery' not in resp.data
     assert b'href="?day=2026-05-30' not in resp.data
 
@@ -221,7 +223,7 @@ def test_bird_detail_back_link_is_absolute(client):
 def test_data_view_back_link_is_absolute(client):
     resp = client.get("/data?day=2026-05-30")
     assert resp.status_code == 200
-    assert b'href="/?day=2026-05-30"' in resp.data
+    assert b'href="/dex?day=2026-05-30"' in resp.data
     assert b'href="?day=2026-05-30"' not in resp.data
 
 
@@ -248,7 +250,7 @@ def test_timeline_all_time(client):
 def test_timeline_back_link_is_absolute(client):
     resp = client.get("/timeline?day=2026-05-30")
     assert resp.status_code == 200
-    assert b'href="/?day=2026-05-30"' in resp.data
+    assert b'href="/dex?day=2026-05-30"' in resp.data
 
 
 def test_timeline_empty_day(client):
@@ -380,7 +382,7 @@ def test_realtime_page_has_nav_links(client):
     resp = client.get("/realtime")
     assert resp.status_code == 200
     assert b'href="/live"' in resp.data
-    assert b'href="/"' in resp.data
+    assert b'href="/dex"' in resp.data
 
 
 def test_twitter_view_renders(client):
@@ -422,9 +424,15 @@ def test_twitter_api_respects_pagination(client):
 
 
 def test_twitter_nav_link_present_on_index(client):
-    resp = client.get("/")
+    resp = client.get("/dex")
     assert resp.status_code == 200
     assert b"/twitter" in resp.data
+
+
+def test_home_redirects_to_dash(client):
+    resp = client.get("/")
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/dash"
 
 
 def test_dash_sure_ranks_high_confidence_and_returns_three_clips(
@@ -453,7 +461,7 @@ def test_dash_sure_ranks_high_confidence_and_returns_three_clips(
             for d in sure_detections
         },
     )
-    monkeypatch.setattr(dashboard, "_dash_sure_cache", None)
+    monkeypatch.setattr(dashboard, "_CACHE", {})
 
     resp = client.get("/api/dash/sure")
 
@@ -523,7 +531,7 @@ def test_dash_sure_aged_out_peaks_stay_in_totals_without_fake_clips(
         clip_paths={},
     )
 
-    monkeypatch.setattr(dashboard, "_dash_sure_cache", None)
+    monkeypatch.setattr(dashboard, "_CACHE", {})
     data = client.get("/api/dash/sure").get_json()
     by_name = {bird["name"]: bird for bird in data["species"]}
 
@@ -546,3 +554,68 @@ def test_dash_sure_path_serves_spa_index(client, tmp_path, monkeypatch):
 
     assert resp.status_code == 200
     assert b"React dashboard" in resp.data
+
+
+def test_dex_default_route_renders(client):
+    resp = client.get("/dex")
+    assert resp.status_code == 200
+    assert b"Species discovered (all time)" in resp.data
+
+
+def test_api_digest_shape_and_etag(client):
+    resp = client.get("/api/digest?day=2026-05-30")
+    assert resp.status_code == 200
+    assert resp.headers["Cache-Control"] == "no-cache"
+    etag = resp.headers["ETag"]
+
+    data = resp.get_json()
+    assert data["day"] == "2026-05-30"
+    assert data["totals"] == {"detections": 2, "species": 2, "audio_min": 0.1}
+    assert {s["common_name"] for s in data["new_species"]} == {
+        "Bewick's Wren", "Oak Titmouse",
+    }
+    assert data["new_species"][0]["clip"]["segment_id"] == 1
+    assert {s["common_name"] for s in data["species"]} == {
+        "Bewick's Wren", "Oak Titmouse",
+    }
+    assert len(data["top_detections"]) <= 2
+    assert data["returning_species"] == []
+
+    resp2 = client.get("/api/digest?day=2026-05-30", headers={"If-None-Match": etag})
+    assert resp2.status_code == 304
+
+
+def test_api_digest_returning_species(client, seeded_conn, monkeypatch):
+    later = datetime(2026, 6, 20, 8, 0, 0)
+    storage.record_segment(
+        seeded_conn,
+        started_at=later,
+        ended_at=later + timedelta(seconds=3),
+        duration=3.0,
+        detections=[identifier.Detection("Bewick's Wren", "Thryomanes bewickii", 0.9, 0.0, 3.0)],
+    )
+    monkeypatch.setattr(dashboard, "_CACHE", {})
+
+    data = client.get("/api/digest?day=2026-06-20&gap=14").get_json()
+
+    names = {s["common_name"] for s in data["returning_species"]}
+    assert names == {"Bewick's Wren"}
+    assert "Oak Titmouse" not in names  # never seen again, so not "returning"
+
+
+def test_data_report_all_time_is_bounded_window(client, monkeypatch):
+    monkeypatch.setattr(dashboard, "_today", lambda: "2026-06-02")
+
+    resp = client.get("/data")
+
+    assert resp.status_code == 200
+    match = re.search(r"const R=(\{.*\});", resp.data.decode())
+    report = json.loads(match.group(1))
+
+    assert report["days"] == [
+        "2026-05-27", "2026-05-28", "2026-05-29", "2026-05-30",
+        "2026-05-31", "2026-06-01", "2026-06-02",
+    ]
+    # Presence dots are per-day (7 of them), not per-segment.
+    wren = next(s for s in report["species"] if s["n"] == "Bewick's Wren")
+    assert wren["wins"] == [0, 0, 0, 1, 0, 0, 0]

@@ -23,7 +23,7 @@ import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from flask import Flask, Response, abort, render_template, request, send_file
+from flask import Flask, Response, abort, redirect, render_template, request, send_file
 
 import config
 import storage
@@ -139,7 +139,7 @@ _VIBE_NOISE_MARGIN = 1.6  # per-bin floor multiplier for the viz-only denoise
 
 
 def _db():
-    return storage.connect(_CFG["db"])
+    return storage.connect_readonly(_CFG["db"])
 
 
 def _dev_mode() -> bool:
@@ -1230,10 +1230,10 @@ def _qs_builder(mode: str, sort: str, show_all: bool, selected_day: str, hide_lo
         s = kw.get("sort", sort)
         hl = kw["hide_low"] if "hide_low" in kw else hide_low
         if kw.get("day") == "all":
-            return _qs(mode=m, sort=s, show_all=True, hide_low=hl, empty="/")
+            return _qs(mode=m, sort=s, show_all=True, hide_low=hl, empty="/dex")
         if "day" in kw:
-            return _qs(mode=m, sort=s, day=kw["day"], show_all=False, hide_low=hl, empty="/")
-        return _qs(mode=m, sort=s, day=selected_day, show_all=show_all, hide_low=hl, empty="/")
+            return _qs(mode=m, sort=s, day=kw["day"], show_all=False, hide_low=hl, empty="/dex")
+        return _qs(mode=m, sort=s, day=selected_day, show_all=show_all, hide_low=hl, empty="/dex")
 
     return qs
 
@@ -1444,6 +1444,41 @@ def _clip_nav(
     )
 
 
+def _clip_nav_map(conn, *, show_all: bool, selected_day: str) -> dict[tuple, tuple]:
+    """One-query replacement for calling `_clip_nav` once per species (the
+    index()-page N+1). Maps (common_name, segment_id, start_time, end_time)
+    to the same (prev_clip, next_clip, clip_no, clip_total) shape `_clip_nav`
+    returns, via `storage.species_clip_nav`'s single window-function pass."""
+    day = None if show_all else selected_day
+    nav: dict[tuple, tuple] = {}
+    for r in storage.species_clip_nav(conn, show_all=show_all, day=day):
+        prev_clip = (
+            {
+                "segment_id": r["prev_segment_id"],
+                "start": r["prev_start"],
+                "end": r["prev_end"],
+                "peak_conf": r["prev_conf"],
+                "heard_at": r["prev_heard_at"],
+            }
+            if r["prev_segment_id"] is not None
+            else None
+        )
+        next_clip = (
+            {
+                "segment_id": r["next_segment_id"],
+                "start": r["next_start"],
+                "end": r["next_end"],
+                "peak_conf": r["next_conf"],
+                "heard_at": r["next_heard_at"],
+            }
+            if r["next_segment_id"] is not None
+            else None
+        )
+        key = (r["common_name"], r["segment_id"], r["start_time"], r["end_time"])
+        nav[key] = (prev_clip, next_clip, r["rn"], r["total"])
+    return nav
+
+
 def _split_segments_am_pm(
     segments: list,
 ) -> tuple[list[int], list[int], float]:
@@ -1520,33 +1555,77 @@ def _fmt_audio_minutes(seconds: float) -> str:
     return f"{mins:.0f}"
 
 
+_DATA_REPORT_SPAN = 7  # `day=all` shows the last N calendar days, not true all-time.
+
+
+def _last_n_days(end_day: str, span: int = _DATA_REPORT_SPAN) -> tuple[str, ...]:
+    """The `span` calendar days ending at `end_day`, ascending, unfiltered."""
+    end = date.fromisoformat(end_day)
+    return tuple(
+        (end - timedelta(days=i)).isoformat() for i in range(span - 1, -1, -1)
+    )
+
+
 def _build_data_report(
     conn,
     *,
     selected_day: str,
     show_all: bool,
 ) -> dict:
-    """Assemble JSON payload for the /data report page."""
+    """Assemble JSON payload for the /data report page.
+
+    `show_all` scopes to the last `_DATA_REPORT_SPAN` days (a bounded range),
+    not true all-time — an unbounded scan/species-by-segment matrix over the
+    full history used to make this route take ~28s once the db had ~700k
+    segments. The species dex's genuine all-time life list is unaffected;
+    this cap is local to the data report.
+    """
     day_filter = None if show_all else selected_day
+    days = _last_n_days(selected_day) if show_all else ()
     min_conf = float(_CFG.get("min_conf", config.DEFAULTS["min_conf"]))
-    segments = storage.segments_for_scope(conn, day=day_filter)
-    species_rows = storage.report_species(conn, day=day_filter)
+    segments = (
+        storage.segments_for_scope(conn, days=days)
+        if show_all
+        else storage.segments_for_scope(conn, day=day_filter)
+    )
+    species_rows = (
+        storage.report_species(conn, days=days)
+        if show_all
+        else storage.report_species(conn, day=day_filter)
+    )
 
     if not species_rows:
         return {
             "empty": True,
             "show_all": show_all,
             "day": selected_day if not show_all else None,
+            "days": list(days) if show_all else None,
             "min_conf": min_conf,
         }
 
     conf_by_name: dict[str, list[float]] = {}
-    for r in storage.report_confidences(conn, day=day_filter):
+    conf_rows = (
+        storage.report_confidences(conn, days=days)
+        if show_all
+        else storage.report_confidences(conn, day=day_filter)
+    )
+    for r in conf_rows:
         conf_by_name.setdefault(r["common_name"], []).append(r["confidence"])
 
-    seg_by_name: dict[str, set[int]] = {}
-    for r in storage.report_species_segments(conn, day=day_filter):
-        seg_by_name.setdefault(r["common_name"], set()).add(r["segment_id"])
+    # Presence dots: per-day when spanning multiple days (small), per-segment
+    # for a single day (segments_for_scope is already day-scoped and small).
+    if show_all:
+        day_by_name: dict[str, set[str]] = {}
+        for r in storage.report_species_days(conn, days):
+            day_by_name.setdefault(r["common_name"], set()).add(r["day"])
+        presence_order: tuple = days
+        presence_by_name = day_by_name
+    else:
+        seg_by_name: dict[str, set[int]] = {}
+        for r in storage.report_species_segments(conn, day=day_filter):
+            seg_by_name.setdefault(r["common_name"], set()).add(r["segment_id"])
+        presence_order = tuple(s["id"] for s in segments)
+        presence_by_name = seg_by_name
 
     if show_all:
         am_ids, pm_ids, base_am = _segment_ids_am_pm_all_time(segments)
@@ -1554,13 +1633,21 @@ def _build_data_report(
         am_list, pm_list, base_am = _split_segments_am_pm(segments)
         am_ids, pm_ids = set(am_list), set(pm_list)
 
-    det_rows = conn.execute(
-        f"""
-        SELECT common_name, segment_id FROM detections
-        {"WHERE date(heard_at) = ?" if day_filter else ""}
-        """,
-        (day_filter,) if day_filter else (),
-    ).fetchall()
+    if show_all:
+        ph = ",".join("?" * len(days))
+        det_rows = conn.execute(
+            f"SELECT common_name, segment_id FROM detections "
+            f"WHERE date(heard_at) IN ({ph})",
+            days,
+        ).fetchall()
+    else:
+        det_rows = conn.execute(
+            f"""
+            SELECT common_name, segment_id FROM detections
+            {"WHERE date(heard_at) = ?" if day_filter else ""}
+            """,
+            (day_filter,) if day_filter else (),
+        ).fetchall()
 
     am_pm: dict[str, tuple[int, int]] = {}
     for r in det_rows:
@@ -1572,7 +1659,6 @@ def _build_data_report(
             pm += 1
         am_pm[name] = (am, pm)
 
-    segment_order = [s["id"] for s in segments]
     total_det = sum(r["windows"] for r in species_rows)
     total_species = len(species_rows)
     total_audio_sec = sum(s["duration"] for s in segments)
@@ -1589,7 +1675,7 @@ def _build_data_report(
     for r in species_rows:
         name = r["common_name"]
         am, pm = am_pm.get(name, (0, 0))
-        wins = [1 if sid in seg_by_name.get(name, set()) else 0 for sid in segment_order]
+        wins = [1 if p in presence_by_name.get(name, set()) else 0 for p in presence_order]
         species.append(
             {
                 "n": name,
@@ -1628,7 +1714,10 @@ def _build_data_report(
     daily_rates = []
     hourly = [0] * 24
     if show_all:
+        day_set = set(days)
         for r in storage.daily_rates(conn):
+            if r["day"] not in day_set:
+                continue
             sec = r["audio_sec"] or 1
             daily_rates.append(
                 {
@@ -1638,16 +1727,18 @@ def _build_data_report(
                     "rate": round(r["detections"] / (sec / 60), 2) if sec else 0,
                 }
             )
-        for r in storage.hourly_aggregate(conn):
+        for r in storage.hourly_in_range(conn, days):
             hourly[int(r["hour"])] = r["n"]
 
     audio_min = _fmt_audio_minutes(total_audio_sec)
     if show_all:
         headline = (
-            f"{total_det} bird detections across {total_species} species, all time"
+            f"{total_det} bird detections across {total_species} species "
+            f"in the last {len(days)} days"
         )
         lede = (
-            f"<b>Summary:</b> BirdNET logged <b>{total_det} detections</b> across "
+            f"<b>Summary:</b> Over the last {len(days)} days, BirdNET logged "
+            f"<b>{total_det} detections</b> across "
             f"<b>{total_species} species</b> in {len(segments)} recording windows — "
             f"led by {top['common_name']} with {top['windows']} calls "
             f"({top_share}% of total)."
@@ -1699,6 +1790,7 @@ def _build_data_report(
         "empty": False,
         "show_all": show_all,
         "day": selected_day if not show_all else None,
+        "days": list(days) if show_all else None,
         "min_conf": min_conf,
         "lat": lat,
         "lon": lon,
@@ -1815,6 +1907,13 @@ def realtime_feed():
 
 
 @app.route("/")
+def home():
+    """The React dashboard is now the home page; the legacy species-dex
+    view lives at /dex (still linked from its nav and other legacy pages)."""
+    return redirect("/dash")
+
+
+@app.route("/dex")
 def index():
     today = _today()
     show_all, selected_day = _parse_day_arg(request.args.get("day"))
@@ -1831,16 +1930,16 @@ def index():
         rows = storage.species_dex(conn) if show_all else storage.species_dex_day(conn, selected_day)
         hidden_count = sum(1 for r in rows if r["peak_conf"] < PEAK_CONF_FLOOR)
         rows = _filter_dex_rows(rows, hide_low=hide_low)
+        clip_nav = (
+            _clip_nav_map(conn, show_all=show_all, selected_day=selected_day)
+            if rows
+            else {}
+        )
         dex = []
         for r in _sort_dex_rows(rows, sort):
-            prev_clip, next_clip, clip_no, clip_total = _clip_nav(
-                conn,
-                r["common_name"],
-                r["segment_id"],
-                r["start_time"],
-                r["end_time"],
-                show_all=show_all,
-                selected_day=selected_day,
+            prev_clip, next_clip, clip_no, clip_total = clip_nav.get(
+                (r["common_name"], r["segment_id"], r["start_time"], r["end_time"]),
+                (None, None, 0, 0),
             )
             dex.append(
                 dict(
@@ -1866,12 +1965,12 @@ def index():
             header_day = _scope_label(selected_day, show_all, style="header")
             empty_msg = (
                 f"No species detected {day_scope} — try another day or "
-                f'<a href="{_qs(show_all=True, mode=mode, sort=sort, hide_low=hide_low, empty="/")}">show all</a>.'
+                f'<a href="{_qs(show_all=True, mode=mode, sort=sort, hide_low=hide_low, empty="/dex")}">show all</a>.'
             )
         if hide_low and hidden_count and not dex:
             empty_msg = (
                 f"No species with peak confidence ≥ {PEAK_CONF_FLOOR:.1f} {day_scope or 'in this view'} — "
-                f'<a href="{_qs(show_all=show_all, day=selected_day, mode=mode, sort=sort, empty="/")}">'
+                f'<a href="{_qs(show_all=show_all, day=selected_day, mode=mode, sort=sort, empty="/dex")}">'
                 f"show all {hidden_count} hidden</a>."
             )
         sel = date.fromisoformat(selected_day)
@@ -2048,7 +2147,7 @@ def bird_detail(slug: str):
         index_qs = _qs(
             mode=mode, sort=sort, day=selected_day, show_all=show_all, hide_low=hide_low
         )
-        back_href = "/" + index_qs
+        back_href = "/dex" + index_qs
 
         dex_birds = _sorted_dex_birds(
             conn,
@@ -2168,7 +2267,7 @@ def timeline_view():
         next_day = (sel + timedelta(days=1)).isoformat()
         scope_label = _scope_label(selected_day, show_all, style="header")
         index_qs = _qs(day=selected_day, show_all=show_all, include_mode_sort=False)
-        back_href = "/" + index_qs
+        back_href = "/dex" + index_qs
         if show_all:
             empty = not tl.get("days")
         else:
@@ -2205,7 +2304,7 @@ def data_view():
         next_day = (sel + timedelta(days=1)).isoformat()
         scope_label = _scope_label(selected_day, show_all, style="header")
         index_qs = _qs(day=selected_day, show_all=show_all, include_mode_sort=False)
-        back_href = "/" + index_qs
+        back_href = "/dex" + index_qs
         empty = report.get("empty", True)
         return render_template(
             "data.html",
@@ -2474,7 +2573,7 @@ def call_view(segment_id: int):
                 hide_low=hide_low,
             )
 
-        back_href = "/" + _qs(
+        back_href = "/dex" + _qs(
             show_all=show_all,
             day=selected_day,
             sort=sort,
@@ -2599,7 +2698,7 @@ def vibe_view(segment_id: int):
             sort=sort,
             hide_low=hide_low,
         )
-        back_href = "/" + _qs(
+        back_href = "/dex" + _qs(
             show_all=show_all,
             day=selected_day,
             sort=sort,
@@ -2633,22 +2732,49 @@ _PIXEL_SPRITES_DIR = _ROOT / "sprites"
 # Confidence bucket edges: bucket 0 = [min_conf, .5), 1 = [.5, .7), 2 = [.7, .9), 3 = [.9, 1]
 _DASH_CONF_EDGES = (0.5, 0.7, 0.9)
 
-_dash_summary_cache: dict | None = None  # {"key": (count, max_id), "body": bytes}
-_dash_sure_cache: dict | None = None
+_CACHE: dict[str, dict] = {}
 
 
-def _dash_cache_key(conn) -> tuple:
-    """Invalidate when detections change *or* retention clears audio paths."""
+def _cache_version(conn) -> tuple:
+    """Cheap version key: bumps on new detections or when retention clears
+    audio paths. All three counts are index-only (PK + the two partial
+    indexes on wav_path/clip_path), unlike the old three-COUNT(*) key."""
     row = conn.execute(
         """
         SELECT
-          (SELECT COUNT(*) FROM detections) AS n,
-          (SELECT COALESCE(MAX(id), 0) FROM detections) AS m,
-          (SELECT COUNT(*) FROM segments WHERE wav_path IS NOT NULL) AS segs,
-          (SELECT COUNT(*) FROM tracks WHERE clip_path IS NOT NULL) AS clips
+          (SELECT COALESCE(MAX(id), 0) FROM detections)              AS max_id,
+          (SELECT COUNT(*) FROM segments WHERE wav_path IS NOT NULL)  AS segs,
+          (SELECT COUNT(*) FROM tracks WHERE clip_path IS NOT NULL)   AS clips
         """
     ).fetchone()
-    return (row["n"], row["m"], row["segs"], row["clips"])
+    return (row["max_id"], row["segs"], row["clips"])
+
+
+def _cached(
+    name: str,
+    conn,
+    build_fn,
+    *,
+    extra_key: tuple = (),
+) -> tuple[bytes, str]:
+    """In-memory cache keyed by a cheap version tuple. Returns (json_bytes, etag).
+
+    Rebuilds only when `_cache_version(conn) + extra_key` changes since the
+    last call for this `(name, extra_key)` slot — used for anything expensive
+    enough to be worth not recomputing on every request (dash summary/sure,
+    digest). `extra_key` is part of the dict key, not just the comparison —
+    otherwise distinct params sharing `name` (e.g. `/api/digest?day=A` vs
+    `?day=B`) would evict each other on every request under a threaded server.
+    """
+    slot = (name, extra_key)
+    key = _cache_version(conn) + extra_key
+    entry = _CACHE.get(slot)
+    if entry is None or entry["key"] != key:
+        body = json.dumps(build_fn(conn), separators=(",", ":")).encode()
+        entry = {"key": key, "body": body}
+        _CACHE[slot] = entry
+    etag = '"' + name + "-" + "-".join(str(k) for k in key) + '"'
+    return entry["body"], etag
 
 
 def _dash_sample_clips(
@@ -2887,44 +3013,149 @@ def _build_dash_sure(conn) -> dict:
 
 @app.route("/api/dash/summary")
 def api_dash_summary():
-    global _dash_summary_cache
     conn = _db()
     try:
-        key = _dash_cache_key(conn)
-        if _dash_summary_cache is None or _dash_summary_cache["key"] != key:
-            body = json.dumps(_build_dash_summary(conn), separators=(",", ":"))
-            _dash_summary_cache = {"key": key, "body": body.encode()}
+        body, etag = _cached("dash_summary", conn, _build_dash_summary)
     finally:
         conn.close()
-
-    etag = f'"{key[0]}-{key[1]}-{key[2]}-{key[3]}"'
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304, headers={"ETag": etag})
     return Response(
-        _dash_summary_cache["body"],
-        mimetype="application/json",
+        body, mimetype="application/json",
         headers={"ETag": etag, "Cache-Control": "no-cache"},
     )
 
 
 @app.route("/api/dash/sure")
 def api_dash_sure():
-    global _dash_sure_cache
     conn = _db()
     try:
-        key = _dash_cache_key(conn)
-        if _dash_sure_cache is None or _dash_sure_cache["key"] != key:
-            body = json.dumps(_build_dash_sure(conn), separators=(",", ":"))
-            _dash_sure_cache = {"key": key, "body": body.encode()}
+        body, etag = _cached("dash_sure", conn, _build_dash_sure)
     finally:
         conn.close()
-
-    etag = f'"sure-{key[0]}-{key[1]}-{key[2]}-{key[3]}"'
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304, headers={"ETag": etag})
     return Response(
-        _dash_sure_cache["body"],
-        mimetype="application/json",
+        body, mimetype="application/json",
+        headers={"ETag": etag, "Cache-Control": "no-cache"},
+    )
+
+
+def _digest_clip(row) -> dict | None:
+    """Audio/spectrogram links for a dex-shaped row's peak window, only when
+    that clip's audio still exists (retention may have cleared it)."""
+    if not row["has_audio"]:
+        return None
+    qs = f"?start={row['start_time']}&end={row['end_time']}"
+    return {
+        "segment_id": row["segment_id"],
+        "start": row["start_time"],
+        "end": row["end_time"],
+        "audio_url": f"/audio/{row['segment_id']}{qs}",
+        "spectrogram_url": f"/spectrogram/{row['segment_id']}.png{qs}",
+    }
+
+
+def build_digest(conn, day: str, *, gap: int = 14, limit: int = 10) -> dict:
+    """Daily digest: totals, life-list firsts, species back after a gap, and
+    the day's top detections. Shared by GET /api/digest and
+    `birdid.py digest --json` so both read the same shape."""
+    slugs = _slug_map()
+
+    def slug_of(name: str) -> str:
+        return slugs.get(name) or _common_to_slug(name)
+
+    totals_row = storage.digest_totals(conn, day)
+    dex_rows = storage.species_dex_day(conn, day)
+    new_names = set(storage.new_species_on(conn, day))
+
+    new_species = [
+        {
+            "common_name": r["common_name"],
+            "scientific_name": r["scientific_name"],
+            "slug": slug_of(r["common_name"]),
+            "first_heard": r["first_heard"],
+            "peak_conf": round(r["peak_conf"], 3),
+            "clip": _digest_clip(r),
+        }
+        for r in dex_rows
+        if r["common_name"] in new_names
+    ]
+
+    returning_species = []
+    for r in storage.digest_returning_species(conn, day, gap=gap):
+        last_before = r["last_seen_before"]
+        days_absent = (
+            date.fromisoformat(day) - date.fromisoformat(last_before[:10])
+        ).days
+        returning_species.append(
+            {
+                "common_name": r["common_name"],
+                "slug": slug_of(r["common_name"]),
+                "last_seen_before": last_before,
+                "days_absent": days_absent,
+                "peak_conf": round(r["peak_conf"], 3),
+            }
+        )
+
+    top_detections = []
+    for r in dex_rows[: max(limit, 0)]:
+        clip = _digest_clip(r)
+        if clip is None:
+            continue
+        top_detections.append(
+            {
+                "common_name": r["common_name"],
+                "slug": slug_of(r["common_name"]),
+                "confidence": round(r["peak_conf"], 3),
+                "heard_at": r["heard_at"],
+                **clip,
+            }
+        )
+
+    species = [
+        {
+            "common_name": r["common_name"],
+            "slug": slug_of(r["common_name"]),
+            "windows": r["windows"],
+            "peak_conf": round(r["peak_conf"], 3),
+            "first_heard": r["first_heard"],
+            "last_heard": r["last_heard"],
+        }
+        for r in dex_rows
+    ]
+
+    return {
+        "day": day,
+        "totals": {
+            "detections": totals_row["detections"],
+            "species": totals_row["species"],
+            "audio_min": round((totals_row["audio_sec"] or 0) / 60, 1),
+        },
+        "new_species": new_species,
+        "returning_species": returning_species,
+        "top_detections": top_detections,
+        "species": species,
+    }
+
+
+@app.route("/api/digest")
+def api_digest():
+    day = request.args.get("day") or _today()
+    gap = request.args.get("gap", default=14, type=int)
+    limit = request.args.get("limit", default=10, type=int)
+    conn = _db()
+    try:
+        body, etag = _cached(
+            "digest", conn, lambda c: build_digest(c, day, gap=gap, limit=limit),
+            extra_key=(day, gap, limit),
+        )
+    finally:
+        conn.close()
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304, headers={"ETag": etag})
+    return Response(
+        body, mimetype="application/json",
         headers={"ETag": etag, "Cache-Control": "no-cache"},
     )
 
@@ -3111,14 +3342,18 @@ def demos(relpath: str):
 
 def main(host: str = "127.0.0.1", port: int = 8080, *, dev: bool = False):
     app.config["DEV_MODE"] = dev
+    storage.ensure_schema(_CFG["db"])
     url = f"http://{host}:{port}"
     if dev:
         print(f"bird-id dashboard (dev) at {url}  (db: {_CFG['db']})")
         print("  auto-reload on code changes — leave a tab open to refresh automatically")
-    else:
-        print(f"bird-id dashboard at {url}  (db: {_CFG['db']})")
-    extra_files = [str(_BIRD_INFO_JSON), str(_BIRDS_JSON)] if dev else None
-    app.run(host=host, port=port, debug=dev, use_reloader=dev, extra_files=extra_files)
+        extra_files = [str(_BIRD_INFO_JSON), str(_BIRDS_JSON)]
+        app.run(host=host, port=port, debug=True, use_reloader=True, extra_files=extra_files)
+        return
+    print(f"bird-id dashboard at {url}  (db: {_CFG['db']})")
+    import waitress
+
+    waitress.serve(app, host=host, port=port, threads=8)
 
 
 if __name__ == "__main__":

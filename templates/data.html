@@ -77,7 +77,7 @@
     <a href="/data?day={{ next_day }}">Next →</a>
     {% if selected_day != today %}<a href="/data">Today</a>{% endif %}
     {% endif %}
-    {% if show_all %}<a href="/data" class="on">All time</a>{% else %}<a href="/data?day=all">All time</a>{% endif %}
+    {% if show_all %}<a href="/data" class="on">Last 7 days</a>{% else %}<a href="/data?day=all">Last 7 days</a>{% endif %}
     <span style="color:var(--gray-d);margin-left:auto">{{ scope_label }}</span>
   </div>
 
@@ -96,7 +96,7 @@
     {% endfor %}
   </ul>
   <div class="meta">
-    {% if not show_all %}<span><b>{{ selected_day }}</b></span>{% else %}<span><b>All time</b></span>{% endif %}
+    {% if not show_all %}<span><b>{{ selected_day }}</b></span>{% else %}<span><b>Last 7 days</b></span>{% endif %}
     <span>{{ "%.2f"|format(lat) }}°N {{ "%.2f"|format(lon) }}°W</span>
     <span><b>{{ meta.windows }}</b> windows</span>
     <span><b>{{ meta.audio_min }}</b> min audio</span>

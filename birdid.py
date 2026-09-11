@@ -13,6 +13,7 @@ The identify path is mic-free, so the dev test loop is just:
 from __future__ import annotations
 
 import argparse
+import json
 import queue
 import shutil
 import subprocess
@@ -558,6 +559,12 @@ def cmd_digest(args) -> int:
     db_path = config.resolve(args.db, "db", args.cfg)
     conn = storage.connect(db_path)
     try:
+        if args.json:
+            import dashboard  # imported here so other commands don't pay Flask's import cost
+
+            print(json.dumps(dashboard.build_digest(conn, day, gap=args.gap, limit=args.limit)))
+            return 0
+
         ov = storage.day_overview(conn, day)
         print(f"\nDaily digest — {day}")
         if not ov["detections"]:
@@ -673,6 +680,18 @@ def main(argv=None) -> int:
     p_dig = sub.add_parser("digest", help="daily summary: species, timing, new birds")
     p_dig.add_argument("--date", help="day as YYYY-MM-DD (default: today)")
     p_dig.add_argument("--db", help="SQLite database path (overrides config)")
+    p_dig.add_argument(
+        "--json", action="store_true",
+        help="print the same JSON as GET /api/digest instead of plain text",
+    )
+    p_dig.add_argument(
+        "--gap", type=int, default=14,
+        help="days absent before a species counts as 'returning' (--json only, default: 14)",
+    )
+    p_dig.add_argument(
+        "--limit", type=int, default=10,
+        help="max top detections to include (--json only, default: 10)",
+    )
     p_dig.set_defaults(func=cmd_digest)
 
     p_dash = sub.add_parser("dashboard", help="launch the local web dashboard")
