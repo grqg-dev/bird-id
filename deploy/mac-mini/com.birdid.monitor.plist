@@ -19,6 +19,11 @@
 	<true/>
 	<key>KeepAlive</key>
 	<true/>
+	<!-- Real-time audio capture: without this launchd treats the agent as
+	     background work and throttles its timers, and ffmpeg's avfoundation
+	     input then drops most of the audio (about 80% lost, Aug-Nov 2026). -->
+	<key>ProcessType</key>
+	<string>Interactive</string>
 	<key>StandardOutPath</key>
 	<string>/Users/matt/bird-id/logs/monitor.log</string>
 	<key>StandardErrorPath</key>
