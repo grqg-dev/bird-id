@@ -37,6 +37,9 @@ DEFAULTS: dict[str, Any] = {
     "mic_dead_window_seconds": 60, # sustained silence window → mic-dead error
     "capture_stall_seconds": 5,   # no full hop for this long → kill + respawn ffmpeg
     "db": "birdid.db",
+    "log_dir": "logs",            # relative to CWD, like db
+    "log_max_mb": 5,              # rotate logs/*.log and *.err past this size
+    "log_backups": 3,
     "recordings_dir": "recordings",
     "retention_days": 30,   # drop kept segment wavs after N days; 0 = keep forever
     "clip_format": "mp3",   # mp3 | wav — per-window clips written by the monitor

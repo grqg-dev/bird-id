@@ -171,6 +171,32 @@ def dev_ping():
 _PIXEL_SPRITES_DIR = _ROOT / "sprites"
 
 
+def register_v1_aliases() -> int:
+    """Expose every `/api/<x>` route also as `/api/v1/<x>` (same view function).
+
+    The SPA calls the versioned paths; the unversioned ones stay as aliases for
+    existing consumers (scripts, `birdid.py digest`, bookmarks). Call once, after
+    all route modules are imported. Returns how many aliases were added.
+    """
+    added = 0
+    existing = {r.rule for r in app.url_map.iter_rules()}
+    for rule in list(app.url_map.iter_rules()):
+        if not rule.rule.startswith("/api/") or rule.rule.startswith("/api/v1/"):
+            continue
+        alias = "/api/v1/" + rule.rule[len("/api/"):]
+        if alias in existing:
+            continue
+        app.add_url_rule(
+            alias,
+            endpoint=rule.endpoint,
+            view_func=app.view_functions[rule.endpoint],
+            methods=sorted(rule.methods - {"HEAD", "OPTIONS"}),
+            defaults=rule.defaults,
+        )
+        added += 1
+    return added
+
+
 def main(host: str = "127.0.0.1", port: int = 8080, *, dev: bool = False):
     app.config["DEV_MODE"] = dev
     storage.ensure_schema(_CFG["db"])
@@ -182,6 +208,30 @@ def main(host: str = "127.0.0.1", port: int = 8080, *, dev: bool = False):
         app.run(host=host, port=port, debug=True, use_reloader=True, extra_files=extra_files)
         return
     print(f"bird-id dashboard at {url}  (db: {_CFG['db']})")
+    import threading
+    import time
+
     import waitress
 
+    import logrotate
+
+    log_dir = _CFG.get("log_dir", "logs")
+    max_bytes = int(float(_CFG.get("log_max_mb", 5)) * 1_000_000)
+    backups = int(_CFG.get("log_backups", 3))
+    access = logrotate.rotating_logger(
+        "dashboard-access", log_dir, max_bytes=max_bytes, backups=backups
+    )
+    # waitress/werkzeug chatter goes to the same rotating file, not stderr
+    logrotate.route_to_logger(("waitress", "waitress.queue", "werkzeug"), access)
+
+    def _rotate_forever() -> None:  # launchd-owned logs/*.log, *.err (hourly, copy-truncate)
+        while True:
+            try:
+                logrotate.rotate_logs(log_dir, max_bytes=max_bytes, backups=backups)
+            except Exception:
+                pass
+            time.sleep(3600)
+
+    threading.Thread(target=_rotate_forever, daemon=True, name="log-rotate").start()
+    app.wsgi_app = logrotate.AccessLog(app.wsgi_app, access)
     waitress.serve(app, host=host, port=port, threads=8)

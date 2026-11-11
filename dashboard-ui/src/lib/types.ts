@@ -6,11 +6,51 @@ export interface BirdInfo {
   note?: string
 }
 
+/** Why retention keeps a clip and until when (until = ISO date, null = no expiry). */
+export interface ClipKeep {
+  reason: 'live_window' | 'species_best' | 'high_conf' | 'mid_conf' | 'low_conf' | string
+  until: string | null
+}
+
 export interface ClipRef {
   seg: number
   s: number
   e: number
   conf: number
+  keep?: ClipKeep
+}
+
+/** /api/dash/species/<slug> */
+export interface SpeciesDetail {
+  name: string
+  sci: string
+  slug: string
+  art: boolean
+  pixel: boolean
+  status: YardStatus
+  total: number
+  peak: number
+  first: string
+  last: string
+  days: number
+  hourly: number[]
+  daily: Record<string, number>
+  info: BirdInfo | null
+  clips: (ClipRef & { heard_at: string })[]
+  page: number
+  has_more: boolean
+}
+
+/** /api/recent event (slim) */
+export interface RecentEvent {
+  heard_at: string
+  common_name: string
+  slug: string
+  peak_conf: number
+  segment_id: number
+  start_time: number
+  end_time: number
+  has_sprite: boolean
 }
 
 export type YardStatus = 'expected' | 'possible' | 'unlikely'

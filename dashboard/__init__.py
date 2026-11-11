@@ -50,6 +50,7 @@ from .app import (  # noqa: F401
     app,
     dev_ping,
     main,
+    register_v1_aliases,
 )
 from .legacy import (  # noqa: F401
     PEAK_CONF_FLOOR,
@@ -147,6 +148,9 @@ from .media import (  # noqa: F401
     vibeviz_json,
 )
 from .api import (  # noqa: F401
+    _keep_dict,
+    api_dash_species,
+    build_dash_species,
     _wants_unlikely,
     HEALTH_LEVEL_DROP_DB,
     HEALTH_LOW_CELL,
@@ -174,3 +178,7 @@ from .api import (  # noqa: F401
     dash_asset,
     dash_index,
 )
+
+
+# Every /api/<x> route is also served at /api/v1/<x>. Must run after all routes exist.
+register_v1_aliases()

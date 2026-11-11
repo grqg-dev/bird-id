@@ -35,6 +35,11 @@ export function windowOf(summary: Summary, slice: Slice): Windowed {
   return { lo, hi: last, priorLo: Math.max(0, lo - len), priorHi: lo - 1 }
 }
 
+/** The 7d/14d/30d/all range window, ignoring any single-day focus. */
+export function rangeWindow(summary: Summary, slice: Slice): Windowed {
+  return windowOf(summary, { ...slice, day: null })
+}
+
 export interface Sliced {
   window: Windowed
   /** everything below respects all active filters unless noted */

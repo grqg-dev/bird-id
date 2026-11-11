@@ -84,7 +84,7 @@ The dashboard works offline — no internet required once it's running, and open
 to the main dashboard view. Browse by day or all-time, open a species for clips
 and spectrograms, click **◳ 3D** on a dex card for the **Call Chamber** (`/call`)
 — an orbitable 3D frequency-pole visualization synced to clip playback — open
-**Live feed** (`/live`) for a rolling 24-hour timeline that auto-updates while
+**Live feed** (`/dash/live`) for a rolling 24-hour timeline that auto-updates while
 you monitor, open **Twitter view** (`/twitter`) for an all-time, scrollable
 timeline of every detection sorted by latest or top confidence, with dark/light
 mode, or open **Data report** (`/data`) for the last 7 days of detection counts
@@ -121,7 +121,7 @@ so either can be cron'd or piped into something else.
 | Long file, one row per species | `./.venv/bin/python birdid.py identify big.wav --summary` |
 | Import a recording into the DB | `./.venv/bin/python birdid.py identify file.wav --save` |
 | Dashboard on your home network | `./.venv/bin/python birdid.py dashboard --host 0.0.0.0` |
-| Live companion feed (phone-friendly) | Open `/live` while monitor runs — polls every 5s |
+| Live companion feed (phone-friendly) | Open `/dash/live` while monitor runs — polls every 5s |
 | Preview what retention would delete | `./.venv/bin/python birdid.py cleanup --dry-run` |
 | Dashboard auto-reload while hacking | `./.venv/bin/python birdid.py dashboard --dev` |
 

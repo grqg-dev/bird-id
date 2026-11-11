@@ -487,6 +487,7 @@ fallback.
 | `lat` | `null` | Latitude; enables BirdNET location/season filter |
 | `lon` | `null` | Longitude |
 | `min_conf` | `0.3` | Minimum confidence threshold (0–1) |
+| `log_dir` / `log_max_mb` / `log_backups` | `"logs"` / `5` / `3` | Dashboard access log (`<log_dir>/dashboard-access.log`, `RotatingFileHandler`) and size cap for copy-truncate rotation of `logs/*.log`, `*.err` (`logrotate.py`; run hourly by the dashboard and by `birdid.py cleanup`) |
 | `location_filter_threshold` | `null` | BirdNET location/season species-list cutoff (birdnetlib `Recording(filter_threshold=…)`, library default 0.03); only with `lat`/`lon`. `null` = library default. Higher = shorter list. Independent of `min_conf` |
 | `db` | `"birdid.db"` | SQLite path (relative to CWD) |
 | `recordings_dir` | `"recordings"` | Where segment wavs are written |
@@ -535,17 +536,19 @@ Run with `birdid.py dashboard` or `python -m dashboard`.
 | `/api/dash/health` | GET | Capture coverage from `capture_health`: `last_24h`, `last_30d`, `hourly_seconds` (`{day: [24 secs]}`), `alerts` (banner lines). Alerts: 24 h coverage < 90%, newest segment > 10 min old, 24 h mean level ≥ 6 dB under the 30-day median. Hours before the first `capture_health` row are unknown, not deaf. Built by `api.build_dash_health()`; not cached |
 | `/api/digest` | GET | Daily digest JSON: totals, new/returning species, top detections; `?day=`, `?gap=` (default 14), `?limit=` (default 10) — same shape as `birdid.py digest --json` |
 | `/dex` | GET | Legacy species-dex grid, today or all-time; `?day=YYYY-MM-DD`, `?day=all`, `?mode=gallery` |
-| `/bird/<slug>` | GET | Species drill-down: stats, hourly chart, clip list, spectrogram |
+| `/bird/<slug>` | GET | **Retired** — 302 to `/dash/species/<slug>` (SPA species page) |
 | `/timeline` | GET | Swimlane timeline for a day; `?day=YYYY-MM-DD` |
 | `/trends` | GET | Rolling 7-day trends: activity clock, dawn/night leaderboards, risers & fallers |
 | `/heard` | GET | Simple "what's around right now" view |
 | `/data` | GET | Data report: detection counts, confidence strips; `?day=YYYY-MM-DD`, or `?day=all`/no param for the **last 7 days** (not true all-time — see `_build_data_report`) |
-| `/live` | GET | Rolling 24h feed; JS polls `/api/recent` every 5s |
-| `/realtime` | GET | Realtime dashboard with detection feed (streaming) |
+| `/live`, `/realtime` | GET | **Retired** — 302 to `/dash/live` (SPA live feed, polls `/api/v1/recent` every 5s) |
+| `/dash/species/<slug>`, `/dash/day/<YYYY-MM-DD>`, `/dash/live`, `/dash/sure` | GET | SPA client-side routes: Flask serves `index.html` for any extensionless path under `/dash/` |
+| `/api/dash/species/<slug>` | GET | Species page data: stats, hourly counts, per-day counts, field notes, clips with retention `keep {reason, until}`; `?page=` |
+| `/api/v1/<x>` | GET | Every `/api/<x>` route is also served under `/api/v1/` (`app.register_v1_aliases()`); the SPA uses the versioned paths, the old paths stay as aliases |
 | `/twitter` | GET | All-time scrollable detection timeline; dark/light, sort by latest or top confidence |
 | `/api/twitter` | GET | JSON paginated feed for `/twitter`; params: `day`, `page`, `sort`, `hide_low` |
 | `/call/<segment_id>` | GET | Call Chamber: 3D Three.js frequency-pole visualization |
-| `/api/recent` | GET | JSON feed for `/live`; params: `hours`, `since`, `min_conf`, `limit` |
+| `/api/recent` | GET | JSON feed for the SPA live feed; params: `hours`, `since`, `min_conf`, `limit` |
 | `/callviz/<segment_id>.json` | GET | Pre-computed mel matrix + waveform + pitch for `/call` |
 | `/vibeviz/<segment_id>.json` | GET | Pre-computed node/edge graph for `/vibe` (v2) |
 | `/vibe/<segment_id>` | GET | Fable: 3D ember-constellation sculpture of bird song |
@@ -704,6 +707,7 @@ birdid.db            SQLite database (gitignored)
 
 docs/birds.json          Canonical species list (common_name + slug)
 docs/bird_info.json      Field notes per species (keyed by slug)
+logrotate.py            Rotating app logs, access-log middleware, copy-truncate rotation
 docs/yard_list.json      Plausibility per species: expected / possible / unlikely (keyed by common name)
 realistic-sprites/       Per-species illustration PNGs (field-guide style)
 sprites/                 Older pixel-art sprite PNGs (legacy)

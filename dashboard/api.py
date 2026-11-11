@@ -8,6 +8,7 @@ from pathlib import Path
 
 from flask import Response, abort, request, send_file
 
+import retention
 import storage
 from .app import (
     EXCLUDED_DAYS,
@@ -22,6 +23,7 @@ from .app import (
     app,
 )
 from .legacy import (
+    _resolve_bird_slug,
     _build_twitter_feed,
     _feed_payload,
     _filter_feed_events,
@@ -164,6 +166,17 @@ def _cached(
     return entry["body"], etag
 
 
+def _keep_dict(conf: float, started_at: str, rank: int, policy, now: datetime) -> dict:
+    """{"reason", "until"} for a clip: why retention keeps it and until when
+    (until = ISO date, None = no expiry). See retention.keep_info."""
+    try:
+        when = datetime.fromisoformat(started_at)
+    except (TypeError, ValueError):
+        return {"reason": "species_best", "until": None}
+    reason, until = retention.keep_info(conf, when, rank, now, policy)
+    return {"reason": reason, "until": until.date().isoformat() if until else None}
+
+
 def _dash_sample_clips(
     conn,
     *,
@@ -196,6 +209,7 @@ def _dash_sample_clips(
           SELECT d.common_name AS name, d.segment_id AS seg,
                  d.start_time AS s, d.end_time AS e, d.confidence AS conf,
                  t.clip_path AS clip_path, sg.wav_path AS wav_path,
+                 sg.started_at AS started_at,
                  ROW_NUMBER() OVER (
                    PARTITION BY d.common_name
                    ORDER BY d.confidence DESC, d.id DESC
@@ -210,6 +224,8 @@ def _dash_sample_clips(
         (*params, candidate_limit),
     ).fetchall()
     samples: dict[str, list[dict]] = {}
+    policy = retention.Policy.from_config(_CFG)
+    now = _now()
     for r in rows:
         species_samples = samples.setdefault(r["name"], [])
         if len(species_samples) >= per_species:
@@ -224,6 +240,9 @@ def _dash_sample_clips(
                     "s": round(r["s"], 2),
                     "e": round(r["e"], 2),
                     "conf": round(r["conf"], 3),
+                    "keep": _keep_dict(
+                        r["conf"], r["started_at"], len(species_samples), policy, now
+                    ),
                 }
             )
     return {name: clips for name, clips in samples.items() if clips}
@@ -770,6 +789,127 @@ def api_dash_health():
         body = build_dash_health(conn)
     finally:
         conn.close()
+    resp = Response(json.dumps(body, separators=(",", ":")), mimetype="application/json")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# /api/dash/species/<slug> — species page inside the SPA (replaces /bird/<slug>)
+# ---------------------------------------------------------------------------
+
+_SPECIES_CLIPS_PER_PAGE = 30
+
+
+def build_dash_species(conn, slug: str, page: int = 1) -> dict | None:
+    name = _resolve_bird_slug(slug, conn)
+    if not name:
+        return None
+    excluded = tuple(sorted(EXCLUDED_DAYS))
+    not_excluded = (
+        "AND date(heard_at) NOT IN (%s)" % ",".join("?" * len(excluded)) if excluded else ""
+    )
+    stats = conn.execute(
+        f"""
+        SELECT scientific_name AS sci, COUNT(*) AS total, MAX(confidence) AS peak,
+               MIN(heard_at) AS first, MAX(heard_at) AS last,
+               COUNT(DISTINCT date(heard_at)) AS days
+        FROM detections WHERE common_name = ? {not_excluded}
+        """,
+        (name, *excluded),
+    ).fetchone()
+    if not stats or not stats["total"]:
+        return None
+    hourly = [0] * 24
+    for r in conn.execute(
+        f"""
+        SELECT CAST(strftime('%H', heard_at) AS INTEGER) AS h, COUNT(*) AS n
+        FROM detections WHERE common_name = ? {not_excluded} GROUP BY h
+        """,
+        (name, *excluded),
+    ):
+        hourly[r["h"]] = r["n"]
+    daily = {
+        r["d"]: r["n"]
+        for r in conn.execute(
+            f"""
+            SELECT date(heard_at) AS d, COUNT(*) AS n
+            FROM detections WHERE common_name = ? {not_excluded} GROUP BY d ORDER BY d
+            """,
+            (name, *excluded),
+        )
+    }
+
+    # Clips that still have audio, best first. Rank (position in this order) feeds
+    # the retention explanation: the best N per species are kept indefinitely.
+    page = max(1, page)
+    policy = retention.Policy.from_config(_CFG)
+    now = _now()
+    offset = (page - 1) * _SPECIES_CLIPS_PER_PAGE
+    rows = conn.execute(
+        """
+        SELECT d.segment_id AS seg, d.start_time AS s, d.end_time AS e,
+               d.confidence AS conf, d.heard_at AS heard_at,
+               t.clip_path AS clip_path, sg.wav_path AS wav_path, sg.started_at AS started_at
+        FROM detections d
+        LEFT JOIN tracks t ON t.id = d.track_id
+        JOIN segments sg ON sg.id = d.segment_id
+        WHERE d.common_name = ? AND (t.clip_path IS NOT NULL OR sg.wav_path IS NOT NULL)
+        ORDER BY d.confidence DESC, d.id DESC
+        LIMIT ? OFFSET ?
+        """,
+        (name, _SPECIES_CLIPS_PER_PAGE + 1, offset),
+    ).fetchall()
+    has_more = len(rows) > _SPECIES_CLIPS_PER_PAGE
+    clips = []
+    for i, r in enumerate(rows[:_SPECIES_CLIPS_PER_PAGE]):
+        playable = (r["clip_path"] and os.path.exists(r["clip_path"])) or (
+            r["wav_path"] and os.path.exists(r["wav_path"])
+        )
+        if not playable:
+            continue
+        clips.append(
+            {
+                "seg": r["seg"],
+                "s": round(r["s"], 2),
+                "e": round(r["e"], 2),
+                "conf": round(r["conf"], 3),
+                "heard_at": r["heard_at"],
+                "keep": _keep_dict(r["conf"], r["started_at"], offset + i, policy, now),
+            }
+        )
+    slugs = _slug_map()
+    canonical = slugs.get(name) or _common_to_slug(name)
+    return {
+        "name": name,
+        "sci": stats["sci"],
+        "slug": canonical,
+        "art": (_SPRITES_DIR / f"{canonical}.png").is_file(),
+        "pixel": (_PIXEL_SPRITES_DIR / f"{canonical}.png").is_file(),
+        "status": _yard_status(name),
+        "total": stats["total"],
+        "peak": round(stats["peak"], 3),
+        "first": stats["first"],
+        "last": stats["last"],
+        "days": stats["days"],
+        "hourly": hourly,
+        "daily": daily,
+        "info": _bird_info().get(canonical),
+        "clips": clips,
+        "page": page,
+        "has_more": has_more,
+    }
+
+
+@app.route("/api/dash/species/<slug>")
+def api_dash_species(slug: str):
+    conn = _db()
+    try:
+        body = build_dash_species(conn, slug, request.args.get("page", 1, type=int))
+    finally:
+        conn.close()
+    if body is None:
+        abort(404)
     resp = Response(json.dumps(body, separators=(",", ":")), mimetype="application/json")
     resp.headers["Cache-Control"] = "no-cache"
     return resp

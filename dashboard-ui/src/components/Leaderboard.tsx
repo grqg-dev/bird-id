@@ -3,6 +3,7 @@ import type { Sliced } from '../lib/slice'
 import type { Summary } from '../lib/types'
 import { ranked } from '../lib/slice'
 import { fmtInt } from '../lib/format'
+import { ClipPlayer } from './ClipPlayer'
 import { useTip } from './Tip'
 
 /** W6 · every species in the slice, ranked, with trend vs the prior window. */
@@ -61,7 +62,7 @@ export function Leaderboard({
             trend = '★'
           }
           return (
-            <li key={si}>
+            <li key={si} className="board-item">
               <button
                 className="board-row"
                 onClick={() => onOpen(si)}
@@ -95,6 +96,7 @@ export function Leaderboard({
                   {trend ?? ''}
                 </span>
               </button>
+              {sp.clip && <ClipPlayer clip={sp.clip} compact />}
             </li>
           )
         })}
