@@ -13,6 +13,8 @@ export interface ClipRef {
   conf: number
 }
 
+export type YardStatus = 'expected' | 'possible' | 'unlikely'
+
 export interface Species {
   name: string
   sci: string
@@ -25,6 +27,15 @@ export interface Species {
   peak: number
   first: string
   last: string
+  /** distinct days this species was detected */
+  days: number
+  /**
+   * When the species became a "new encounter" — its first 0.7+ detection or its
+   * second separate day, whichever came first. null = not an encounter yet.
+   */
+  encounter: string | null
+  /** yard plausibility from docs/yard_list.json */
+  status: YardStatus
   clip?: ClipRef
   info?: BirdInfo
 }
@@ -40,6 +51,12 @@ export interface Summary {
     min_conf: number
     conf_edges: number[]
     excluded_days: string[]
+    /** species marked 'unlikely' are included (toggle on) */
+    include_unlikely: boolean
+    /** unlikely species with detections, whether shown or hidden */
+    unlikely_total: number
+    /** how many are currently hidden from this payload */
+    unlikely_hidden: number
   }
   days: string[]
   sun: { rise: number; set: number }[]
@@ -55,6 +72,7 @@ export interface SureSpecies {
   pixel: boolean
   count: number
   peak: number
+  status: YardStatus
   clips: ClipRef[]
   info?: BirdInfo
 }
@@ -65,6 +83,9 @@ export interface SureSummary {
     location: string
     min_conf: number
     excluded_days: string[]
+    include_unlikely: boolean
+    unlikely_total: number
+    unlikely_hidden: number
   }
   species: SureSpecies[]
 }
@@ -92,4 +113,33 @@ export const DEFAULT_SLICE: Slice = {
   hour: null,
   confMin: 0,
   species: null,
+}
+
+export interface HealthWindow {
+  expected_hours: number
+  recorded_hours: number
+  /** 0–1, null when nothing is expected yet */
+  coverage: number | null
+  mean_dbfs: number | null
+  median_dbfs?: number | null
+}
+
+/** /api/dash/health — capture coverage from the monitor's capture_health table. */
+export interface Health {
+  now: string
+  first_hour: string | null
+  newest_segment_at: string | null
+  newest_segment_age_minutes: number | null
+  last_24h: HealthWindow | null
+  last_30d: HealthWindow | null
+  /** 'YYYY-MM-DD' → 24 values: seconds of audio actually received that hour */
+  hourly_seconds: Record<string, number[]>
+  /** plain-text banner lines (empty when capture looks healthy) */
+  alerts: string[]
+  thresholds: { low_cell: number }
+}
+
+/** Day (YYYY-MM-DD) a species became a new encounter, or null if it has not yet. */
+export function encounterDay(sp: Species): string | null {
+  return sp.encounter ? sp.encounter.slice(0, 10) : null
 }

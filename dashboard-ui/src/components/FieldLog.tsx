@@ -1,6 +1,7 @@
 import type { Sliced } from '../lib/slice'
 import type { Slice, Summary } from '../lib/types'
 import { fmtDay, fmtInt } from '../lib/format'
+import { fmtRecorded, type Coverage } from '../lib/health'
 import { useTip } from './Tip'
 
 function heatVar(v: number, max: number): string {
@@ -18,11 +19,13 @@ export function FieldLog({
   sliced,
   slice,
   setSlice,
+  cov,
 }: {
   summary: Summary
   sliced: Sliced
   slice: Slice
   setSlice: (s: Slice) => void
+  cov: Coverage | null
 }) {
   const tip = useTip()
   const days = summary.days
@@ -45,6 +48,7 @@ export function FieldLog({
         Field log
         <span className="sub">
           {fmtDay(days[0])} – {fmtDay(days[days.length - 1])} · click a day
+          {cov ? ' · hatched = mic off' : ''}
         </span>
       </h2>
       <div className="cal">
@@ -63,18 +67,22 @@ export function FieldLog({
               const v = sliced.perDayNav[di]
               const isExcluded = excluded.has(day)
               const selected = slice.day === di
+              const lowCov = !isExcluded && cov !== null && cov.dayLow(di)
+              const dh = cov?.dayHours(di) ?? null
               return (
                 <button
                   key={ci}
-                  className={`cal-cell ${selected ? 'sel' : ''}`}
+                  className={`cal-cell ${selected ? 'sel' : ''} ${lowCov ? 'low-cov' : ''}`}
                   style={{ background: isExcluded ? 'transparent' : heatVar(v, max) }}
-                  aria-label={`${fmtDay(day)}: ${fmtInt(v)} detections`}
+                  aria-label={`${fmtDay(day)}: ${fmtInt(v)} detections${lowCov ? ', mic recorded under half the day' : ''}`}
                   onMouseMove={(e) =>
                     tip.show(
                       e,
                       isExcluded
                         ? `${fmtDay(day)} · excluded (sensor fault)`
-                        : `${fmtDay(day)} · ${fmtInt(v)} calls`,
+                        : `${fmtDay(day)} · ${fmtInt(v)} calls${
+                            lowCov && dh ? ` · mic off: ${fmtRecorded(dh.recorded, dh.expected)}` : ''
+                          }`,
                     )
                   }
                   onMouseLeave={tip.hide}

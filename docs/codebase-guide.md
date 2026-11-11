@@ -194,7 +194,7 @@ class SpeciesSummary:
 **Functions:**
 
 ```python
-identify(wav_path, *, min_conf=0.3, lat=None, lon=None, when=None) → list[Detection]
+identify(wav_path, *, min_conf=0.3, lat=None, lon=None, when=None, filter_threshold=None) → list[Detection]
 ```
 Runs BirdNET on `wav_path`. When `lat`/`lon` are provided, also passes
 `when` (default `date.today()`) so BirdNET applies location/season filtering.
@@ -487,6 +487,7 @@ fallback.
 | `lat` | `null` | Latitude; enables BirdNET location/season filter |
 | `lon` | `null` | Longitude |
 | `min_conf` | `0.3` | Minimum confidence threshold (0–1) |
+| `location_filter_threshold` | `null` | BirdNET location/season species-list cutoff (birdnetlib `Recording(filter_threshold=…)`, library default 0.03); only with `lat`/`lon`. `null` = library default. Higher = shorter list. Independent of `min_conf` |
 | `db` | `"birdid.db"` | SQLite path (relative to CWD) |
 | `recordings_dir` | `"recordings"` | Where segment wavs are written |
 | `retention_days` | `30` | Days to keep segment wavs (0 = forever) |
@@ -517,7 +518,13 @@ The Santa Barbara defaults: `lat: 34.4208, lon: -119.6982, min_conf: 0.3`.
 
 ## Dashboard Routes
 
-All routes are in `dashboard.py`. The app is a single Flask file; no blueprints.
+The dashboard is the `dashboard/` package (no blueprints; one Flask `app`):
+`app.py` (Flask `app`, `_CFG`, `_db()`, slug helpers, `main`), `api.py` (JSON APIs and the
+`/dash` SPA host), `media.py` (audio, spectrogram, sprites, `/call`, `/vibe`, callviz/vibeviz),
+`legacy.py` (server-rendered pages). `dashboard/__init__.py` re-exports every name, so
+`import dashboard; dashboard._db` works. Submodules read `_db`, `_today`, `_CACHE`, `_DASH_DIST`
+through the package at call time so tests can monkeypatch them on `dashboard`.
+Run with `birdid.py dashboard` or `python -m dashboard`.
 
 | Route | Method | What it does |
 |---|---|---|
@@ -525,6 +532,7 @@ All routes are in `dashboard.py`. The app is a single Flask file; no blueprints.
 | `/dash`, `/dash/<path>` | GET | React dashboard SPA (`dashboard-ui/`, built to `dashboard-ui/dist`) |
 | `/api/dash/summary` | GET | JSON cube (species × day × hour × confidence bucket) behind `/dash`; cached via `_cached()` |
 | `/api/dash/sure` | GET | All-time 0.9+-confidence leaderboard behind `/dash`; cached via `_cached()` |
+| `/api/dash/health` | GET | Capture coverage from `capture_health`: `last_24h`, `last_30d`, `hourly_seconds` (`{day: [24 secs]}`), `alerts` (banner lines). Alerts: 24 h coverage < 90%, newest segment > 10 min old, 24 h mean level ≥ 6 dB under the 30-day median. Hours before the first `capture_health` row are unknown, not deaf. Built by `api.build_dash_health()`; not cached |
 | `/api/digest` | GET | Daily digest JSON: totals, new/returning species, top detections; `?day=`, `?gap=` (default 14), `?limit=` (default 10) — same shape as `birdid.py digest --json` |
 | `/dex` | GET | Legacy species-dex grid, today or all-time; `?day=YYYY-MM-DD`, `?day=all`, `?mode=gallery` |
 | `/bird/<slug>` | GET | Species drill-down: stats, hourly chart, clip list, spectrogram |
@@ -560,6 +568,12 @@ All routes are in `dashboard.py`. The app is a single Flask file; no blueprints.
   (previously ~130 queries for a full page load).
 - `_slug_map()` / `_slug_to_name()` — cached `common_name ↔ slug` from `docs/birds.json`.
 - `_bird_info()` — cached field notes from `docs/bird_info.json` (keyed by slug).
+- `_yard_list()` / `_yard_status(common_name)` — cached plausibility from `docs/yard_list.json`
+  (`expected` / `possible` / `unlikely`; unlisted = `possible`). `/api/dash/summary`,
+  `/api/dash/sure` and `/api/digest` drop `unlikely` species unless `?unlikely=1`, and report
+  `meta.unlikely_total` / `unlikely_hidden`. Stored detections are never touched; legacy
+  template pages (`/dex`, …) are not filtered. Summary species also carry `days`, `status` and
+  `encounter` (first 0.7+ detection or second separate day — the "New encounters" rule).
 - `_sprite_slug(common_name, slugs)` — checks `realistic-sprites/{slug}.png` exists.
 - `_common_to_slug(name)` — `name.lower().replace("'","")` → `re.sub(r"[^a-z0-9]+","_")`.
 - Spectrograms and callviz JSON are disk-cached under `recordings/cache/` and
@@ -682,7 +696,7 @@ retention.py         Clip retention policy: pure plan() + run()/apply()
 health.py            Per-hour capture-health tally (feeds capture_health)
 clips.py             Extract detection-window clips from segment wavs
 config.py            load config.json, resolve() flag > config > default
-dashboard.py         Flask web UI — all routes, template strings, viz computations
+dashboard/           Flask web UI package — app.py, api.py, media.py, legacy.py
 
 config.json          Runtime config (gitignored; see config.example.json)
 config.example.json  Committed template with Santa Barbara defaults
@@ -690,6 +704,7 @@ birdid.db            SQLite database (gitignored)
 
 docs/birds.json          Canonical species list (common_name + slug)
 docs/bird_info.json      Field notes per species (keyed by slug)
+docs/yard_list.json      Plausibility per species: expected / possible / unlikely (keyed by common name)
 realistic-sprites/       Per-species illustration PNGs (field-guide style)
 sprites/                 Older pixel-art sprite PNGs (legacy)
 static/three.min.js      Vendored Three.js r134 UMD (never replace with CDN)

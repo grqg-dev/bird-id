@@ -55,7 +55,7 @@ project testable and portable.
 | `storage.py` | SQLite: segments, tracks, detections, queries | no | no |
 | `clips.py` | slice segment wav → per-window clip files | no | no |
 | `config.py` | load `config.json`, resolve flag>config>default | no | no |
-| `dashboard.py` | Flask web UI: `/dash` (React SPA, home page) + legacy server-rendered pages (`/dex`, `/twitter`, `/data`, …) + JSON APIs | no | no |
+| `dashboard/` | Flask web UI package: `app.py` (factory, `_db`, `main`), `api.py` (JSON + `/dash` SPA host), `media.py` (audio, spectrogram, sprites, callviz/vibeviz), `legacy.py` (server-rendered pages). `import dashboard` re-exports everything | no | no |
 | `birdid.py` | CLI that wires the above together | — | — |
 
 Key invariants:
@@ -108,6 +108,10 @@ Key invariants:
   page). The legacy server-rendered species dex lives at **`/dex`** — still linked
   from `site-nav.html` and other legacy pages, and still the base for their
   `back_href`/`empty=` links. Don't reintroduce a route at `/` for the dex view.
+- **Capture health is visible on `/dash`.** `/api/dash/health` feeds a banner and marks
+  Field Log days / Punchcard hours with under 50% audio (hatched) so a quiet day and a deaf day
+  differ; per-hour rates and Leaderboard deltas divide by *recorded* hours
+  (`dashboard-ui/src/lib/health.ts`, `slice.ts`).
 - **Dashboard reads never write.** `dashboard._db()` opens a read-only connection
   (`storage.connect_readonly()` — `PRAGMA query_only=1`) per request; schema
   creation/migration happens once via `storage.ensure_schema()` in
@@ -182,7 +186,7 @@ return a seeded SQLite connection (see `tests/conftest.py`). Heavy imports
 (`matplotlib`, `librosa`, `soundfile`) are lazy — only the spectrogram/audio routes
 need them.
 
-Run pytest after any change to `storage.py`, `config.py`, `dashboard.py`, or
+Run pytest after any change to `storage.py`, `config.py`, `dashboard/`, or
 `birdid.py`. Manual smokes above still apply after touching `cmd_monitor`.
 
 **Lesson from history:** every time the monitor loop was changed, *running* it
@@ -261,6 +265,12 @@ After code that touches DB schema or clips:
    by slug from `docs/birds.json`. Dashboard caches this at import; **restart
    dashboard** after editing on prod. No DB migration needed.
 
+4. **`docs/yard_list.json`** — plausibility (`expected` / `possible` / `unlikely`) per
+   species, keyed by common name. `/dash` hides `unlikely` by default with a toggle; detections
+   are never deleted. Cached at import: **restart dashboard** after editing. Seeded from prod
+   (0.9+ detections on 5+ days → `expected`; pelagic, seabird, gull/tern, shorebird and
+   wetland families → `unlikely`; the rest `possible`). Species not listed count as `possible`.
+
 New segments from the monitor get clips automatically; backfill is only for
 history.
 
@@ -293,7 +303,7 @@ ssh mac-mini 'cd ~/bird-id && sqlite3 birdid.db "SELECT DISTINCT common_name FRO
 ```
 
 To find species **missing field notes** (`docs/bird_info.json`), compare prod
-detections to info slugs (see `_common_to_slug` / `_slug_map` in `dashboard.py`).
+detections to info slugs (see `_common_to_slug` / `_slug_map` in `dashboard/app.py`).
 
 ## Gotchas (these cost real debugging time)
 
@@ -337,7 +347,7 @@ the parent segment's full `wav_path` for fallback playback/spectrograms.
 - User-facing usage lives in `README.md`; architecture, testing, environments, and
   gotchas live here. Keep both in sync when commands or defaults change.
 - **Static dex content:** `docs/birds.json` (top-50 slug list), `docs/bird_info.json`
-  (field notes), `realistic-sprites/*.png` (illustrations). Prod may detect species
+  (field notes), `docs/yard_list.json` (plausibility), `realistic-sprites/*.png` (illustrations). Prod may detect species
   outside `birds.json`; those still get dex cards but need slugs + sprites + info
   added in dev, then deployed.
 

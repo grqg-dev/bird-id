@@ -62,6 +62,7 @@ def identify(
     lat: Optional[float] = None,
     lon: Optional[float] = None,
     when: Optional[date_cls] = None,
+    filter_threshold: Optional[float] = None,  # location-filter cutoff; None = birdnetlib default (0.03)
 ) -> list[Detection]:
     """Identify birds in a wav file using BirdNET."""
     wav_path = Path(wav_path).expanduser()
@@ -76,6 +77,8 @@ def identify(
         kwargs["lat"] = lat
         kwargs["lon"] = lon
         kwargs["date"] = when or date_cls.today()
+        if filter_threshold is not None:
+            kwargs["filter_threshold"] = filter_threshold
 
     with _quiet_birdnet():
         recording = Recording(analyzer, str(wav_path), **kwargs)

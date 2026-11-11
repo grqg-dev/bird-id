@@ -16,7 +16,7 @@ export function DayRhythm({
   setSlice: (s: Slice) => void
 }) {
   const tip = useTip()
-  const counts = sliced.perHourNav
+  const counts = sliced.perHourRate
   const max = Math.max(1, ...counts)
   const sun = summary.sun[sliced.window.hi] ?? { rise: 6, set: 19.5 }
 
@@ -30,7 +30,7 @@ export function DayRhythm({
       <h2 className="panel-title">
         Day rhythm
         <span className="sub">
-          ☀ {fmtClock(sun.rise)} · {fmtClock(sun.set)} · click an hour
+          ☀ {fmtClock(sun.rise)} · {fmtClock(sun.set)} · click an hour{sliced.ratesAdjusted ? ' · per recorded hour' : ''}
         </span>
       </h2>
       <svg
@@ -62,7 +62,12 @@ export function DayRhythm({
               fill={on ? 'var(--accent)' : 'var(--heat3)'}
               opacity={slice.hour !== null && !on ? 0.35 : 1}
               style={{ cursor: 'pointer' }}
-              onMouseMove={(e) => tip.show(e, `${fmtHour(h)} · ${fmtInt(c)} calls`)}
+              onMouseMove={(e) => tip.show(
+                  e,
+                  sliced.ratesAdjusted
+                    ? `${fmtHour(h)} · ${c.toFixed(1)} calls per recorded hour · ${fmtInt(sliced.perHourNav[h])} total`
+                    : `${fmtHour(h)} · ${fmtInt(c)} calls`,
+                )}
               onMouseLeave={tip.hide}
               onClick={() =>
                 setSlice({ ...slice, hour: slice.hour === h ? null : h, band: 'all' })

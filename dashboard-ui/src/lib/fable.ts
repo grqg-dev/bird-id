@@ -61,12 +61,14 @@ export function fables(summary: Summary, sliced: Sliced): string[] {
   // newest arrival
   const newest = sliced.discoveredInWindow
     .slice()
-    .sort((a, b) => summary.species[a].first.localeCompare(summary.species[b].first))
+    .sort((a, b) =>
+      (summary.species[a].encounter ?? '').localeCompare(summary.species[b].encounter ?? ''),
+    )
     .pop()
   if (newest !== undefined && sliced.window.hi > sliced.window.lo) {
     const sp = summary.species[newest]
     out.push(
-      `Newest voice in the yard: a ${sp.name.toLowerCase()}, first heard ${fmtDay(sp.first.slice(0, 10))}.`,
+      `Newest voice in the yard: a ${sp.name.toLowerCase()}, first heard ${fmtDay((sp.encounter ?? sp.first).slice(0, 10))}.`,
     )
   }
 

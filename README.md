@@ -140,6 +140,13 @@ If recording comes back silent, check macOS mic permission:
   "db": "birdid.db", "recordings_dir": "recordings" }
 ```
 
+Optional: `"location_filter_threshold"` (default unset = BirdNET's 0.03) tightens the
+location/season species list; it is separate from `min_conf`.
+
+`docs/yard_list.json` marks each species `expected`, `possible` or `unlikely` for the yard. The
+dashboard hides `unlikely` ones (seabirds, shorebirds, …) by default with a "N unlikely species
+hidden" toggle; nothing is deleted.
+
 Setting location is the single biggest accuracy win — it stops the model from
 suggesting birds that don't belong in your area or season.
 
@@ -177,7 +184,7 @@ For contributors and the curious — see `AGENTS.md` for design notes and invari
 | File | What it does |
 |---|---|
 | `birdid.py` | CLI — the commands above |
-| `dashboard.py` | Bird-Dex web UI |
+| `dashboard/` | Bird-Dex web UI (package: `app`, `api`, `media`, `legacy`) |
 | `recorder.py` | Microphone → audio file (macOS) |
 | `identifier.py` | Audio file → bird detections |
 | `storage.py` | SQLite database and queries |

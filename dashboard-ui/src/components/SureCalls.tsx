@@ -12,9 +12,11 @@ export function SureCalls() {
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
 
+  const showUnlikely = new URLSearchParams(window.location.search).get('unlikely') === '1'
+
   useEffect(() => {
     const controller = new AbortController()
-    fetch('/api/dash/sure', { signal: controller.signal })
+    fetch(showUnlikely ? '/api/dash/sure?unlikely=1' : '/api/dash/sure', { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return response.json() as Promise<SureSummary>
@@ -25,7 +27,7 @@ export function SureCalls() {
         setError(String(reason))
       })
     return () => controller.abort()
-  }, [])
+  }, [showUnlikely])
 
   if (error) {
     return (
@@ -77,6 +79,16 @@ export function SureCalls() {
           Sure calls
           <span>{summary.species.length} species at 0.90+</span>
         </h2>
+        {summary.meta.unlikely_total > 0 && (
+          <div className="unlikely-toggle lbl">
+            {showUnlikely
+              ? `showing ${summary.meta.unlikely_total} unlikely species`
+              : `${summary.meta.unlikely_hidden} unlikely species hidden`}
+            <a className="chip" href={showUnlikely ? '/dash/sure' : '/dash/sure?unlikely=1'}>
+              {showUnlikely ? 'Hide them' : 'Show them'}
+            </a>
+          </div>
+        )}
 
         {shown.length ? (
           <ol className="sure-list">
