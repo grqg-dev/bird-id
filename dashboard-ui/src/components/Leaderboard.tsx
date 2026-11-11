@@ -35,7 +35,7 @@ export function Leaderboard({
       <h2 className="panel-title">
         Leaderboard
         <span className="sub">
-          {order.length} species{hasPrior ? ' · vs prior window' : ''}
+          {order.length} species{hasPrior ? ` · vs prior window${sliced.ratesAdjusted ? ' (per recorded hour)' : ''}` : ''}
         </span>
       </h2>
       <ol className="board">
@@ -45,8 +45,13 @@ export function Leaderboard({
           const prior = sliced.perSpeciesPrior[si]
           let trend: string | null = null
           let dir: 'up' | 'down' | null = null
+          // Compare calls per recorded hour so a deaf prior window doesn't read as a surge.
+          const adj =
+            sliced.ratesAdjusted && sliced.recordedPrior !== null && sliced.recordedWindow !== null
+          const now = adj ? count / (sliced.recordedWindow as number) : count
+          const before = adj ? prior / (sliced.recordedPrior as number) : prior
           if (hasPrior && prior > 0) {
-            const pct = ((count - prior) / prior) * 100
+            const pct = ((now - before) / before) * 100
             if (Math.abs(pct) >= 5) {
               dir = pct > 0 ? 'up' : 'down'
               trend = `${pct > 0 ? '▲' : '▼'}${Math.abs(pct) >= 200 ? '2x+' : Math.round(Math.abs(pct)) + '%'}`

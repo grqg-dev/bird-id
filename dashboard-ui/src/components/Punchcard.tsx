@@ -1,6 +1,7 @@
 import type { Sliced } from '../lib/slice'
 import type { Slice, Summary } from '../lib/types'
 import { fmtDay, fmtHour, fmtInt } from '../lib/format'
+import { fmtRecorded, type Coverage } from '../lib/health'
 import { useTip } from './Tip'
 
 /** W4 · window days × 24 hours heat grid — the month's texture in one glance. */
@@ -9,11 +10,13 @@ export function Punchcard({
   sliced,
   slice,
   setSlice,
+  cov,
 }: {
   summary: Summary
   sliced: Sliced
   slice: Slice
   setSlice: (s: Slice) => void
+  cov: Coverage | null
 }) {
   const tip = useTip()
   const { lo, hi } = sliced.window
@@ -53,9 +56,11 @@ export function Punchcard({
                 : 'var(--heat4)'
       const focused =
         (slice.day === null || slice.day === di) && (slice.hour === null || slice.hour === h)
+      const lowCov = !isExcluded && cov !== null && cov.hourLow(di, h)
+      const rec = cov?.recorded(di, h) ?? null
       cells.push(
+        <g key={h}>
         <rect
-          key={h}
           x={left + h * (cell + gap)}
           y={y}
           width={cell}
@@ -71,7 +76,9 @@ export function Punchcard({
               e,
               isExcluded
                 ? `${fmtDay(summary.days[di])} · excluded (sensor fault)`
-                : `${fmtDay(summary.days[di])} · ${fmtHour(h)} · ${fmtInt(v)} calls`,
+                : `${fmtDay(summary.days[di])} · ${fmtHour(h)} · ${fmtInt(v)} calls${
+                    lowCov && rec !== null ? ` · mic off: ${fmtRecorded(rec / 3600, (cov?.expected(di, h) ?? 3600) / 3600)}` : ''
+                  }`,
             )
           }
           onMouseLeave={tip.hide}
@@ -85,7 +92,22 @@ export function Punchcard({
               band: 'all',
             })
           }}
-        />,
+        />
+        {lowCov && (
+          <rect
+            x={left + h * (cell + gap)}
+            y={y}
+            width={cell}
+            height={cell}
+            rx={2}
+            fill="url(#hatch)"
+            stroke="var(--down)"
+            strokeWidth={0.75}
+            opacity={focused ? 1 : 0.3}
+            pointerEvents="none"
+          />
+        )}
+        </g>,
       )
     }
     rows.push(
@@ -109,7 +131,7 @@ export function Punchcard({
     <div className="panel">
       <h2 className="panel-title">
         Punchcard
-        <span className="sub">every day × every hour · lone night cells are owls</span>
+        <span className="sub">every day × every hour · lone night cells are owls{cov ? ' · hatched = mic off' : ''}</span>
       </h2>
       <div style={{ overflowX: 'auto' }}>
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 560 }} role="img" aria-label="Detections per day and hour">
@@ -126,6 +148,11 @@ export function Punchcard({
               {fmtHour(h)}
             </text>
           ))}
+          <defs>
+            <pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="4" stroke="#fff" strokeOpacity="0.7" strokeWidth="1.8" />
+            </pattern>
+          </defs>
           {rows}
         </svg>
       </div>

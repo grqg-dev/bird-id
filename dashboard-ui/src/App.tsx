@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Slice, Summary } from './lib/types'
+import type { Health, Slice, Summary } from './lib/types'
 import { DEFAULT_SLICE } from './lib/types'
 import { computeSlice } from './lib/slice'
+import { buildCoverage } from './lib/health'
 import { fmtDay } from './lib/format'
 import { useTheme } from './theme'
 import { TipProvider } from './components/Tip'
+import { HealthBanner } from './components/HealthBanner'
 import { Slicer } from './components/Slicer'
 import { HeadlineStrip } from './components/HeadlineStrip'
 import { FieldLog } from './components/FieldLog'
@@ -27,6 +29,7 @@ export default function App() {
 function Dashboard() {
   const { theme, toggle } = useTheme()
   const [summary, setSummary] = useState<Summary | null>(null)
+  const [health, setHealth] = useState<Health | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [slice, setSlice] = useState<Slice>(DEFAULT_SLICE)
   const [query, setQuery] = useState('')
@@ -42,9 +45,21 @@ function Dashboard() {
       .catch((e) => setError(String(e)))
   }, [])
 
+  // Capture health is advisory: if it fails to load the dashboard still works.
+  useEffect(() => {
+    fetch('/api/dash/health')
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setHealth)
+      .catch(() => setHealth(null))
+  }, [])
+
+  const cov = useMemo(
+    () => (summary ? buildCoverage(summary, health) : null),
+    [summary, health],
+  )
   const sliced = useMemo(
-    () => (summary ? computeSlice(summary, slice) : null),
-    [summary, slice],
+    () => (summary ? computeSlice(summary, slice, cov) : null),
+    [summary, slice, cov],
   )
 
   if (error) {
@@ -68,6 +83,8 @@ function Dashboard() {
   return (
     <TipProvider>
       <div className="wrap">
+        <HealthBanner health={health} />
+
         <header className="masthead">
           <div>
             <h1 className="site-title">
@@ -103,7 +120,7 @@ function Dashboard() {
         <HeadlineStrip summary={summary} sliced={sliced} />
 
         <div className="grid-2" style={{ marginTop: 16 }}>
-          <FieldLog summary={summary} sliced={sliced} slice={slice} setSlice={setSlice} />
+          <FieldLog summary={summary} sliced={sliced} slice={slice} setSlice={setSlice} cov={cov} />
           <DayRhythm summary={summary} sliced={sliced} slice={slice} setSlice={setSlice} />
         </div>
 
@@ -115,7 +132,7 @@ function Dashboard() {
           <Leaderboard summary={summary} sliced={sliced} query={query} onOpen={setOpen} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <Discoveries summary={summary} onOpen={setOpen} />
-            <Punchcard summary={summary} sliced={sliced} slice={slice} setSlice={setSlice} />
+            <Punchcard summary={summary} sliced={sliced} slice={slice} setSlice={setSlice} cov={cov} />
           </div>
         </div>
 

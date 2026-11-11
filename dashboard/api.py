@@ -40,6 +40,10 @@ def _today() -> str:
     return _pkg._today()
 
 
+def _now() -> datetime:
+    return _pkg._now()
+
+
 @app.route("/api/twitter")
 def api_twitter():
     show_all, selected_day = _parse_day_arg(request.args.get("day"))
@@ -564,3 +568,145 @@ def dash_asset(relpath: str):
     if relpath.startswith("assets/") or Path(relpath).suffix:
         abort(404)
     return dash_index()
+
+
+
+# ---------------------------------------------------------------------------
+# /api/dash/health — capture coverage + banner conditions (WP3)
+# ---------------------------------------------------------------------------
+
+HEALTH_MIN_COVERAGE = 0.9  # banner when the last 24 h recorded less than this
+HEALTH_STALE_MINUTES = 10  # banner when the newest segment is older than this
+HEALTH_LEVEL_DROP_DB = 6.0  # banner when mean level is this far below the 30-day median
+HEALTH_LOW_CELL = 0.5  # UI marks days/hours with less audio than this fraction
+
+
+def _hour_dt(hour: str) -> datetime:
+    return datetime.fromisoformat(hour)
+
+
+def _median(vals: list[float]) -> float | None:
+    if not vals:
+        return None
+    v = sorted(vals)
+    mid = len(v) // 2
+    return v[mid] if len(v) % 2 else (v[mid - 1] + v[mid]) / 2
+
+
+def _fmt_age(minutes: float) -> str:
+    if minutes < 90:
+        return f"{round(minutes)} minutes"
+    hours = minutes / 60
+    if hours < 48:
+        return f"{hours:.1f} hours"
+    return f"{hours / 24:.1f} days"
+
+
+def build_dash_health(conn, now: datetime | None = None) -> dict:
+    """Capture-health summary for `/dash`: last 24 h, last 30 days, per-hour
+    audio for every recorded day (so the UI can mark deaf days/hours), and the
+    banner text. Reads `capture_health` + `segments` only; never writes.
+
+    Hours before the first `capture_health` row are *unknown*, not deaf, so
+    coverage windows start at the first row.
+    """
+    now = now or _now()
+    rows = conn.execute(
+        "SELECT hour, audio_seconds, mean_dbfs FROM capture_health ORDER BY hour"
+    ).fetchall()
+    newest = conn.execute("SELECT MAX(started_at) AS t FROM segments").fetchone()["t"]
+    out: dict = {
+        "generated_at": now.isoformat(timespec="seconds"),
+        "now": now.isoformat(timespec="seconds"),
+        "first_hour": None,
+        "newest_segment_at": newest,
+        "newest_segment_age_minutes": None,
+        "last_24h": None,
+        "last_30d": None,
+        "hourly_seconds": {},
+        "alerts": [],
+        "thresholds": {"low_cell": HEALTH_LOW_CELL},
+    }
+    if newest:
+        try:
+            out["newest_segment_age_minutes"] = round(
+                max(0.0, (now - datetime.fromisoformat(newest)).total_seconds() / 60), 1
+            )
+        except ValueError:
+            pass
+    if not rows:
+        return out
+
+    first = _hour_dt(rows[0]["hour"])
+    out["first_hour"] = rows[0]["hour"]
+    hourly: dict[str, list[float]] = {}
+    for r in rows:
+        dt = _hour_dt(r["hour"])
+        day = hourly.setdefault(dt.date().isoformat(), [0.0] * 24)
+        day[dt.hour] = round(float(r["audio_seconds"] or 0.0), 1)
+    out["hourly_seconds"] = hourly
+
+    def window(span: timedelta) -> dict:
+        cutoff = now - span
+        # whole hours strictly inside the window, plus the current partial hour
+        start = cutoff.replace(minute=0, second=0, microsecond=0)
+        if start < cutoff:
+            start += timedelta(hours=1)
+        start = max(start, first)
+        expected = max(0.0, (now - start).total_seconds())
+        sel = [r for r in rows if _hour_dt(r["hour"]) >= start]
+        audio = sum(float(r["audio_seconds"] or 0.0) for r in sel)
+        audio = min(audio, expected) if expected else 0.0
+        lv = [(float(r["audio_seconds"]), float(r["mean_dbfs"])) for r in sel
+              if r["mean_dbfs"] is not None and (r["audio_seconds"] or 0) > 0]
+        wsum = sum(w for w, _ in lv)
+        return {
+            "expected_hours": round(expected / 3600, 2),
+            "recorded_hours": round(audio / 3600, 2),
+            "coverage": round(audio / expected, 4) if expected else None,
+            "mean_dbfs": round(sum(w * d for w, d in lv) / wsum, 1) if wsum else None,
+            "_levels": [float(r["mean_dbfs"]) for r in sel
+                        if r["mean_dbfs"] is not None and (r["audio_seconds"] or 0) >= 60],
+        }
+
+    w24, w30 = window(timedelta(hours=24)), window(timedelta(days=30))
+    med = _median(w30.pop("_levels"))
+    w24.pop("_levels")
+    w30["median_dbfs"] = round(med, 1) if med is not None else None
+    out["last_24h"], out["last_30d"] = w24, w30
+
+    alerts: list[str] = []
+    if w24["coverage"] is not None and w24["coverage"] < HEALTH_MIN_COVERAGE:
+        alerts.append(
+            f"Mic captured {w24['recorded_hours']:.1f} of the last "
+            f"{w24['expected_hours']:.0f} hours"
+            if w24["expected_hours"] >= 23.5
+            else f"Mic captured {w24['recorded_hours']:.1f} of the last "
+            f"{w24['expected_hours']:.1f} hours"
+        )
+    age = out["newest_segment_age_minutes"]
+    if age is not None and age > HEALTH_STALE_MINUTES:
+        alerts.append(f"No new audio for {_fmt_age(age)}")
+    if (
+        w24["mean_dbfs"] is not None
+        and med is not None
+        and med - w24["mean_dbfs"] >= HEALTH_LEVEL_DROP_DB
+    ):
+        alerts.append(
+            f"Mic level is {med - w24['mean_dbfs']:.1f} dB below its 30-day median "
+            f"({w24['mean_dbfs']:.0f} vs {med:.0f} dBFS)"
+        )
+    out["alerts"] = alerts
+    return out
+
+
+@app.route("/api/dash/health")
+def api_dash_health():
+    conn = _db()
+    try:
+        body = build_dash_health(conn)
+    finally:
+        conn.close()
+    resp = Response(json.dumps(body, separators=(",", ":")), mimetype="application/json")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp

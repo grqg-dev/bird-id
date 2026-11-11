@@ -3,7 +3,7 @@
 from __future__ import annotations
 import json
 import re
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from flask import Flask, abort
@@ -128,6 +128,11 @@ def _dev_mode() -> bool:
 
 def _today() -> str:
     return date.today().isoformat()
+
+
+def _now() -> datetime:
+    """Local wall-clock now (naive, like every stored timestamp). Patched in tests."""
+    return datetime.now()
 
 
 @app.route("/__dev/ping")

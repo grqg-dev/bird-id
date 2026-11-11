@@ -31,7 +31,13 @@ export function HeadlineStrip({ summary, sliced }: { summary: Summary; sliced: S
       <Stat
         label="peak hour"
         value={sliced.busiestHour ? fmtHour(sliced.busiestHour.hour) : '—'}
-        detail={sliced.busiestHour ? `${fmtInt(sliced.busiestHour.count)} calls` : undefined}
+        detail={
+          sliced.busiestHour
+            ? sliced.ratesAdjusted
+              ? `${sliced.busiestHour.rate.toFixed(1)} calls per recorded hour`
+              : `${fmtInt(sliced.busiestHour.count)} calls`
+            : undefined
+        }
       />
       <Stat label="new arrivals" value={newCount > 0 ? `+${newCount}` : '0'} detail="first heard in window" />
     </div>

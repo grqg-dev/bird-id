@@ -1,3 +1,4 @@
+import type { Coverage } from './health'
 import type { Band, CubeRow, Slice, Summary } from './types'
 
 /**
@@ -46,18 +47,28 @@ export interface Sliced {
   perDayNav: number[]
   /** all 24 hours within the day window (ignores band/hour focus) */
   perHourNav: number[]
+  /**
+   * calls per *recorded* hour for each hour of day across the window (equals
+   * perHourNav when no capture-health data is available — see ratesAdjusted)
+   */
+  perHourRate: number[]
+  /** recorded hours inside the window / prior window (null = no capture data) */
+  recordedWindow: number | null
+  recordedPrior: number | null
+  /** true when rates and trends divide by recorded hours rather than wall time */
+  ratesAdjusted: boolean
   /** per-species per-day counts within window, for sparklines (full-length day arrays) */
   speciesDaily: () => Map<number, number[]>
   /** day × hour matrix over the whole recorded span (conf+species filtered) */
   punchcard: number[][]
   busiestDay: { di: number; count: number } | null
-  busiestHour: { hour: number; count: number } | null
+  busiestHour: { hour: number; count: number; rate: number } | null
   /** species indexes first heard inside the window (uses absolute first-heard) */
   discoveredInWindow: number[]
 }
 
 /** Single pass over the cube, accumulating every widget's aggregate. */
-export function computeSlice(summary: Summary, slice: Slice): Sliced {
+export function computeSlice(summary: Summary, slice: Slice, cov: Coverage | null = null): Sliced {
   const nDays = summary.days.length
   const nSpecies = summary.species.length
   const win = windowOf(summary, slice)
@@ -110,6 +121,34 @@ export function computeSlice(summary: Summary, slice: Slice): Sliced {
   let speciesCount = 0
   for (const c of perSpecies) if (c > 0) speciesCount++
 
+  // Recorded hours (audio actually captured), so quiet != deaf. Unknown hours are skipped.
+  let recordedWindow: number | null = null
+  let recordedPrior: number | null = null
+  const recordedByHour = new Array<number>(24).fill(0)
+  if (cov) {
+    let rw = 0
+    let rp = 0
+    for (let di = Math.max(0, win.priorLo); di <= win.hi; di++) {
+      const inWin = di >= win.lo
+      const inPrior = di >= win.priorLo && di <= win.priorHi
+      if (!inWin && !inPrior) continue
+      for (let h = 0; h < 24; h++) {
+        const rec = cov.recorded(di, h)
+        if (rec === null) continue
+        if (inWin) recordedByHour[h] += rec / 3600
+        if (!hourOk(di, h)) continue
+        if (inWin) rw += rec / 3600
+        else rp += rec / 3600
+      }
+    }
+    recordedWindow = rw > 0 ? rw : null
+    recordedPrior = rp > 0 ? rp : null
+  }
+  const ratesAdjusted = cov !== null && recordedWindow !== null
+  const perHourRate = perHourNav.map((c, h) =>
+    ratesAdjusted ? (recordedByHour[h] > 0.05 ? c / recordedByHour[h] : 0) : c,
+  )
+
   let busiestDay: Sliced['busiestDay'] = null
   for (let di = win.lo; di <= win.hi; di++) {
     let dayTotal = 0
@@ -126,10 +165,13 @@ export function computeSlice(summary: Summary, slice: Slice): Sliced {
   if (busiestDay && busiestDay.count === 0) busiestDay = null
 
   let busiestHour: Sliced['busiestHour'] = null
-  perHourNav.forEach((c, hour) => {
-    if (!busiestHour || c > busiestHour.count) busiestHour = { hour, count: c }
+  let bestRate = 0
+  perHourRate.forEach((rate, hour) => {
+    if (rate > bestRate) {
+      bestRate = rate
+      busiestHour = { hour, count: perHourNav[hour], rate }
+    }
   })
-  if (busiestHour && (busiestHour as { count: number }).count === 0) busiestHour = null
 
   const discoveredInWindow: number[] = []
   for (let si = 0; si < nSpecies; si++) {
@@ -139,6 +181,7 @@ export function computeSlice(summary: Summary, slice: Slice): Sliced {
   }
 
   const perSpeciesDays = daysSeen.map((s) => s.size)
+
 
   return {
     window: win,
@@ -150,6 +193,10 @@ export function computeSlice(summary: Summary, slice: Slice): Sliced {
     perSpeciesNight,
     perDayNav,
     perHourNav,
+    perHourRate,
+    recordedWindow,
+    recordedPrior,
+    ratesAdjusted,
     speciesDaily: () => perDayHourSpecies,
     punchcard,
     busiestDay,

@@ -41,6 +41,7 @@ from .app import (  # noqa: F401
     _slug_map,
     _slug_to_name,
     _sprite_slug,
+    _now,
     _today,
     app,
     dev_ping,
@@ -142,6 +143,12 @@ from .media import (  # noqa: F401
     vibeviz_json,
 )
 from .api import (  # noqa: F401
+    HEALTH_LEVEL_DROP_DB,
+    HEALTH_LOW_CELL,
+    HEALTH_MIN_COVERAGE,
+    HEALTH_STALE_MINUTES,
+    api_dash_health,
+    build_dash_health,
     _CACHE,
     _DASH_CONF_EDGES,
     _DASH_DIST,

@@ -108,6 +108,10 @@ Key invariants:
   page). The legacy server-rendered species dex lives at **`/dex`** — still linked
   from `site-nav.html` and other legacy pages, and still the base for their
   `back_href`/`empty=` links. Don't reintroduce a route at `/` for the dex view.
+- **Capture health is visible on `/dash`.** `/api/dash/health` feeds a banner and marks
+  Field Log days / Punchcard hours with under 50% audio (hatched) so a quiet day and a deaf day
+  differ; per-hour rates and Leaderboard deltas divide by *recorded* hours
+  (`dashboard-ui/src/lib/health.ts`, `slice.ts`).
 - **Dashboard reads never write.** `dashboard._db()` opens a read-only connection
   (`storage.connect_readonly()` — `PRAGMA query_only=1`) per request; schema
   creation/migration happens once via `storage.ensure_schema()` in

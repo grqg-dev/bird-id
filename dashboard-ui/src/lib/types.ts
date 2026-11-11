@@ -93,3 +93,27 @@ export const DEFAULT_SLICE: Slice = {
   confMin: 0,
   species: null,
 }
+
+export interface HealthWindow {
+  expected_hours: number
+  recorded_hours: number
+  /** 0–1, null when nothing is expected yet */
+  coverage: number | null
+  mean_dbfs: number | null
+  median_dbfs?: number | null
+}
+
+/** /api/dash/health — capture coverage from the monitor's capture_health table. */
+export interface Health {
+  now: string
+  first_hour: string | null
+  newest_segment_at: string | null
+  newest_segment_age_minutes: number | null
+  last_24h: HealthWindow | null
+  last_30d: HealthWindow | null
+  /** 'YYYY-MM-DD' → 24 values: seconds of audio actually received that hour */
+  hourly_seconds: Record<string, number[]>
+  /** plain-text banner lines (empty when capture looks healthy) */
+  alerts: string[]
+  thresholds: { low_cell: number }
+}

@@ -531,6 +531,7 @@ Run with `birdid.py dashboard` or `python -m dashboard`.
 | `/dash`, `/dash/<path>` | GET | React dashboard SPA (`dashboard-ui/`, built to `dashboard-ui/dist`) |
 | `/api/dash/summary` | GET | JSON cube (species × day × hour × confidence bucket) behind `/dash`; cached via `_cached()` |
 | `/api/dash/sure` | GET | All-time 0.9+-confidence leaderboard behind `/dash`; cached via `_cached()` |
+| `/api/dash/health` | GET | Capture coverage from `capture_health`: `last_24h`, `last_30d`, `hourly_seconds` (`{day: [24 secs]}`), `alerts` (banner lines). Alerts: 24 h coverage < 90%, newest segment > 10 min old, 24 h mean level ≥ 6 dB under the 30-day median. Hours before the first `capture_health` row are unknown, not deaf. Built by `api.build_dash_health()`; not cached |
 | `/api/digest` | GET | Daily digest JSON: totals, new/returning species, top detections; `?day=`, `?gap=` (default 14), `?limit=` (default 10) — same shape as `birdid.py digest --json` |
 | `/dex` | GET | Legacy species-dex grid, today or all-time; `?day=YYYY-MM-DD`, `?day=all`, `?mode=gallery` |
 | `/bird/<slug>` | GET | Species drill-down: stats, hourly chart, clip list, spectrogram |

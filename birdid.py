@@ -606,6 +606,8 @@ def cmd_digest(args) -> int:
 
 def cmd_dashboard(args) -> int:
     import dashboard  # imported here so other commands don't pay Flask's import cost
+    if args.db:
+        dashboard._CFG["db"] = args.db
     dashboard.main(host=args.host, port=args.port, dev=args.dev)
     return 0
 
@@ -721,6 +723,7 @@ def main(argv=None) -> int:
     p_dash = sub.add_parser("dashboard", help="launch the local web dashboard")
     p_dash.add_argument("--host", default="127.0.0.1")
     p_dash.add_argument("--port", type=int, default=8080)
+    p_dash.add_argument("--db", help="SQLite database path (overrides config)")
     p_dash.add_argument(
         "--dev", action="store_true",
         help="auto-reload on code changes (local dev only)",
