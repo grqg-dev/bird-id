@@ -20,6 +20,13 @@ export function RareNight({
     .sort((a, b) => sliced.perSpecies[a] - sliced.perSpecies[b])
     .slice(0, 10)
 
+  const daily = sliced.speciesDaily()
+  const heardDay = (si: number) => {
+    const row = daily.get(si) ?? []
+    for (let di = sliced.window.lo; di <= sliced.window.hi; di++) if (row[di] > 0) return di
+    return sliced.window.lo
+  }
+
   const night = order
     .filter((si) => sliced.perSpeciesNight[si] > 0)
     .sort((a, b) => sliced.perSpeciesNight[b] - sliced.perSpeciesNight[a])
@@ -43,7 +50,7 @@ export function RareNight({
                   <button className="row-btn" onClick={() => onOpen(si)}>
                     <span>♦ {sp.name}</span>
                     <span className="num faint">
-                      ×{sliced.perSpecies[si]} · {fmtDay(sp.first.slice(0, 10))}
+                      ×{sliced.perSpecies[si]} · {fmtDay(summary.days[heardDay(si)])}
                     </span>
                   </button>
                 </li>

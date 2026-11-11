@@ -147,6 +147,9 @@ from .media import (  # noqa: F401
     vibeviz_json,
 )
 from .api import (  # noqa: F401
+    _keep_dict,
+    api_dash_species,
+    build_dash_species,
     _wants_unlikely,
     HEALTH_LEVEL_DROP_DB,
     HEALTH_LOW_CELL,

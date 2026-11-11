@@ -129,6 +129,26 @@ def plan(tracks: Iterable[Track], now: datetime, policy: Policy) -> list[Decisio
     return [decisions[t.id] for t in live]
 
 
+def keep_info(
+    conf: float, when: datetime, rank: int, now: datetime, policy: Policy
+) -> tuple[str, datetime | None]:
+    """Why a clip that exists now is kept, and until when (None = indefinitely).
+
+    Mirrors the keep rules in `plan()` for one clip (not the disk-budget pass):
+    `rank` is its 0-based position among the species' clips that still have
+    audio, best first. Used by the dashboard to explain a clip's lifetime.
+    """
+    if when >= now - timedelta(hours=policy.live_hours):
+        return "live_window", when + timedelta(hours=policy.live_hours)
+    if rank < policy.best_per_species:
+        return "species_best", None
+    if conf >= policy.high_conf:
+        return "high_conf", when + timedelta(days=policy.high_days)
+    if conf >= policy.mid_conf:
+        return "mid_conf", when + timedelta(days=policy.mid_days)
+    return "low_conf", when + timedelta(days=policy.low_days)
+
+
 def summarize(
     decisions: Sequence[Decision], sizes: Mapping[int, int]
 ) -> dict[str, dict[str, dict[str, int]]]:

@@ -140,8 +140,9 @@ a {
   color: var(--muted);
   margin: 0 0 10px;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  gap: 2px 8px;
 }
 
 .panel-title .sub {
@@ -345,6 +346,6 @@ input:focus-visible,
 
 @media (max-width: 860px) {
   .grid-2 {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }

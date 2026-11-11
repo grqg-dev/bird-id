@@ -5,6 +5,9 @@ import { Sprite } from './Sprite'
 import { Sparkline } from './Sparkline'
 import { dexNumbers } from './DexGrid'
 import { useTheme } from '../theme'
+import { ClipPlayer } from './ClipPlayer'
+import { Link } from './Link'
+import { speciesPath } from '../lib/route'
 import { useTip } from './Tip'
 
 /** W8 · drawer with the full dex entry for one species. */
@@ -78,14 +81,9 @@ export function DexEntry({
         {sp.clip ? (
           <div style={{ margin: '12px 0' }}>
             <div className="lbl" style={{ marginBottom: 4 }}>
-              {theme === 'game' ? 'Cry' : 'Best recording'} · conf {sp.clip.conf.toFixed(2)}
+              {theme === 'game' ? 'Cry' : 'Best recording'}
             </div>
-            <audio
-              controls
-              preload="none"
-              style={{ width: '100%', height: 34 }}
-              src={`/audio/${sp.clip.seg}?start=${sp.clip.s}&end=${sp.clip.e}`}
-            />
+            <ClipPlayer clip={sp.clip} />
           </div>
         ) : (
           <div className="lbl" style={{ margin: '12px 0' }}>
@@ -123,7 +121,7 @@ export function DexEntry({
         </svg>
 
         <div className="lbl" style={{ margin: '12px 0 4px' }}>day by day</div>
-        <Sparkline data={daily} width={380} height={34} />
+        <Sparkline data={daily} width={380} height={34} fluid />
 
         <div style={{ display: 'flex', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
           <button
@@ -135,9 +133,9 @@ export function DexEntry({
           >
             Slice dashboard to this bird
           </button>
-          <a className="chip" href={`/bird/${sp.slug}`}>
-            All clips ↗
-          </a>
+          <Link className="chip" href={speciesPath(sp.slug)}>
+            Species page →
+          </Link>
         </div>
       </aside>
     </>

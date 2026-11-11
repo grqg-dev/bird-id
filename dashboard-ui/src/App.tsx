@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Health, Slice, Summary } from './lib/types'
 import { DEFAULT_SLICE } from './lib/types'
-import { computeSlice } from './lib/slice'
+import { computeSlice, rangeWindow } from './lib/slice'
+import { dayPath, matchDay, matchSpecies, navigate, usePath } from './lib/route'
 import { buildCoverage } from './lib/health'
 import { fmtDay } from './lib/format'
 import { useTheme } from './theme'
@@ -21,18 +22,47 @@ import { Discoveries } from './components/Discoveries'
 import { RareNight } from './components/RareNight'
 import { FieldNote } from './components/FieldNote'
 import { SureCalls } from './components/SureCalls'
+import { SpeciesPage } from './components/SpeciesPage'
+import { LiveFeed } from './components/LiveFeed'
+import { Link } from './components/Link'
 
 export default function App() {
-  const path = window.location.pathname.replace(/\/+$/, '')
-  return path === '/dash/sure' ? <SureCalls /> : <Dashboard />
+  const path = usePath()
+  const species = matchSpecies(path)
+  if (species) return <SpeciesPage slug={species} />
+  if (path === '/dash/sure') return <SureCalls />
+  if (path === '/dash/live') return <LivePage />
+  return <Dashboard />
+}
+
+function LivePage() {
+  const { theme, toggle } = useTheme()
+  return (
+    <div className="wrap">
+      <header className="masthead">
+        <Link className="lbl" href="/dash">
+          ← dashboard
+        </Link>
+        <div className="masthead-right">
+          <button className="chip theme-toggle" onClick={toggle}>
+            {theme === 'game' ? 'Clean mode' : 'Game mode'}
+          </button>
+        </div>
+      </header>
+      <TipProvider>
+        <LiveFeed limit={100} title="Live feed · last 24 hours" />
+      </TipProvider>
+    </div>
+  )
 }
 
 function Dashboard() {
+  const path = usePath()
   const { theme, toggle } = useTheme()
   const [summary, setSummary] = useState<Summary | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [slice, setSlice] = useState<Slice>(DEFAULT_SLICE)
+  const [slice, setSliceRaw] = useState<Slice>(DEFAULT_SLICE)
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState<number | null>(null)
   const [showUnlikely, setShowUnlikely] = useState<boolean>(() => {
@@ -53,6 +83,27 @@ function Dashboard() {
       .catch((e) => setError(String(e)))
   }, [showUnlikely])
 
+  // A focused day has a URL (/dash/day/YYYY-MM-DD): user changes push it, back/forward restore it.
+  const setSlice = (s: Slice) => {
+    setSliceRaw(s)
+    if (summary && s.day !== slice.day) {
+      navigate(s.day === null ? '/dash' : dayPath(summary.days[s.day]))
+    }
+  }
+  const urlDay = matchDay(path)
+  useEffect(() => {
+    if (!summary) return
+    const di = urlDay === null ? null : summary.days.indexOf(urlDay)
+    const want = di === -1 ? null : di
+    setSliceRaw((s) => {
+      if (s.day === want) return s
+      // a shared day link may sit outside the current 7d/14d/30d range: widen to All
+      const rw = want === null ? null : rangeWindow(summary, s)
+      const outside = rw !== null && want !== null && (want < rw.lo || want > rw.hi)
+      return { ...s, day: want, range: outside ? 'all' : s.range }
+    })
+  }, [summary, urlDay])
+
   const toggleUnlikely = (v: boolean) => {
     try {
       localStorage.setItem('birdid-show-unlikely', v ? '1' : '0')
@@ -61,7 +112,7 @@ function Dashboard() {
     }
     // species indexes change with the payload, so drop index-based focus
     setOpen(null)
-    setSlice((s) => ({ ...s, species: null }))
+    setSliceRaw((s) => ({ ...s, species: null }))
     setShowUnlikely(v)
   }
 
@@ -81,6 +132,8 @@ function Dashboard() {
     () => (summary ? computeSlice(summary, slice, cov) : null),
     [summary, slice, cov],
   )
+
+  const headRange = summary ? rangeWindow(summary, slice) : { lo: 0, hi: 0, priorLo: 0, priorHi: 0 }
 
   if (error) {
     return (
@@ -111,8 +164,8 @@ function Dashboard() {
               {theme === 'game' ? 'BIRDEX' : 'Backyard Birds'}
             </h1>
             <div className="lbl">
-              {summary.meta.location} · {fmtDay(summary.days[0])} –{' '}
-              {fmtDay(summary.days[summary.days.length - 1])}
+              {summary.meta.location} · {fmtDay(summary.days[headRange.lo])} –{' '}
+              {fmtDay(summary.days[headRange.hi])}
             </div>
             <FieldNote summary={summary} sliced={sliced} />
           </div>
@@ -120,9 +173,12 @@ function Dashboard() {
             <button className="chip theme-toggle" onClick={toggle}>
               {theme === 'game' ? 'Clean mode' : 'Game mode'}
             </button>
-            <a className="lbl" href="/dash/sure">
+            <Link className="lbl" href="/dash/sure">
               sure calls ↗
-            </a>
+            </Link>
+            <Link className="lbl" href="/dash/live">
+              live feed ↗
+            </Link>
             <a className="lbl" href="/">
               old dex ↗
             </a>
@@ -146,6 +202,10 @@ function Dashboard() {
 
         <HeadlineStrip summary={summary} sliced={sliced} />
 
+        <div style={{ marginTop: 16 }}>
+          <LiveFeed />
+        </div>
+
         <div className="grid-2" style={{ marginTop: 16 }}>
           <FieldLog summary={summary} sliced={sliced} slice={slice} setSlice={setSlice} cov={cov} />
           <DayRhythm summary={summary} sliced={sliced} slice={slice} setSlice={setSlice} />
@@ -158,7 +218,7 @@ function Dashboard() {
         <div className="grid-2" style={{ marginTop: 16 }}>
           <Leaderboard summary={summary} sliced={sliced} query={query} onOpen={setOpen} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <Discoveries summary={summary} onOpen={setOpen} />
+            <Discoveries summary={summary} slice={slice} onOpen={setOpen} />
             <Punchcard summary={summary} sliced={sliced} slice={slice} setSlice={setSlice} cov={cov} />
           </div>
         </div>

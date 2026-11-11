@@ -1,4 +1,4 @@
-import type { Sliced } from '../lib/slice'
+import { rangeWindow, type Sliced } from '../lib/slice'
 import type { Slice, Summary } from '../lib/types'
 import { fmtDay, fmtInt } from '../lib/format'
 import { fmtRecorded, type Coverage } from '../lib/health'
@@ -30,13 +30,16 @@ export function FieldLog({
   const tip = useTip()
   const days = summary.days
   const excluded = new Set(summary.meta.excluded_days)
-  const max = Math.max(...sliced.perDayNav)
+  // Only the selected range (7d/14d/30d/all); a single-day focus keeps the range visible.
+  const rw = rangeWindow(summary, slice)
+  const shown = days.map((_, i) => i).filter((i) => i >= rw.lo && i <= rw.hi)
+  const max = Math.max(1, ...shown.map((i) => sliced.perDayNav[i]))
 
   // Lay out as ISO weeks, Monday-first.
-  const firstDow = (new Date(days[0] + 'T12:00:00').getDay() + 6) % 7
+  const firstDow = (new Date(days[rw.lo] + 'T12:00:00').getDay() + 6) % 7
   const cells: (number | null)[] = [
     ...Array.from({ length: firstDow }, () => null),
-    ...days.map((_, i) => i),
+    ...shown,
   ]
   while (cells.length % 7 !== 0) cells.push(null)
   const weeks: (number | null)[][] = []
@@ -47,7 +50,7 @@ export function FieldLog({
       <h2 className="panel-title">
         Field log
         <span className="sub">
-          {fmtDay(days[0])} – {fmtDay(days[days.length - 1])} · click a day
+          {fmtDay(days[rw.lo])} – {fmtDay(days[rw.hi])} · click a day
           {cov ? ' · hatched = mic off' : ''}
         </span>
       </h2>
