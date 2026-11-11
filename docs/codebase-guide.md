@@ -517,7 +517,13 @@ The Santa Barbara defaults: `lat: 34.4208, lon: -119.6982, min_conf: 0.3`.
 
 ## Dashboard Routes
 
-All routes are in `dashboard.py`. The app is a single Flask file; no blueprints.
+The dashboard is the `dashboard/` package (no blueprints; one Flask `app`):
+`app.py` (Flask `app`, `_CFG`, `_db()`, slug helpers, `main`), `api.py` (JSON APIs and the
+`/dash` SPA host), `media.py` (audio, spectrogram, sprites, `/call`, `/vibe`, callviz/vibeviz),
+`legacy.py` (server-rendered pages). `dashboard/__init__.py` re-exports every name, so
+`import dashboard; dashboard._db` works. Submodules read `_db`, `_today`, `_CACHE`, `_DASH_DIST`
+through the package at call time so tests can monkeypatch them on `dashboard`.
+Run with `birdid.py dashboard` or `python -m dashboard`.
 
 | Route | Method | What it does |
 |---|---|---|
@@ -682,7 +688,7 @@ retention.py         Clip retention policy: pure plan() + run()/apply()
 health.py            Per-hour capture-health tally (feeds capture_health)
 clips.py             Extract detection-window clips from segment wavs
 config.py            load config.json, resolve() flag > config > default
-dashboard.py         Flask web UI — all routes, template strings, viz computations
+dashboard/           Flask web UI package — app.py, api.py, media.py, legacy.py
 
 config.json          Runtime config (gitignored; see config.example.json)
 config.example.json  Committed template with Santa Barbara defaults

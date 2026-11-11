@@ -177,7 +177,7 @@ For contributors and the curious — see `AGENTS.md` for design notes and invari
 | File | What it does |
 |---|---|
 | `birdid.py` | CLI — the commands above |
-| `dashboard.py` | Bird-Dex web UI |
+| `dashboard/` | Bird-Dex web UI (package: `app`, `api`, `media`, `legacy`) |
 | `recorder.py` | Microphone → audio file (macOS) |
 | `identifier.py` | Audio file → bird detections |
 | `storage.py` | SQLite database and queries |

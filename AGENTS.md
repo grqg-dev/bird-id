@@ -55,7 +55,7 @@ project testable and portable.
 | `storage.py` | SQLite: segments, tracks, detections, queries | no | no |
 | `clips.py` | slice segment wav → per-window clip files | no | no |
 | `config.py` | load `config.json`, resolve flag>config>default | no | no |
-| `dashboard.py` | Flask web UI: `/dash` (React SPA, home page) + legacy server-rendered pages (`/dex`, `/twitter`, `/data`, …) + JSON APIs | no | no |
+| `dashboard/` | Flask web UI package: `app.py` (factory, `_db`, `main`), `api.py` (JSON + `/dash` SPA host), `media.py` (audio, spectrogram, sprites, callviz/vibeviz), `legacy.py` (server-rendered pages). `import dashboard` re-exports everything | no | no |
 | `birdid.py` | CLI that wires the above together | — | — |
 
 Key invariants:
@@ -182,7 +182,7 @@ return a seeded SQLite connection (see `tests/conftest.py`). Heavy imports
 (`matplotlib`, `librosa`, `soundfile`) are lazy — only the spectrogram/audio routes
 need them.
 
-Run pytest after any change to `storage.py`, `config.py`, `dashboard.py`, or
+Run pytest after any change to `storage.py`, `config.py`, `dashboard/`, or
 `birdid.py`. Manual smokes above still apply after touching `cmd_monitor`.
 
 **Lesson from history:** every time the monitor loop was changed, *running* it
@@ -293,7 +293,7 @@ ssh mac-mini 'cd ~/bird-id && sqlite3 birdid.db "SELECT DISTINCT common_name FRO
 ```
 
 To find species **missing field notes** (`docs/bird_info.json`), compare prod
-detections to info slugs (see `_common_to_slug` / `_slug_map` in `dashboard.py`).
+detections to info slugs (see `_common_to_slug` / `_slug_map` in `dashboard/app.py`).
 
 ## Gotchas (these cost real debugging time)
 
