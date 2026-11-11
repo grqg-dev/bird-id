@@ -28,6 +28,7 @@ import numpy as np
 
 import clips
 import config
+import health
 import recorder
 import segmenter
 import identifier
@@ -399,6 +400,19 @@ def _processing_lag_note(started_at: datetime, threshold_seconds: float = 120.0)
     return f"  (processed {mins}m late)"
 
 
+def _flush_health(
+    conn, cap_health: health.CaptureHealth, *, include_current: bool = False, quiet: bool = False
+) -> None:
+    """Write finished hours to capture_health and print one [health] line per hour."""
+    rows = cap_health.drain(include_current=include_current)
+    if not rows:
+        return
+    storage.upsert_capture_health(conn, rows)
+    if not quiet:
+        for st in rows:
+            print(health.format_line(st))
+
+
 def cmd_monitor(args) -> int:
     """Always-on streaming monitor: continuous capture → adaptive segmentation → identify → store.
 
@@ -442,14 +456,20 @@ def cmd_monitor(args) -> int:
     seg_queue: queue.Queue = queue.Queue(maxsize=20)
     stop_event = threading.Event()
     dash_state: dict = {"last": 0.0}
+    stall_seconds = float(config.resolve(None, "capture_stall_seconds", cfg))
+    cap_health = health.CaptureHealth(
+        recorder.TARGET_SAMPLE_RATE, mic_dead_dbfs=seg_cfg["mic_dead_dbfs"]
+    )
     _run_audio_cleanup(conn, rec_dir, args, dash_state=dash_state)
 
     def _capture() -> None:
         seg_no = 0
         try:
-            hops = recorder.stream_pcm(args.device, hop_ms=hop_ms)
+            hops = recorder.stream_pcm(
+                args.device, hop_ms=hop_ms, stall_seconds=stall_seconds
+            )
             for seg in segmenter.segment_stream(
-                hops,
+                cap_health.tap(hops),
                 recorder.TARGET_SAMPLE_RATE,
                 datetime.now(),
                 **seg_cfg,
@@ -483,7 +503,12 @@ def cmd_monitor(args) -> int:
     segment_no = 0
     try:
         while True:
-            item = seg_queue.get()
+            try:
+                item = seg_queue.get(timeout=30)
+            except queue.Empty:
+                # No segment lately (e.g. total stall) — still record health.
+                _flush_health(conn, cap_health)
+                continue
             if item is None:
                 # Capture thread exited (shouldn't happen in normal operation)
                 print("\n[monitor] capture thread ended unexpectedly.", file=sys.stderr)
@@ -522,12 +547,17 @@ def cmd_monitor(args) -> int:
                 print(f"[{stamp}] seg {segment_no} ({duration:.0f}s): nothing detected{late}")
 
             _run_audio_cleanup(conn, rec_dir, args, dash_state=dash_state)
+            _flush_health(conn, cap_health)
     except KeyboardInterrupt:
         stop_event.set()
         print("\nStopping. Final tally:")
         cmd_stats(args, conn=conn)
     finally:
         stop_event.set()
+        try:
+            _flush_health(conn, cap_health, include_current=True, quiet=True)
+        except Exception:  # noqa: BLE001 - never mask the real exit reason
+            pass
         conn.close()
     return 0
 

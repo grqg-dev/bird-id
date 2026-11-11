@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS tracks (
     UNIQUE(segment_id, start_time, end_time)
 );
 
+CREATE TABLE IF NOT EXISTS capture_health (
+    hour          TEXT PRIMARY KEY,    -- local hour, 'YYYY-MM-DDTHH:00:00'
+    audio_seconds REAL,                -- audio actually received that hour
+    stalls        INTEGER,             -- watchdog kills (NULL = not measured)
+    respawns      INTEGER,             -- ffmpeg restarts, any cause (NULL = not measured)
+    mean_dbfs     REAL,
+    dead_seconds  REAL                 -- seconds at digital silence (NULL = not measured)
+);
+
 CREATE INDEX IF NOT EXISTS idx_tracks_segment ON tracks(segment_id);
 CREATE INDEX IF NOT EXISTS idx_detections_species ON detections(common_name);
 CREATE INDEX IF NOT EXISTS idx_detections_heard_at ON detections(heard_at);
@@ -156,6 +165,43 @@ def ensure_schema(db_path: str | Path = DEFAULT_DB) -> None:
     process (the dashboard), which then opens per-request connections via
     `connect_readonly()` instead of paying this cost on every request."""
     connect(db_path, ensure_schema=True).close()
+
+
+def upsert_capture_health(conn: sqlite3.Connection, rows: Iterable) -> int:
+    """Merge per-hour capture stats (health.HourStats-like) into `capture_health`.
+
+    Additive, so a monitor restart mid-hour accumulates rather than overwrites;
+    callers must drain (not re-send) what they have already written. `mean_dbfs`
+    is combined weighted by audio_seconds. Returns rows written.
+    """
+    n = 0
+    for r in rows:
+        mean = r.mean_dbfs
+        conn.execute(
+            """
+            INSERT INTO capture_health
+                (hour, audio_seconds, stalls, respawns, mean_dbfs, dead_seconds)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(hour) DO UPDATE SET
+                mean_dbfs = CASE
+                    WHEN excluded.mean_dbfs IS NULL THEN mean_dbfs
+                    WHEN mean_dbfs IS NULL OR COALESCE(audio_seconds, 0) + excluded.audio_seconds <= 0
+                        THEN excluded.mean_dbfs
+                    ELSE (mean_dbfs * COALESCE(audio_seconds, 0)
+                          + excluded.mean_dbfs * excluded.audio_seconds)
+                         / (COALESCE(audio_seconds, 0) + excluded.audio_seconds)
+                END,
+                audio_seconds = COALESCE(audio_seconds, 0) + excluded.audio_seconds,
+                stalls = COALESCE(stalls, 0) + excluded.stalls,
+                respawns = COALESCE(respawns, 0) + excluded.respawns,
+                dead_seconds = COALESCE(dead_seconds, 0) + excluded.dead_seconds
+            """,
+            (r.hour, r.audio_seconds, r.stalls, r.respawns, mean, r.dead_seconds),
+        )
+        n += 1
+    if n:
+        conn.commit()
+    return n
 
 
 def connect_readonly(db_path: str | Path = DEFAULT_DB) -> sqlite3.Connection:

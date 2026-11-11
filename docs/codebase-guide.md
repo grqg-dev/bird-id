@@ -81,7 +81,7 @@ existing wav file
 **Classes:**
 
 - `RecordingResult(path, seconds, mean_volume_dbfs, max_volume_dbfs)` — return from `record()`
-- `Respawn(wall_time: datetime)` — sentinel yielded by `stream_pcm()` on ffmpeg restart
+- `Respawn(wall_time: datetime, reason: str = "exit")` — sentinel yielded by `stream_pcm()` on ffmpeg restart; `reason` is `"exit"` or `"stall"` (watchdog kill)
 - `RecordingError(RuntimeError)` — raised on ffmpeg failure or silent capture
 
 **Functions:**
@@ -93,11 +93,17 @@ Records `seconds` of audio from AVFoundation device `device`. Raises
 `RecordingError` if ffmpeg fails or the result is silent (check_silence=True).
 
 ```python
-stream_pcm(device="0", *, hop_ms=100) → Iterator[np.ndarray | Respawn]
+stream_pcm(device="0", *, hop_ms=100, stall_seconds=5.0, startup_grace_seconds=15.0, spawn=None)
+    → Iterator[np.ndarray | Respawn]
 ```
-Yields `np.int16` arrays of `hop_ms` milliseconds each, indefinitely. Yields
-`Respawn` when ffmpeg exits and is restarted (exponential backoff: 1s → 60s
-max). Raises `RecordingError` after 5 consecutive quick restarts (<5 s each).
+Yields `np.int16` arrays of `hop_ms` milliseconds each, indefinitely. A reader
+thread drains ffmpeg's stdout; if no full hop arrives within `stall_seconds`
+(first hop: `startup_grace_seconds`), ffmpeg is killed and `Respawn(reason="stall")`
+is yielded. Yields `Respawn(reason="exit")` when ffmpeg exits on its own
+(exponential backoff: 1s → 60s max). ffmpeg's stderr is drained into a bounded
+deque and its tail is printed on a stall or failed start. Raises `RecordingError`
+after 5 consecutive quick *exits* (<5 s each); stalls never count. `spawn` is a
+test seam for a fake Popen.
 
 ```python
 list_input_devices() → str
@@ -299,6 +305,17 @@ Returns `segment_id`.
 
 ---
 
+### `health.py`
+
+Pure per-hour capture accounting. `CaptureHealth(sr, mic_dead_dbfs=, now=)`:
+`tap(hops)` wraps the hop stream in the capture thread and tallies audio
+seconds, level, dead seconds, stalls and respawns; `drain(include_current=)`
+pops finished `HourStats` for the monitor's main thread, which writes them via
+`storage.upsert_capture_health()` (additive upsert into `capture_health`) and
+prints `format_line()` (`[health] 14:00 audio 3540s/3600s, stalls 2, mean -47 dBFS`)
+once per hour. `scripts/backfill_capture_health.py [--dry-run]` derives
+`audio_seconds`/`mean_dbfs` for history from `segments` (stalls/respawns/dead stay NULL).
+
 ### `clips.py`
 
 ```python
@@ -404,6 +421,15 @@ detections (
     track_id        INTEGER REFERENCES tracks(id)
 )
 
+capture_health (               -- one row per local hour; written by the monitor (health.py)
+    hour           TEXT PRIMARY KEY,   -- 'YYYY-MM-DDTHH:00:00'
+    audio_seconds  REAL,               -- audio actually received (NOT wall time)
+    stalls         INTEGER,            -- watchdog kills; NULL for backfilled history
+    respawns       INTEGER,            -- ffmpeg restarts, any cause; NULL for history
+    mean_dbfs      REAL,
+    dead_seconds   REAL                -- seconds at digital silence; NULL for history
+)
+
 -- Indexes
 idx_tracks_segment          ON tracks(segment_id)
 idx_detections_species      ON detections(common_name)
@@ -454,6 +480,7 @@ fallback.
 | `tail_carry_seconds` | `1.0` | Overlap carried into next segment |
 | `mic_dead_dbfs` | `-85.0` | RMS at or below this = "silent" hop |
 | `mic_dead_window_seconds` | `60` | Sustained silence → `MicDead` exception |
+| `capture_stall_seconds` | `5` | No full hop for this long → kill + respawn ffmpeg |
 | `proactive_cleanup` | `true` | Enable dashboard trim during monitor |
 | `dashboard_cleanup_hours` | `6` | How often dashboard trim runs (0 = every segment) |
 | `dashboard_live_hours` | `24` | Live-feed window protected from trim |

@@ -31,6 +31,7 @@ DEFAULTS: dict[str, Any] = {
     "tail_carry_seconds": 1.0,    # overlap prepended to next segment
     "mic_dead_dbfs": -85.0,       # RMS at or below this = "silent" hop
     "mic_dead_window_seconds": 60, # sustained silence window → mic-dead error
+    "capture_stall_seconds": 5,   # no full hop for this long → kill + respawn ffmpeg
     "db": "birdid.db",
     "recordings_dir": "recordings",
     "retention_days": 30,   # drop kept segment wavs after N days; 0 = keep forever

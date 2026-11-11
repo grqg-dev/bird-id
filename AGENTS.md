@@ -69,6 +69,11 @@ Key invariants:
 - **Monitor is streaming (two-thread).** `recorder.stream_pcm()` + `segmenter.segment_stream()`
   run in a capture thread; the main thread processes segments. The mic pipe is never
   blocked by BirdNET analysis. Segments are ~8–12s, adapting to quiet boundaries.
+- **Capture watchdog.** `stream_pcm()` reads ffmpeg through a reader thread and kills +
+  respawns ffmpeg (yielding `Respawn(reason="stall")`) when no hop arrives for
+  `capture_stall_seconds` (default 5). ffmpeg stderr is drained, never left on an unread
+  pipe. The monitor tallies per-hour audio/stalls/level in `capture_health`
+  (`health.py`, upserted hourly) and prints a `[health]` line each hour.
 - **Timestamps survive sleep.** `started_at` comes from an audio-sample clock
   (`stream_start + samples/sr`), which only equals wall time while capture runs
   continuously. ffmpeg restarts re-anchor via `Respawn`; system sleep / pipeline

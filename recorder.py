@@ -9,10 +9,13 @@ This module knows nothing about identification — it just produces wav files.
 
 from __future__ import annotations
 
+import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -42,9 +45,11 @@ class Respawn:
     """Sentinel yielded by stream_pcm when ffmpeg exits and is restarted.
 
     Carries the wall-clock time of the restart so segmenter.segment_stream
-    can reset its timestamps correctly.
+    can reset its timestamps correctly. `reason` is "exit" (ffmpeg ended on its
+    own) or "stall" (no full hop for capture_stall_seconds; ffmpeg was killed).
     """
     wall_time: datetime
+    reason: str = "exit"
 
 
 @dataclass
@@ -184,20 +189,59 @@ def record(
     )
 
 
+def _spawn_ffmpeg(cmd: list[str]) -> subprocess.Popen:
+    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def _drain_stderr(stream, tail: deque) -> None:
+    """Keep ffmpeg's last stderr lines in a bounded deque so the pipe never fills."""
+    try:
+        for line in iter(stream.readline, b""):
+            tail.append(line.decode("utf-8", "replace").rstrip())
+    except (OSError, ValueError):
+        pass
+
+
+def _read_hops(stdout, bytes_per_hop: int, out: queue.Queue) -> None:
+    """Reader thread: push full hops onto `out`; push None on EOF/partial hop."""
+    try:
+        while True:
+            raw = stdout.read(bytes_per_hop)
+            if len(raw) < bytes_per_hop:
+                break
+            out.put(raw)
+    except (OSError, ValueError):
+        pass
+    out.put(None)
+
+
 def stream_pcm(
     device: str = "0",
     *,
     hop_ms: int = 100,
+    stall_seconds: float = 5.0,
+    startup_grace_seconds: float = 15.0,
+    spawn: Callable[[list[str]], subprocess.Popen] | None = None,
 ) -> Iterator[np.ndarray | Respawn]:
     """Yield np.int16 arrays (one per hop_ms) from the mic, indefinitely.
 
-    Yields Respawn sentinels when ffmpeg exits and before restarting, so
-    callers (e.g. segmenter.segment_stream) can reset their state.
+    Yields Respawn sentinels when ffmpeg exits (reason "exit") or stops
+    delivering audio (reason "stall"), and before restarting, so callers
+    (e.g. segmenter.segment_stream) can reset their state.
+
+    A reader thread drains ffmpeg's stdout; if no full hop arrives within
+    `stall_seconds` (the first hop gets `startup_grace_seconds`, since
+    AVFoundation can be slow to start) ffmpeg is killed and restarted. ffmpeg's
+    stderr is drained into a bounded buffer and its tail is printed when the
+    process stalls or dies.
 
     Raises RecordingError after too many consecutive immediate failures,
     which indicates a permanent problem (missing mic permission, bad device).
+    Stalls never count as quick failures; they just back off before retrying.
+    `spawn` is injectable for tests.
     """
-    ffmpeg = _require_ffmpeg()
+    ffmpeg = _require_ffmpeg() if spawn is None else "ffmpeg"
+    spawn = spawn or _spawn_ffmpeg
     hop_samples = int(TARGET_SAMPLE_RATE * hop_ms / 1000)
     bytes_per_hop = hop_samples * 2  # int16 = 2 bytes/sample
     cmd = [
@@ -215,12 +259,32 @@ def stream_pcm(
 
     while True:
         started = time.monotonic()
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = spawn(cmd)
+        hops: queue.Queue = queue.Queue()
+        stderr_tail: deque = deque(maxlen=20)
+        threading.Thread(
+            target=_read_hops, args=(proc.stdout, bytes_per_hop, hops),
+            daemon=True, name="bird-ffmpeg-stdout",
+        ).start()
+        if proc.stderr is not None:
+            threading.Thread(
+                target=_drain_stderr, args=(proc.stderr, stderr_tail),
+                daemon=True, name="bird-ffmpeg-stderr",
+            ).start()
+
+        reason = "exit"
+        got_hop = False
         try:
             while True:
-                raw = proc.stdout.read(bytes_per_hop)
-                if len(raw) < bytes_per_hop:
+                timeout = stall_seconds if got_hop else max(stall_seconds, startup_grace_seconds)
+                try:
+                    raw = hops.get(timeout=timeout)
+                except queue.Empty:
+                    reason = "stall"
+                    break
+                if raw is None:
                     break  # EOF or partial hop at shutdown
+                got_hop = True
                 yield np.frombuffer(raw, dtype=np.int16).copy()
                 backoff = 1.0   # reset on any successful read
         finally:
@@ -230,8 +294,16 @@ def stream_pcm(
             except subprocess.TimeoutExpired:
                 pass
 
+        if reason == "stall":
+            print(
+                f"[capture] no audio for {timeout:.0f}s — killed ffmpeg, restarting",
+                file=sys.stderr,
+            )
+        if stderr_tail and (reason == "stall" or not got_hop):
+            print("[capture] ffmpeg said: " + " | ".join(stderr_tail), file=sys.stderr)
+
         elapsed = time.monotonic() - started
-        if elapsed < _QUICK_THRESHOLD:
+        if reason == "exit" and elapsed < _QUICK_THRESHOLD:
             consecutive_quick += 1
         else:
             consecutive_quick = 0
@@ -243,7 +315,7 @@ def stream_pcm(
                 f"Attempted device: :{device}"
             )
 
-        yield Respawn(datetime.now())
+        yield Respawn(datetime.now(), reason=reason)
         time.sleep(backoff)
         backoff = min(backoff * 2, 60.0)
 
