@@ -14,7 +14,9 @@ def test_defaults_include_min_conf():
     assert config.DEFAULTS["segment_minutes"] == 1.0
     assert config.DEFAULTS["retention_days"] == 30
     assert config.DEFAULTS["clip_format"] == "mp3"
-    assert config.DEFAULTS["proactive_cleanup"] is True
+    assert config.DEFAULTS["retention_high_days"] == 365
+    assert config.DEFAULTS["retention_best_per_species"] == 10
+    assert "proactive_cleanup" not in config.DEFAULTS
 
 
 def test_load_merges_over_defaults(tmp_path):

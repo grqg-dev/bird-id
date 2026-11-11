@@ -122,6 +122,7 @@ so either can be cron'd or piped into something else.
 | Import a recording into the DB | `./.venv/bin/python birdid.py identify file.wav --save` |
 | Dashboard on your home network | `./.venv/bin/python birdid.py dashboard --host 0.0.0.0` |
 | Live companion feed (phone-friendly) | Open `/live` while monitor runs — polls every 5s |
+| Preview what retention would delete | `./.venv/bin/python birdid.py cleanup --dry-run` |
 | Dashboard auto-reload while hacking | `./.venv/bin/python birdid.py dashboard --dev` |
 
 **Useful flags:** `-c 0.5` raises the confidence threshold (fewer false positives).
@@ -141,6 +142,22 @@ If recording comes back silent, check macOS mic permission:
 
 Setting location is the single biggest accuracy win — it stops the model from
 suggesting birds that don't belong in your area or season.
+
+## Clip retention
+
+Per-detection clips are kept by one policy (`retention.py`, all numbers are
+`retention_*` keys in `config.json`): peak confidence 0.9+ for 365 days, 0.7–0.9
+for 30 days, below 0.7 for 7 days; the best 10 clips per species that still have
+audio are kept forever; the last 24 hours are always kept; and a 10 GB budget
+evicts the lowest-confidence, oldest clips first. The monitor applies it hourly.
+`birdid.py cleanup --dry-run` prints counts and bytes per reason without
+deleting anything.
+
+The monitor also records capture health (audio seconds received, watchdog
+restarts, level) per hour in `capture_health` and prints a `[health]` line each
+hour; `capture_stall_seconds` (default 5) sets how long ffmpeg may go silent
+before it is restarted. `scripts/backfill_capture_health.py --dry-run` derives
+history from existing segments.
 
 ## Testing
 

@@ -53,7 +53,17 @@ CREATE TABLE IF NOT EXISTS tracks (
     duration    REAL NOT NULL,
     clip_path   TEXT,                 -- NULL if clip audio discarded/expired
     created_at  TEXT NOT NULL,
+    max_conf    REAL,                 -- peak confidence over this track's detections
     UNIQUE(segment_id, start_time, end_time)
+);
+
+CREATE TABLE IF NOT EXISTS capture_health (
+    hour          TEXT PRIMARY KEY,    -- local hour, 'YYYY-MM-DDTHH:00:00'
+    audio_seconds REAL,                -- audio actually received that hour
+    stalls        INTEGER,             -- watchdog kills (NULL = not measured)
+    respawns      INTEGER,             -- ffmpeg restarts, any cause (NULL = not measured)
+    mean_dbfs     REAL,
+    dead_seconds  REAL                 -- seconds at digital silence (NULL = not measured)
 );
 
 CREATE INDEX IF NOT EXISTS idx_tracks_segment ON tracks(segment_id);
@@ -127,6 +137,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
         WHERE track_id IS NULL
         """
     )
+    # Peak confidence per track, so retention needs no correlated subquery.
+    # Index first: the fill below probes detections by track_id. New rows get
+    # max_conf from record_segment; this only fills legacy/migrated tracks.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_track ON detections(track_id)")
+    tcols = {row[1] for row in conn.execute("PRAGMA table_info(tracks)").fetchall()}
+    if "max_conf" not in tcols:
+        conn.execute("ALTER TABLE tracks ADD COLUMN max_conf REAL")
+    conn.execute(
+        "UPDATE tracks SET max_conf = (SELECT MAX(d.confidence) FROM detections d "
+        "WHERE d.track_id = tracks.id) WHERE max_conf IS NULL"
+    )
     conn.commit()
 
 
@@ -156,6 +177,43 @@ def ensure_schema(db_path: str | Path = DEFAULT_DB) -> None:
     process (the dashboard), which then opens per-request connections via
     `connect_readonly()` instead of paying this cost on every request."""
     connect(db_path, ensure_schema=True).close()
+
+
+def upsert_capture_health(conn: sqlite3.Connection, rows: Iterable) -> int:
+    """Merge per-hour capture stats (health.HourStats-like) into `capture_health`.
+
+    Additive, so a monitor restart mid-hour accumulates rather than overwrites;
+    callers must drain (not re-send) what they have already written. `mean_dbfs`
+    is combined weighted by audio_seconds. Returns rows written.
+    """
+    n = 0
+    for r in rows:
+        mean = r.mean_dbfs
+        conn.execute(
+            """
+            INSERT INTO capture_health
+                (hour, audio_seconds, stalls, respawns, mean_dbfs, dead_seconds)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(hour) DO UPDATE SET
+                mean_dbfs = CASE
+                    WHEN excluded.mean_dbfs IS NULL THEN mean_dbfs
+                    WHEN mean_dbfs IS NULL OR COALESCE(audio_seconds, 0) + excluded.audio_seconds <= 0
+                        THEN excluded.mean_dbfs
+                    ELSE (mean_dbfs * COALESCE(audio_seconds, 0)
+                          + excluded.mean_dbfs * excluded.audio_seconds)
+                         / (COALESCE(audio_seconds, 0) + excluded.audio_seconds)
+                END,
+                audio_seconds = COALESCE(audio_seconds, 0) + excluded.audio_seconds,
+                stalls = COALESCE(stalls, 0) + excluded.stalls,
+                respawns = COALESCE(respawns, 0) + excluded.respawns,
+                dead_seconds = COALESCE(dead_seconds, 0) + excluded.dead_seconds
+            """,
+            (r.hour, r.audio_seconds, r.stalls, r.respawns, mean, r.dead_seconds),
+        )
+        n += 1
+    if n:
+        conn.commit()
+    return n
 
 
 def connect_readonly(db_path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
@@ -212,10 +270,14 @@ def record_segment(
 
     windows = {(d.start_time, d.end_time) for d in detections}
     window_to_track_id: dict[tuple[float, float], int] = {}
+    peak: dict[tuple[float, float], float] = {}
+    for d in detections:
+        key = (d.start_time, d.end_time)
+        peak[key] = max(peak.get(key, 0.0), d.confidence)
     for start, end in sorted(windows):
         tcur = conn.execute(
             "INSERT INTO tracks (segment_id, start_time, end_time, duration, "
-            "clip_path, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "clip_path, created_at, max_conf) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 segment_id,
                 start,
@@ -223,6 +285,7 @@ def record_segment(
                 end - start,
                 paths.get((start, end)),
                 created_at,
+                peak[(start, end)],
             ),
         )
         window_to_track_id[(start, end)] = tcur.lastrowid
@@ -1132,85 +1195,29 @@ def daily_rates(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def protected_dashboard_detection_ids(
-    conn: sqlite3.Connection, *, live_hours: int = 24
-) -> set[int]:
-    """Detection rows whose audio the dashboard can surface."""
-    ids: set[int] = set()
-    for row in conn.execute(
+def retention_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Tracks that still have a clip: id, clip_path, max_conf, segment started_at."""
+    return conn.execute(
         """
-        SELECT id FROM (
-          SELECT d.id,
-                 ROW_NUMBER() OVER (
-                   PARTITION BY d.common_name ORDER BY d.confidence DESC
-                 ) AS rn
-          FROM detections d
-        ) WHERE rn = 1
+        SELECT t.id, t.clip_path, t.max_conf, s.started_at
+        FROM tracks t
+        JOIN segments s ON s.id = t.segment_id
+        WHERE t.clip_path IS NOT NULL
         """
-    ):
-        ids.add(row["id"])
+    ).fetchall()
 
-    for (day,) in conn.execute("SELECT DISTINCT date(heard_at) FROM detections"):
-        for row in conn.execute(
-            """
-            SELECT id FROM (
-              SELECT d.id,
-                     ROW_NUMBER() OVER (
-                       PARTITION BY d.common_name ORDER BY d.confidence DESC
-                     ) AS rn
-              FROM detections d
-              WHERE date(d.heard_at) = ?
-            ) WHERE rn = 1
-            """,
-            (day,),
-        ):
-            ids.add(row["id"])
 
-    for row in conn.execute(
+def retention_species(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """(track_id, common_name, conf) — best confidence per species per clipped track."""
+    return conn.execute(
         """
-        SELECT id FROM (
-          SELECT d.id,
-                 ROW_NUMBER() OVER (
-                   PARTITION BY d.common_name
-                   ORDER BY d.confidence DESC, d.heard_at DESC
-                 ) AS rn
-          FROM detections d
-        ) WHERE rn <= 200
+        SELECT d.track_id, d.common_name, MAX(d.confidence) AS conf
+        FROM detections d
+        JOIN tracks t ON t.id = d.track_id
+        WHERE t.clip_path IS NOT NULL
+        GROUP BY d.track_id, d.common_name
         """
-    ):
-        ids.add(row["id"])
-
-    cutoff = (datetime.now() - timedelta(hours=live_hours)).isoformat(
-        timespec="seconds"
-    )
-    for row in conn.execute(
-        "SELECT id FROM detections WHERE heard_at >= ?",
-        (cutoff,),
-    ):
-        ids.add(row["id"])
-    return ids
-
-
-def _protected_dashboard_tracks(
-    conn: sqlite3.Connection, protected_detections: set[int]
-) -> set[int]:
-    tracks: set[int] = set()
-    for row in conn.execute(
-        "SELECT id, track_id FROM detections WHERE track_id IS NOT NULL"
-    ):
-        if row["id"] in protected_detections:
-            tracks.add(row["track_id"])
-    return tracks
-
-
-def _protected_dashboard_segments(
-    conn: sqlite3.Connection, protected_detections: set[int]
-) -> set[int]:
-    segments: set[int] = set()
-    for row in conn.execute("SELECT segment_id, id FROM detections"):
-        if row["id"] in protected_detections:
-            segments.add(row["segment_id"])
-    return segments
+    ).fetchall()
 
 
 def clear_segment_wav(conn: sqlite3.Connection, segment_id: int) -> bool:
@@ -1226,79 +1233,6 @@ def clear_segment_wav(conn: sqlite3.Connection, segment_id: int) -> bool:
     conn.execute("UPDATE segments SET wav_path = NULL WHERE id = ?", (segment_id,))
     conn.commit()
     return True
-
-
-def cleanup_dashboard_audio(
-    conn: sqlite3.Connection,
-    recordings_dir: str | Path,
-    *,
-    dry_run: bool = False,
-    live_hours: int = 24,
-) -> dict[str, int]:
-    """Drop segment wavs and clips not needed by the dashboard.
-
-    Also purges orphan files under recordings_dir. Returns byte/count stats.
-    """
-    recordings_dir = Path(recordings_dir).expanduser()
-    protected_dets = protected_dashboard_detection_ids(conn, live_hours=live_hours)
-    protected_track_ids = _protected_dashboard_tracks(conn, protected_dets)
-    protected_segment_ids = _protected_dashboard_segments(conn, protected_dets)
-
-    seg_rows = conn.execute(
-        "SELECT id, wav_path FROM segments WHERE wav_path IS NOT NULL"
-    ).fetchall()
-    seg_drop = [row for row in seg_rows if row["id"] not in protected_segment_ids]
-
-    track_rows = conn.execute(
-        "SELECT id, clip_path FROM tracks WHERE clip_path IS NOT NULL"
-    ).fetchall()
-    clip_drop = [row for row in track_rows if row["id"] not in protected_track_ids]
-
-    seg_freed = sum(
-        Path(row["wav_path"]).stat().st_size
-        for row in seg_drop
-        if row["wav_path"] and Path(row["wav_path"]).is_file()
-    )
-    clip_freed = sum(
-        Path(row["clip_path"]).stat().st_size
-        for row in clip_drop
-        if row["clip_path"] and Path(row["clip_path"]).is_file()
-    )
-
-    stats = {
-        "protected_detections": len(protected_dets),
-        "protected_segments": len(protected_segment_ids),
-        "protected_tracks": len(protected_track_ids),
-        "segments_dropped": len(seg_drop),
-        "clips_dropped": len(clip_drop),
-        "bytes_freed": seg_freed + clip_freed,
-    }
-    if dry_run:
-        return stats
-
-    for row in seg_drop:
-        path = Path(row["wav_path"]) if row["wav_path"] else None
-        if path and path.is_file():
-            path.unlink()
-        conn.execute("UPDATE segments SET wav_path = NULL WHERE id = ?", (row["id"],))
-
-    for row in clip_drop:
-        path = Path(row["clip_path"]) if row["clip_path"] else None
-        if path and path.is_file():
-            path.unlink()
-        conn.execute("UPDATE tracks SET clip_path = NULL WHERE id = ?", (row["id"],))
-
-    if seg_drop or clip_drop:
-        conn.commit()
-
-    orphans, orphan_freed = purge_orphan_recordings(conn, recordings_dir)
-    clip_orphans, clip_orphan_freed = purge_orphan_clips(
-        conn, recordings_dir / "clips"
-    )
-    stats["bytes_freed"] += orphan_freed + clip_orphan_freed
-    stats["orphan_segments"] = orphans
-    stats["orphan_clips"] = clip_orphans
-    return stats
 
 
 def expire_segment_audio(
@@ -1371,88 +1305,6 @@ def purge_orphan_recordings(
         path.unlink()
         removed += 1
     return removed, freed
-
-
-def expire_track_clips(
-    conn: sqlite3.Connection,
-    *,
-    retention_days: int,
-    now: Optional[datetime] = None,
-    high_conf_threshold: Optional[float] = None,
-    high_conf_retention_days: Optional[int] = None,
-) -> tuple[int, int]:
-    """Delete per-detection clip wavs older than `retention_days`.
-
-    A track whose detections peak at or above `high_conf_threshold` is held
-    to the longer `high_conf_retention_days` floor instead — a strong ID is
-    worth keeping around well past the normal cutoff. Pass either as None
-    (or <= 0) to disable the exemption and fall back to `retention_days` for
-    everything.
-
-    Track rows stay; only `clip_path` is cleared and the file is removed.
-    Returns (tracks_expired, bytes_freed). No-op when retention_days <= 0.
-    """
-    if retention_days <= 0:
-        return 0, 0
-
-    now = now or datetime.now()
-    cutoff = (now - timedelta(days=retention_days)).isoformat(timespec="seconds")
-
-    use_high_conf = bool(high_conf_threshold) and bool(high_conf_retention_days) and (
-        high_conf_retention_days > retention_days
-    )
-    if use_high_conf:
-        high_cutoff = (now - timedelta(days=high_conf_retention_days)).isoformat(
-            timespec="seconds"
-        )
-        rows = conn.execute(
-            """
-            SELECT t.id, t.clip_path
-            FROM tracks t
-            JOIN segments s ON s.id = t.segment_id
-            WHERE t.clip_path IS NOT NULL
-              AND (
-                (
-                    COALESCE(
-                        (SELECT MAX(d.confidence) FROM detections d
-                         WHERE d.track_id = t.id),
-                        0
-                    ) >= ?
-                    AND s.started_at < ?
-                )
-                OR (
-                    COALESCE(
-                        (SELECT MAX(d.confidence) FROM detections d
-                         WHERE d.track_id = t.id),
-                        0
-                    ) < ?
-                    AND s.started_at < ?
-                )
-              )
-            """,
-            (high_conf_threshold, high_cutoff, high_conf_threshold, cutoff),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT t.id, t.clip_path
-            FROM tracks t
-            JOIN segments s ON s.id = t.segment_id
-            WHERE t.clip_path IS NOT NULL AND s.started_at < ?
-            """,
-            (cutoff,),
-        ).fetchall()
-
-    freed = 0
-    for row in rows:
-        path = Path(row["clip_path"])
-        if path.is_file():
-            freed += path.stat().st_size
-            path.unlink()
-        conn.execute("UPDATE tracks SET clip_path = NULL WHERE id = ?", (row["id"],))
-    if rows:
-        conn.commit()
-    return len(rows), freed
 
 
 def purge_orphan_clips(

@@ -81,7 +81,7 @@ existing wav file
 **Classes:**
 
 - `RecordingResult(path, seconds, mean_volume_dbfs, max_volume_dbfs)` — return from `record()`
-- `Respawn(wall_time: datetime)` — sentinel yielded by `stream_pcm()` on ffmpeg restart
+- `Respawn(wall_time: datetime, reason: str = "exit")` — sentinel yielded by `stream_pcm()` on ffmpeg restart; `reason` is `"exit"` or `"stall"` (watchdog kill)
 - `RecordingError(RuntimeError)` — raised on ffmpeg failure or silent capture
 
 **Functions:**
@@ -93,11 +93,17 @@ Records `seconds` of audio from AVFoundation device `device`. Raises
 `RecordingError` if ffmpeg fails or the result is silent (check_silence=True).
 
 ```python
-stream_pcm(device="0", *, hop_ms=100) → Iterator[np.ndarray | Respawn]
+stream_pcm(device="0", *, hop_ms=100, stall_seconds=5.0, startup_grace_seconds=15.0, spawn=None)
+    → Iterator[np.ndarray | Respawn]
 ```
-Yields `np.int16` arrays of `hop_ms` milliseconds each, indefinitely. Yields
-`Respawn` when ffmpeg exits and is restarted (exponential backoff: 1s → 60s
-max). Raises `RecordingError` after 5 consecutive quick restarts (<5 s each).
+Yields `np.int16` arrays of `hop_ms` milliseconds each, indefinitely. A reader
+thread drains ffmpeg's stdout; if no full hop arrives within `stall_seconds`
+(first hop: `startup_grace_seconds`), ffmpeg is killed and `Respawn(reason="stall")`
+is yielded. Yields `Respawn(reason="exit")` when ffmpeg exits on its own
+(exponential backoff: 1s → 60s max). ffmpeg's stderr is drained into a bounded
+deque and its tail is printed on a stall or failed start. Raises `RecordingError`
+after 5 consecutive quick *exits* (<5 s each); stalls never count. `spawn` is a
+test seam for a fake Popen.
 
 ```python
 list_input_devices() → str
@@ -289,15 +295,42 @@ Returns `segment_id`.
 
 1. `expire_segment_audio(conn, retention_days)` — NULL `wav_path` + delete file for
    segments older than N days.
-2. `expire_track_clips(conn, retention_days)` — NULL `clip_path` + delete for old clips.
-3. `cleanup_dashboard_audio(conn, rec_dir, live_hours)` — trims audio not needed by
-   the dashboard (keeps peak-confidence detections per species per day, top-200
-   all-time, last `live_hours` of audio).
-4. `purge_orphan_recordings(conn, recordings_dir)` — deletes wav files under
+2. `retention.run(conn, policy)` — the one clip policy (see `retention.py` below).
+3. `purge_orphan_recordings(conn, recordings_dir)` — deletes wav files under
    `recordings/` not in DB (skips files <10 min old).
-5. `purge_orphan_clips(conn, clips_dir)` — same for `recordings/clips/`.
+4. `purge_orphan_clips(conn, clips_dir)` — same for `recordings/clips/`.
+5. `purge_stale_cache(cache_dir, retention_days)` — spectrogram/callviz cache.
+
+Also: `retention_rows(conn)` / `retention_species(conn)` feed `retention.load_tracks()`;
+`tracks.max_conf` (peak confidence, set by `record_segment`, backfilled in
+`_migrate`) is what the tiers read. `upsert_capture_health()` is WP1's hourly health write.
+
+### `retention.py`
+
+`plan(tracks, now, policy) -> list[Decision(track_id, keep, reason)]` is pure (no
+files, DB or clock). Rules, in priority order, for tracks that still have audio:
+`live_window` (newer than `retention_live_hours`) and `species_best` (best
+`retention_best_per_species` clips per species *among clips with audio*) are always
+kept; the rest are kept for `retention_high_days` / `_mid_days` / `_low_days` by peak
+confidence (`high_conf` / `mid_conf` / `low_conf`); if kept bytes still exceed
+`retention_max_clip_gb`, `over_budget` evicts lowest confidence then oldest, never
+the first two groups. `run()` loads tracks, stats files, plans, and (unless `dry_run`)
+`apply()` unlinks files + NULLs `clip_path`. Rows whose file is missing are counted
+(`missing_files`) but never NULLed (a wrong CWD makes every relative path look missing).
+`format_report()` prints counts and bytes per reason (`birdid.py cleanup --dry-run`).
 
 ---
+
+### `health.py`
+
+Pure per-hour capture accounting. `CaptureHealth(sr, mic_dead_dbfs=, now=)`:
+`tap(hops)` wraps the hop stream in the capture thread and tallies audio
+seconds, level, dead seconds, stalls and respawns; `drain(include_current=)`
+pops finished `HourStats` for the monitor's main thread, which writes them via
+`storage.upsert_capture_health()` (additive upsert into `capture_health`) and
+prints `format_line()` (`[health] 14:00 audio 3540s/3600s, stalls 2, mean -47 dBFS`)
+once per hour. `scripts/backfill_capture_health.py [--dry-run]` derives
+`audio_seconds`/`mean_dbfs` for history from `segments` (stalls/respawns/dead stay NULL).
 
 ### `clips.py`
 
@@ -358,9 +391,12 @@ Entry point. Each subcommand maps to a `cmd_*` function:
 
 **`_clip_format(cfg)`** — returns `"mp3"` or `"wav"` from `clip_format` config key.
 
-**`_run_audio_cleanup(conn, rec_dir, args, *, label, dash_state)`** — full cleanup
-chain (expire + dashboard trim + orphan purge). The monitor calls this after
-every segment; the cleanup command calls it once.
+**`_run_audio_cleanup(conn, rec_dir, args, *, label, dry_run, assume_clips_present, now)`**
+— full cleanup chain (segment-wav expiry + `retention.run` + orphan/cache purge).
+The monitor calls it at startup and then every `retention_interval_minutes` (60);
+`cleanup` calls it once; `cleanup --dry-run [--assume-clips-present]` prints counts and
+bytes per retention reason and deletes nothing (`--assume-clips-present` skips the file
+stat, for a DB pulled without its audio).
 
 **`_MonitorProgress`** — terminal UX for interactive (TTY) vs redirected stdout.
 Uses `\r` overwrite and a spinner in TTY mode; milestone percentages in non-TTY.
@@ -389,6 +425,7 @@ tracks (
     duration    REAL NOT NULL,    -- = end_time - start_time (always 3.0 for BirdNET)
     clip_path   TEXT,             -- NULL if clip not written or expired
     created_at  TEXT NOT NULL,
+    max_conf    REAL,             -- peak confidence of this track's detections (retention tiers)
     UNIQUE(segment_id, start_time, end_time)
 )
 
@@ -404,12 +441,22 @@ detections (
     track_id        INTEGER REFERENCES tracks(id)
 )
 
+capture_health (               -- one row per local hour; written by the monitor (health.py)
+    hour           TEXT PRIMARY KEY,   -- 'YYYY-MM-DDTHH:00:00'
+    audio_seconds  REAL,               -- audio actually received (NOT wall time)
+    stalls         INTEGER,            -- watchdog kills; NULL for backfilled history
+    respawns       INTEGER,            -- ffmpeg restarts, any cause; NULL for history
+    mean_dbfs      REAL,
+    dead_seconds   REAL                -- seconds at digital silence; NULL for history
+)
+
 -- Indexes
 idx_tracks_segment          ON tracks(segment_id)
 idx_detections_species      ON detections(common_name)
 idx_detections_heard_at     ON detections(heard_at)
 idx_detections_day          ON detections(date(heard_at))          -- expression index; matches existing `date(heard_at) = ?` predicates with no query rewrites
 idx_detections_segment      ON detections(segment_id)
+idx_detections_track        ON detections(track_id)
 idx_detections_species_conf ON detections(common_name, confidence DESC)
 idx_segments_started        ON segments(started_at)
 idx_segments_day            ON segments(date(started_at))
@@ -454,9 +501,13 @@ fallback.
 | `tail_carry_seconds` | `1.0` | Overlap carried into next segment |
 | `mic_dead_dbfs` | `-85.0` | RMS at or below this = "silent" hop |
 | `mic_dead_window_seconds` | `60` | Sustained silence → `MicDead` exception |
-| `proactive_cleanup` | `true` | Enable dashboard trim during monitor |
-| `dashboard_cleanup_hours` | `6` | How often dashboard trim runs (0 = every segment) |
-| `dashboard_live_hours` | `24` | Live-feed window protected from trim |
+| `capture_stall_seconds` | `5` | No full hop for this long → kill + respawn ffmpeg |
+| `retention_high_conf` / `retention_mid_conf` | `0.9` / `0.7` | Peak-confidence tier edges |
+| `retention_high_days` / `_mid_days` / `_low_days` | `365` / `30` / `7` | Clip keep time per tier |
+| `retention_best_per_species` | `10` | Best N clips per species with audio, kept forever |
+| `retention_live_hours` | `24` | Newest clips always kept |
+| `retention_max_clip_gb` | `10` | Clip budget; over it evict lowest confidence, then oldest |
+| `retention_interval_minutes` | `60` | How often the monitor runs retention |
 | `drop_segment_after_clips` | `true` | Delete full segment wav once clips exist |
 
 Prod config (`/Users/matt/bird-id/config.json` on the mini) is never committed.
@@ -557,17 +608,13 @@ returns clean silence (zeros → ~-91 dBFS), so this is the primary permission
 guard in the streaming path (as opposed to `recorder.record()` which has a
 one-shot volume check).
 
-### Dashboard audio protection policy
+### Clip retention policy
 
-`protected_dashboard_detection_ids()` returns a set of detection IDs whose audio
-the dashboard needs. The policy keeps:
-1. The peak-confidence detection for each species (all-time).
-2. The peak-confidence detection for each species *per day*.
-3. The top-200 most-confident detections all-time.
-4. All detections heard in the last `live_hours` (for `/live`).
-
-Audio associated with any other detection ID can be trimmed by
-`cleanup_dashboard_audio()`.
+Replaced the old "dashboard protected set" (top-200 per species etc.) and the
+30-day/90-day expiry mixture. One pure function (`retention.plan`) decides; see
+`retention.py` above. Every dashboard query that surfaces audio filters on
+`clip_path IS NOT NULL OR wav_path IS NOT NULL` (`_HAS_AUDIO`, `_dash_sample_clips`,
+`recent_feed`), so aged-out rows stay countable but are never offered as playable.
 
 ### Spectrogram/callviz/vibeviz caching
 
@@ -630,7 +677,9 @@ birdid.py            CLI entry point — wires all modules; defines cmd_* functi
 recorder.py          mic → wav/PCM stream (macOS AVFoundation + ffmpeg)
 segmenter.py         PCM hops → adaptive Segment objects (pure numpy, no mic)
 identifier.py        wav → [Detection] via BirdNET (pure file-in/list-out)
-storage.py           SQLite CRUD — schema, record_segment, queries, cleanup
+storage.py           SQLite CRUD — schema, record_segment, queries, segment/orphan cleanup
+retention.py         Clip retention policy: pure plan() + run()/apply()
+health.py            Per-hour capture-health tally (feeds capture_health)
 clips.py             Extract detection-window clips from segment wavs
 config.py            load config.json, resolve() flag > config > default
 dashboard.py         Flask web UI — all routes, template strings, viz computations
@@ -649,6 +698,7 @@ static/OrbitControls.js  Vendored Three.js OrbitControls
 deploy/mac-mini/deploy.sh         Deploy script (run on the mini, not dev)
 deploy/mac-mini/com.birdid.*.plist  launchd service definitions
 
+scripts/backfill_capture_health.py Derive capture_health history from segments (--dry-run)
 scripts/pull_db_from_mini.sh       Pull prod DB snapshot to dev
 scripts/pull_recordings_from_mini.sh  Pull prod segment wavs to dev
 scripts/backfill_track_clips.py    Write missing clips for existing DB tracks
