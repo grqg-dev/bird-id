@@ -31,7 +31,7 @@ function SpeciesBody({ slug }: { slug: string }) {
     setData(null)
     setMore([])
     setPage(1)
-    fetch(`/api/dash/species/${encodeURIComponent(slug)}`, { signal: controller.signal })
+    fetch(`/api/v1/dash/species/${encodeURIComponent(slug)}`, { signal: controller.signal })
       .then((r) => {
         if (r.status === 404) throw new Error('no detections for this species')
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -50,7 +50,7 @@ function SpeciesBody({ slug }: { slug: string }) {
 
   const loadMore = () => {
     const next = page + 1
-    fetch(`/api/dash/species/${encodeURIComponent(slug)}?page=${next}`)
+    fetch(`/api/v1/dash/species/${encodeURIComponent(slug)}?page=${next}`)
       .then((r) => r.json() as Promise<SpeciesDetail>)
       .then((d) => {
         setMore((m) => [...m, ...d.clips])

@@ -23,7 +23,7 @@ export function LiveFeed({ limit = 12, title = 'Live feed' }: { limit?: number; 
     const tick = () => {
       controller?.abort()
       controller = new AbortController()
-      fetch(`/api/recent?limit=${limit}`, { signal: controller.signal })
+      fetch(`/api/v1/recent?limit=${limit}`, { signal: controller.signal })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
         .then((d: { events: RecentEvent[] }) => {
           setEvents(d.events)

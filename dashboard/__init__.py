@@ -50,6 +50,7 @@ from .app import (  # noqa: F401
     app,
     dev_ping,
     main,
+    register_v1_aliases,
 )
 from .legacy import (  # noqa: F401
     PEAK_CONF_FLOOR,
@@ -177,3 +178,7 @@ from .api import (  # noqa: F401
     dash_asset,
     dash_index,
 )
+
+
+# Every /api/<x> route is also served at /api/v1/<x>. Must run after all routes exist.
+register_v1_aliases()

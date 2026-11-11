@@ -30,6 +30,7 @@ import clips
 import config
 import health
 import recorder
+import logrotate
 import retention
 import segmenter
 import identifier
@@ -130,6 +131,16 @@ def _run_audio_cleanup(
     cache_removed, cache_freed = storage.purge_stale_cache(
         rec_dir / "cache", retention_days=days
     )
+    try:  # keep launchd-owned logs from growing without bound (copy-truncate at log_max_mb)
+        rotated = logrotate.rotate_logs(
+            args.cfg.get("log_dir", "logs"),
+            max_bytes=int(float(args.cfg.get("log_max_mb", 5)) * 1_000_000),
+            backups=int(args.cfg.get("log_backups", 3)),
+        )
+        for f in rotated:
+            print(f"[{label}] rotated {f.name}")
+    except Exception as e:  # never let log hygiene break retention
+        print(f"[{label}] log rotation failed: {e}")
     if expired:
         print(f"[{label}] expired {expired} segment wav(s), freed {freed / 1e6:.1f} MB")
     if report["deleted"]:

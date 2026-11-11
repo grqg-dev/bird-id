@@ -97,9 +97,12 @@ Key invariants:
   `clips.write_clip()`; `storage.py` only stores paths. Segment-wav expiry is
   `storage.expire_segment_audio`; clip retention is `retention.py` (below).
 - **Dashboard is offline-friendly.** No CDN / JS chart libraries — charts are
-  server-rendered CSS. It must work on a headless Pi with no internet. **`/live`**
-  is the exception: ~40 lines of inline JS poll `/api/recent` every 5s (pauses when
-  the tab is hidden) for the rolling 24h companion feed. **`/call`** is the second
+  server-rendered CSS. It must work on a headless Pi with no internet. **The SPA's
+  live feed** (`/dash/live`, and a panel on `/dash`) is the exception: it polls
+  `/api/v1/recent` every 5s and pauses when the tab is hidden. **`/live`**, **`/realtime`**
+  and **`/bird/<slug>`** are retired and 302 to `/dash/live` / `/dash/species/<slug>`;
+  `/dex`, `/heard`, `/timeline`, `/trends`, `/prevalence`, `/data` and `/twitter` stay
+  because the SPA has no equivalent yet. **`/call`** is the second
   JS-heavy route: a Three.js “Call Chamber” 3D frequency-pole view driven by server-
   precomputed JSON (`/callviz/…`). **`static/three.min.js`** and **`static/OrbitControls.js`**
   are **vendored** (pinned three.js r134 UMD build) — download once in dev, never a
@@ -176,7 +179,7 @@ pytest + Flask only; CI does not install `requirements.txt`):
 | `tests/test_storage.py` | Schema, tracks/clips, `record_segment`, rollups, retention, `recent_feed` |
 | `tests/test_config.py` | `load`, `resolve`, bad JSON |
 | `tests/test_identifier_summarize.py` | `summarize()`, default `min_conf` |
-| `tests/test_dashboard.py` | Helpers + `/` (redirect), `/dex`, `/bird/…`, `/call`, `/data`, `/live`, `/api/recent`, `/api/digest` via `test_client` |
+| `tests/test_dashboard.py` | Helpers + `/` (redirect), `/dex`, `/call`, `/data`, retired-route redirects, `/api/recent`, `/api/digest` via `test_client` |
 | `tests/test_birdid.py` | `cmd_stats`, `_resolve_id_params`, `cmd_cleanup` |
 | `tests/test_retention.py` | `retention.plan()` rules, budget eviction order, best-N-with-audio, `run()`/`apply()` |
 | `tests/test_recorder.py`, `tests/test_health.py` | stream_pcm watchdog (fake ffmpeg), `capture_health`, backfill |
@@ -214,6 +217,11 @@ smoke test after touching `cmd_monitor`.
 - Rebuilds `~/Applications/BirdID Monitor.app` (mic-permission wrapper)
 - Installs launch-agent plists to `~/Library/LaunchAgents/`
 - Runs `birdid.py cleanup` (retention)
+- **Refuses to run on a dirty checkout** (tracked files must match `HEAD`) and prints the
+  commit it deployed
+- If the repo's plist differs from the installed copy, the agent is reloaded with
+  `launchctl bootout` + `bootstrap` instead of `kickstart`, because `kickstart` restarts
+  the job without re-reading the plist (monitor and dashboard agents)
 - **Restarts dashboard** launch agent (`com.birdid.dashboard`)
 - **Restarts monitor** launch agent only if already loaded — skips when monitor
   runs in a Terminal session (avoids killing a manual session)

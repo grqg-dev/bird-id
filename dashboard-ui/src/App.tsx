@@ -74,7 +74,7 @@ function Dashboard() {
   })
 
   useEffect(() => {
-    fetch(showUnlikely ? '/api/dash/summary?unlikely=1' : '/api/dash/summary')
+    fetch(showUnlikely ? '/api/v1/dash/summary?unlikely=1' : '/api/v1/dash/summary')
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
@@ -118,7 +118,7 @@ function Dashboard() {
 
   // Capture health is advisory: if it fails to load the dashboard still works.
   useEffect(() => {
-    fetch('/api/dash/health')
+    fetch('/api/v1/dash/health')
       .then((r) => (r.ok ? r.json() : null))
       .then(setHealth)
       .catch(() => setHealth(null))
@@ -179,7 +179,7 @@ function Dashboard() {
             <Link className="lbl" href="/dash/live">
               live feed ↗
             </Link>
-            <a className="lbl" href="/">
+            <a className="lbl" href="/dex">
               old dex ↗
             </a>
           </div>

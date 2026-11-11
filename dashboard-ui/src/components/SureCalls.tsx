@@ -16,7 +16,7 @@ export function SureCalls() {
 
   useEffect(() => {
     const controller = new AbortController()
-    fetch(showUnlikely ? '/api/dash/sure?unlikely=1' : '/api/dash/sure', { signal: controller.signal })
+    fetch(showUnlikely ? '/api/v1/dash/sure?unlikely=1' : '/api/v1/dash/sure', { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return response.json() as Promise<SureSummary>
@@ -130,7 +130,7 @@ export function SureCalls() {
                   </div>
                   <div className="sure-footer">
                     <span className="lbl">peak {species.peak.toFixed(2)}</span>
-                    <a className="lbl" href={`/bird/${species.slug}`}>
+                    <a className="lbl" href={`/dash/species/${species.slug}`}>
                       All clips ↗
                     </a>
                   </div>

@@ -199,27 +199,6 @@ def test_index_gallery_mode(client):
     assert resp.status_code == 200
 
 
-def test_bird_detail(client):
-    resp = client.get("/bird/bewicks_wren?day=2026-05-30")
-    assert resp.status_code == 200
-    assert b"Bewick" in resp.data
-    assert b"nav-group call" in resp.data
-    assert b"nav-group bird" in resp.data
-
-
-def test_bird_detail_unknown_slug(client):
-    resp = client.get("/bird/not_a_real_bird?day=2026-05-30")
-    assert resp.status_code == 404
-
-
-def test_bird_detail_back_link_is_absolute(client):
-    resp = client.get("/bird/bewicks_wren?day=2026-05-30&mode=gallery")
-    assert resp.status_code == 200
-    assert b'href="/dex?day=2026-05-30&amp;mode=gallery"' in resp.data
-    assert b'href="?mode=gallery' not in resp.data
-    assert b'href="?day=2026-05-30' not in resp.data
-
-
 def test_data_view_back_link_is_absolute(client):
     resp = client.get("/data?day=2026-05-30")
     assert resp.status_code == 200
@@ -279,52 +258,6 @@ def _seed_recent_detection(conn, *, minutes_ago: float = 5, name: str = "Live Bi
     )
 
 
-def test_live_feed_clip_only(client, seeded_conn, tmp_path):
-    from datetime import datetime, timedelta
-
-    import identifier
-    import storage
-
-    clip = tmp_path / "live.mp3"
-    clip.write_bytes(b"mp3")
-    now = datetime.now()
-    started = now - timedelta(minutes=5)
-    storage.record_segment(
-        seeded_conn,
-        started_at=started,
-        ended_at=started + timedelta(seconds=60),
-        duration=60.0,
-        detections=[
-            identifier.Detection("Clip Feed Bird", "Sp", 0.88, 0.0, 3.0),
-        ],
-        wav_path=None,
-        clip_paths={(0.0, 3.0): str(clip)},
-    )
-    resp = client.get("/live")
-    assert resp.status_code == 200
-    assert b"Clip Feed Bird" in resp.data
-
-
-def test_live_feed_page(client, seeded_conn):
-    _seed_recent_detection(seeded_conn, name="Feed Test Bird")
-    resp = client.get("/live")
-    assert resp.status_code == 200
-    assert b"Live feed" in resp.data
-    assert b"Feed Test Bird" in resp.data
-    assert b"Last 24h" in resp.data
-    assert b"/spectrogram/" in resp.data
-    assert b"Conf" in resp.data
-
-
-def test_live_feed_hide_low(client, seeded_conn):
-    _seed_recent_detection(seeded_conn, name="Low Conf Bird", conf=0.5)
-    _seed_recent_detection(seeded_conn, minutes_ago=5, name="High Conf Bird", conf=0.85)
-    resp = client.get("/live?hide_low=1")
-    assert resp.status_code == 200
-    assert b"High Conf Bird" in resp.data
-    assert b"Low Conf Bird" not in resp.data
-
-
 def test_api_recent_hide_low(client, seeded_conn):
     _seed_recent_detection(seeded_conn, name="Low Api", conf=0.4)
     _seed_recent_detection(seeded_conn, minutes_ago=5, name="High Api", conf=0.9)
@@ -362,27 +295,6 @@ def test_api_recent_since_filters(client, seeded_conn):
 def test_format_heard_clock():
     assert dashboard._format_heard_clock("2026-06-01T14:32:05") == "2:32 PM"
     assert dashboard._format_heard_clock("2026-06-01T08:05:00") == "8:05 AM"
-
-
-def test_realtime_page_loads(client):
-    resp = client.get("/realtime")
-    assert resp.status_code == 200
-    assert b"Real time" in resp.data
-    assert b"Listening" in resp.data
-
-
-def test_realtime_page_shows_recent_birds(client, seeded_conn):
-    _seed_recent_detection(seeded_conn, name="Realtime Bird", minutes_ago=5)
-    resp = client.get("/realtime")
-    assert resp.status_code == 200
-    assert b"Realtime Bird" in resp.data
-
-
-def test_realtime_page_has_nav_links(client):
-    resp = client.get("/realtime")
-    assert resp.status_code == 200
-    assert b'href="/live"' in resp.data
-    assert b'href="/dex"' in resp.data
 
 
 def test_twitter_view_renders(client):
