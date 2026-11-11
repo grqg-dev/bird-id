@@ -18,7 +18,7 @@ file map. Start here for environment rules; go there for code details.
 | `birdid.db` | Small / stale unless pulled from prod | **Source of truth** — live detections |
 | `recordings/` | Optional pull for playback tests | Full segment + clip history |
 | `config.json` | Local copy (gitignored) | Prod copy on mini (gitignored) |
-| Monitor | Manual smoke tests only | Runs 24/7 (`birdid.py monitor -d 0`) |
+| Monitor | Manual smoke tests only | Runs 24/7 under launchd (`com.birdid.monitor`, `birdid.py monitor -d 0`) |
 | Dashboard | `127.0.0.1:8080` when hacking | `0.0.0.0:8080` via launchd (LAN) |
 
 **Rules for agents:**
@@ -219,12 +219,13 @@ smoke test after touching `cmd_monitor`.
 - Runs `birdid.py cleanup` (retention)
 - **Refuses to run on a dirty checkout** (tracked files must match `HEAD`) and prints the
   commit it deployed
+- **Restarts dashboard** launch agent (`com.birdid.dashboard`)
+- **Restarts monitor** launch agent (`com.birdid.monitor`). Prod runs the monitor under
+  launchd, so this is the normal case; the script only skips it if the agent is not
+  loaded (e.g. someone stopped it to test by hand in a Terminal)
 - If the repo's plist differs from the installed copy, the agent is reloaded with
   `launchctl bootout` + `bootstrap` instead of `kickstart`, because `kickstart` restarts
-  the job without re-reading the plist (monitor and dashboard agents)
-- **Restarts dashboard** launch agent (`com.birdid.dashboard`)
-- **Restarts monitor** launch agent only if already loaded — skips when monitor
-  runs in a Terminal session (avoids killing a manual session)
+  the job without re-reading the plist (applies to the dashboard agent too)
 
 ### Prod services (launchd)
 
@@ -244,7 +245,7 @@ ssh mac-mini
 cd ~/bird-id
 ./deploy/mac-mini/install-monitor-app.sh
 # Screen Sharing: open ~/Applications/BirdID Monitor.app once → allow mic
-# Stop any Terminal monitor, then:
+# Stop any hand-run monitor first, then:
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.birdid.monitor.plist
 ```
 
@@ -252,8 +253,8 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.birdid.monitor.plist
 
 After code that touches DB schema or clips:
 
-1. **Restart** monitor and/or dashboard (deploy script restarts launch agents;
-   a Terminal monitor needs manual restart). The monitor's `storage.connect()`
+1. **Restart** monitor and/or dashboard (deploy script restarts both launch agents;
+   a monitor you started by hand in a Terminal would need a manual restart). The monitor's `storage.connect()`
    runs `_migrate()`/creates new indexes on its next connect; the dashboard
    only does this once at startup (`storage.ensure_schema()` in
    `dashboard.main()`) — restarting it is what picks up a new index or schema
