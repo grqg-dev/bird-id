@@ -76,9 +76,11 @@ def test_cmd_cleanup_orphans(tmp_path, capsys):
         "db": str(db_path),
         "recordings_dir": str(rec_dir),
         "retention_days": 0,
-        "proactive_cleanup": False,
     }
-    args = SimpleNamespace(db=None, dir=None, retention_days=None, cfg=cfg)
+    args = SimpleNamespace(
+        db=None, dir=None, retention_days=None, cfg=cfg,
+        dry_run=False, assume_clips_present=False,
+    )
     rc = birdid.cmd_cleanup(args)
     out = capsys.readouterr().out
     assert rc == 0

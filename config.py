@@ -35,13 +35,18 @@ DEFAULTS: dict[str, Any] = {
     "db": "birdid.db",
     "recordings_dir": "recordings",
     "retention_days": 30,   # drop kept segment wavs after N days; 0 = keep forever
-    "high_conf_threshold": 0.9,      # tracks peaking at/above this confidence get the longer floor below
-    "high_conf_retention_days": 90,  # ...instead of retention_days; 0/None = no exemption
     "clip_format": "mp3",   # mp3 | wav — per-window clips written by the monitor
     "clip_mp3_bitrate": "64k",
-    "proactive_cleanup": True,       # trim non-dashboard audio during monitor/deploy cleanup
-    "dashboard_cleanup_hours": 6,    # how often the monitor runs dashboard trim (0 = every segment)
-    "dashboard_live_hours": 24,      # live-feed window protected from trim
+    # Clip retention (retention.py); full segment wavs use retention_days above.
+    "retention_high_conf": 0.9,       # track peak confidence at/above → high tier
+    "retention_mid_conf": 0.7,        # at/above (and below high) → mid tier
+    "retention_high_days": 365,       # keep high-tier clips this long
+    "retention_mid_days": 30,
+    "retention_low_days": 7,
+    "retention_best_per_species": 10, # best N clips per species (that still have audio) kept forever
+    "retention_live_hours": 24,       # newest clips always kept (live feed)
+    "retention_max_clip_gb": 10,      # clip budget; over it, evict lowest confidence then oldest
+    "retention_interval_minutes": 60, # how often the monitor runs retention
     "drop_segment_after_clips": True,  # delete full segment wav once clips exist (or no hits)
 }
 

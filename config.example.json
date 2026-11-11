@@ -8,8 +8,10 @@
   "retention_days": 30,
   "clip_format": "mp3",
   "clip_mp3_bitrate": "64k",
-  "proactive_cleanup": true,
-  "dashboard_cleanup_hours": 6,
-  "dashboard_live_hours": 24,
+  "retention_high_days": 365,
+  "retention_mid_days": 30,
+  "retention_low_days": 7,
+  "retention_best_per_species": 10,
+  "retention_max_clip_gb": 10,
   "drop_segment_after_clips": true
 }

@@ -84,11 +84,18 @@ Key invariants:
   log appends `(processed Xh Ym late)` when a dequeued segment is stale.
 - **Store raw, aggregate at query.** Write one row per 3s-window detection; roll
   up with `GROUP BY` at read time (see `species_summary`, `day_species`).
+- **One retention policy.** `retention.plan()` is a pure function (no files/DB/clock);
+  `retention.run()` is the shell. Clips are kept by peak-confidence tier (0.9+ 365 d,
+  0.7–0.9 30 d, below 7 d), the best 10 per species *that still have audio* are kept
+  forever, the last 24 h always, and a 10 GB budget evicts lowest confidence then
+  oldest. All numbers are `retention_*` config keys. The monitor runs it hourly, never
+  per segment. Don't add a second deletion path for clips; change the policy instead.
+  `birdid.py cleanup --dry-run` prints counts/bytes per reason.
 - **Tracks + clips.** Each distinct `(start_time, end_time)` window within a
   segment gets a `tracks` row (optional `clip_path` under `recordings/clips/`).
   Detections link via `track_id`. Clip files are written in `birdid.py` via
-  `clips.write_clip()`; `storage.py` only stores paths. Retention cleanup expires
-  both segment wavs and track clips.
+  `clips.write_clip()`; `storage.py` only stores paths. Segment-wav expiry is
+  `storage.expire_segment_audio`; clip retention is `retention.py` (below).
 - **Dashboard is offline-friendly.** No CDN / JS chart libraries — charts are
   server-rendered CSS. It must work on a headless Pi with no internet. **`/live`**
   is the exception: ~40 lines of inline JS poll `/api/recent` every 5s (pauses when
@@ -166,7 +173,9 @@ pytest + Flask only; CI does not install `requirements.txt`):
 | `tests/test_config.py` | `load`, `resolve`, bad JSON |
 | `tests/test_identifier_summarize.py` | `summarize()`, default `min_conf` |
 | `tests/test_dashboard.py` | Helpers + `/` (redirect), `/dex`, `/bird/…`, `/call`, `/data`, `/live`, `/api/recent`, `/api/digest` via `test_client` |
-| `tests/test_birdid.py` | `cmd_stats`, `_resolve_id_params` |
+| `tests/test_birdid.py` | `cmd_stats`, `_resolve_id_params`, `cmd_cleanup` |
+| `tests/test_retention.py` | `retention.plan()` rules, budget eviction order, best-N-with-audio, `run()`/`apply()` |
+| `tests/test_recorder.py`, `tests/test_health.py` | stream_pcm watchdog (fake ffmpeg), `capture_health`, backfill |
 
 **Dashboard test seam:** every route uses `dashboard._db()`. Tests monkeypatch it to
 return a seeded SQLite connection (see `tests/conftest.py`). Heavy imports

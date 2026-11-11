@@ -30,6 +30,7 @@ import clips
 import config
 import health
 import recorder
+import retention
 import segmenter
 import identifier
 import storage
@@ -97,65 +98,33 @@ def _clip_format(cfg: dict) -> str:
     return "mp3" if fmt == "mp3" else "wav"
 
 
-def _proactive_cleanup(cfg: dict) -> bool:
-    return bool(config.resolve(None, "proactive_cleanup", cfg))
-
-
-def _dashboard_cleanup_due(state: dict | None, cfg: dict) -> bool:
-    hours = float(config.resolve(None, "dashboard_cleanup_hours", cfg) or 6)
-    if hours <= 0:
-        return True
-    if state is None:
-        return True
-    return time.monotonic() - state["last"] >= hours * 3600
-
-
-def _run_dashboard_cleanup(
-    conn, rec_dir: Path, cfg: dict, *, label: str, state: dict | None = None
-) -> None:
-    if not _proactive_cleanup(cfg):
-        return
-    if not _dashboard_cleanup_due(state, cfg):
-        return
-    live_hours = int(config.resolve(None, "dashboard_live_hours", cfg) or 24)
-    stats = storage.cleanup_dashboard_audio(
-        conn, rec_dir, dry_run=False, live_hours=live_hours
-    )
-    if state is not None:
-        state["last"] = time.monotonic()
-    freed = stats["bytes_freed"]
-    if (
-        stats["segments_dropped"]
-        or stats["clips_dropped"]
-        or stats.get("orphan_segments")
-        or stats.get("orphan_clips")
-    ):
-        print(
-            f"[{label}] dashboard trim: {stats['segments_dropped']} seg, "
-            f"{stats['clips_dropped']} clip(s), freed {freed / 1e6:.1f} MB"
-        )
-
-
 def _run_audio_cleanup(
     conn,
     rec_dir: Path,
     args,
     *,
     label: str = "retention",
-    dash_state: dict | None = None,
-) -> None:
-    """Expire old kept wavs, trim non-dashboard audio, drop orphans."""
+    dry_run: bool = False,
+    assume_clips_present: bool = False,
+    now: datetime | None = None,
+) -> dict:
+    """Expire old segment wavs, apply the clip retention policy, drop orphans.
+
+    With dry_run, only the clip policy is evaluated (nothing is touched) and its
+    per-reason report is printed.
+    """
+    policy = retention.Policy.from_config(args.cfg)
+    if dry_run:
+        report = retention.run(
+            conn, policy, now=now, dry_run=True, assume_present=assume_clips_present
+        )
+        for line in retention.format_report(report, dry_run=True):
+            print(f"[{label}] {line}")
+        return report
+
     days = _retention_days(args)
-    high_conf_threshold = config.resolve(None, "high_conf_threshold", args.cfg)
-    high_conf_retention_days = config.resolve(None, "high_conf_retention_days", args.cfg)
     expired, freed = storage.expire_segment_audio(conn, retention_days=days)
-    clip_expired, clip_freed = storage.expire_track_clips(
-        conn,
-        retention_days=days,
-        high_conf_threshold=high_conf_threshold,
-        high_conf_retention_days=high_conf_retention_days,
-    )
-    _run_dashboard_cleanup(conn, rec_dir, args.cfg, label=label, state=dash_state)
+    report = retention.run(conn, policy, now=now)
     orphans, orphan_freed = storage.purge_orphan_recordings(conn, rec_dir)
     clip_orphans, clip_orphan_freed = storage.purge_orphan_clips(conn, rec_dir / "clips")
     cache_removed, cache_freed = storage.purge_stale_cache(
@@ -163,10 +132,14 @@ def _run_audio_cleanup(
     )
     if expired:
         print(f"[{label}] expired {expired} segment wav(s), freed {freed / 1e6:.1f} MB")
-    if clip_expired:
+    if report["deleted"]:
+        by_reason = ", ".join(
+            f"{r} {v['count']}"
+            for r, v in report["summary"]["delete"].items()
+        )
         print(
-            f"[{label}] expired {clip_expired} track clip(s), "
-            f"freed {clip_freed / 1e6:.1f} MB"
+            f"[{label}] deleted {report['deleted']} clip(s) ({by_reason}), "
+            f"freed {report['bytes_freed'] / 1e6:.1f} MB"
         )
     if orphans:
         print(f"[{label}] removed {orphans} orphan wav(s), freed {orphan_freed / 1e6:.1f} MB")
@@ -180,6 +153,7 @@ def _run_audio_cleanup(
             f"[{label}] purged {cache_removed} stale cache file(s), "
             f"freed {cache_freed / 1e6:.1f} MB"
         )
+    return report
 
 
 def _clip_paths_for_detections(
@@ -455,12 +429,13 @@ def cmd_monitor(args) -> int:
     # Bounded queue — capture thread uses put_nowait; never blocks on processor.
     seg_queue: queue.Queue = queue.Queue(maxsize=20)
     stop_event = threading.Event()
-    dash_state: dict = {"last": 0.0}
+    retention_every = 60.0 * float(config.resolve(None, "retention_interval_minutes", cfg))
+    last_retention = time.monotonic()   # initial run happens just below
     stall_seconds = float(config.resolve(None, "capture_stall_seconds", cfg))
     cap_health = health.CaptureHealth(
         recorder.TARGET_SAMPLE_RATE, mic_dead_dbfs=seg_cfg["mic_dead_dbfs"]
     )
-    _run_audio_cleanup(conn, rec_dir, args, dash_state=dash_state)
+    _run_audio_cleanup(conn, rec_dir, args)
 
     def _capture() -> None:
         seg_no = 0
@@ -508,6 +483,9 @@ def cmd_monitor(args) -> int:
             except queue.Empty:
                 # No segment lately (e.g. total stall) — still record health.
                 _flush_health(conn, cap_health)
+                if time.monotonic() - last_retention >= retention_every:
+                    _run_audio_cleanup(conn, rec_dir, args)
+                    last_retention = time.monotonic()
                 continue
             if item is None:
                 # Capture thread exited (shouldn't happen in normal operation)
@@ -546,8 +524,10 @@ def cmd_monitor(args) -> int:
             else:
                 print(f"[{stamp}] seg {segment_no} ({duration:.0f}s): nothing detected{late}")
 
-            _run_audio_cleanup(conn, rec_dir, args, dash_state=dash_state)
             _flush_health(conn, cap_health)
+            if time.monotonic() - last_retention >= retention_every:
+                _run_audio_cleanup(conn, rec_dir, args)
+                last_retention = time.monotonic()
     except KeyboardInterrupt:
         stop_event.set()
         print("\nStopping. Final tally:")
@@ -631,11 +611,17 @@ def cmd_dashboard(args) -> int:
 
 
 def cmd_cleanup(args) -> int:
-    """Drop expired segment wavs, trim non-dashboard audio, and purge orphans."""
+    """Apply the retention policy (clips + segment wavs) and purge orphans.
+
+    --dry-run prints what the clip policy would keep/delete per reason, touching nothing.
+    """
     db_path, rec_dir = _db_paths(args)
     conn = storage.connect(db_path)
     try:
-        _run_audio_cleanup(conn, rec_dir, args, label="cleanup", dash_state={"last": 0.0})
+        _run_audio_cleanup(
+            conn, rec_dir, args, label="cleanup",
+            dry_run=args.dry_run, assume_clips_present=args.assume_clips_present,
+        )
     finally:
         conn.close()
     return 0
@@ -693,13 +679,21 @@ def main(argv=None) -> int:
 
     p_clean = sub.add_parser(
         "cleanup",
-        help="delete expired segment wavs and orphan files in recordings_dir",
+        help="apply the retention policy: clips by tier/budget, expired segment wavs, orphans",
     )
     p_clean.add_argument("--db", help="SQLite database path (overrides config)")
     p_clean.add_argument("--dir", help="recordings directory (overrides config)")
     p_clean.add_argument(
         "--retention-days", type=int,
         help="days to keep segment wav files (0 = forever; overrides config)",
+    )
+    p_clean.add_argument(
+        "--dry-run", action="store_true",
+        help="print counts and bytes per retention reason; delete nothing",
+    )
+    p_clean.add_argument(
+        "--assume-clips-present", action="store_true",
+        help="with --dry-run: don't stat clip files (for a DB pulled without its audio)",
     )
     p_clean.set_defaults(func=cmd_cleanup)
 
