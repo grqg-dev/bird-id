@@ -1,5 +1,6 @@
 import type { Sliced } from '../lib/slice'
 import type { Summary } from '../lib/types'
+import { encounterDay } from '../lib/types'
 import { fmtDay, fmtHour, fmtInt } from '../lib/format'
 
 function Stat({ label, value, detail }: { label: string; value: string; detail?: string }) {
@@ -15,7 +16,7 @@ function Stat({ label, value, detail }: { label: string; value: string; detail?:
 export function HeadlineStrip({ summary, sliced }: { summary: Summary; sliced: Sliced }) {
   const winLen = sliced.window.hi - sliced.window.lo + 1
   const newCount = sliced.discoveredInWindow.filter(
-    (si) => summary.species[si].first.slice(0, 10) !== summary.days[0],
+    (si) => encounterDay(summary.species[si]) !== summary.days[0],
   ).length
 
   return (
@@ -39,7 +40,7 @@ export function HeadlineStrip({ summary, sliced }: { summary: Summary; sliced: S
             : undefined
         }
       />
-      <Stat label="new arrivals" value={newCount > 0 ? `+${newCount}` : '0'} detail="first heard in window" />
+      <Stat label="new arrivals" value={newCount > 0 ? `+${newCount}` : '0'} detail="new encounters in window" />
     </div>
   )
 }

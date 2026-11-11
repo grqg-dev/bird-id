@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Sliced } from '../lib/slice'
 import type { Summary } from '../lib/types'
+import { encounterDay } from '../lib/types'
 import { fmtDay, fmtInt } from '../lib/format'
 import { Sprite } from './Sprite'
 import { useTheme } from '../theme'
@@ -81,7 +82,8 @@ export function DexGrid({
       </div>
       <div className="dex-grid">
         {entries.map(({ sp, si, count }) => {
-          const isNew = windowDays.has(sp.first.slice(0, 10)) && count > 0
+          const enc = encounterDay(sp)
+          const isNew = enc !== null && windowDays.has(enc) && count > 0
           const night =
             count > 0 && sliced.perSpeciesNight[si] > Math.max(4, count * 0.5)
           const rare = count > 0 && count <= 5

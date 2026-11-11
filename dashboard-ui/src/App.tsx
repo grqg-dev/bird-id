@@ -6,6 +6,7 @@ import { buildCoverage } from './lib/health'
 import { fmtDay } from './lib/format'
 import { useTheme } from './theme'
 import { TipProvider } from './components/Tip'
+import { UnlikelyToggle } from './components/UnlikelyToggle'
 import { HealthBanner } from './components/HealthBanner'
 import { Slicer } from './components/Slicer'
 import { HeadlineStrip } from './components/HeadlineStrip'
@@ -34,16 +35,35 @@ function Dashboard() {
   const [slice, setSlice] = useState<Slice>(DEFAULT_SLICE)
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState<number | null>(null)
+  const [showUnlikely, setShowUnlikely] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('birdid-show-unlikely') === '1'
+    } catch {
+      return false
+    }
+  })
 
   useEffect(() => {
-    fetch('/api/dash/summary')
+    fetch(showUnlikely ? '/api/dash/summary?unlikely=1' : '/api/dash/summary')
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
       })
       .then(setSummary)
       .catch((e) => setError(String(e)))
-  }, [])
+  }, [showUnlikely])
+
+  const toggleUnlikely = (v: boolean) => {
+    try {
+      localStorage.setItem('birdid-show-unlikely', v ? '1' : '0')
+    } catch {
+      // storage unavailable: the toggle still works for this page view
+    }
+    // species indexes change with the payload, so drop index-based focus
+    setOpen(null)
+    setSlice((s) => ({ ...s, species: null }))
+    setShowUnlikely(v)
+  }
 
   // Capture health is advisory: if it fails to load the dashboard still works.
   useEffect(() => {
@@ -115,6 +135,13 @@ function Dashboard() {
           setSlice={setSlice}
           query={query}
           setQuery={setQuery}
+        />
+
+        <UnlikelyToggle
+          total={summary.meta.unlikely_total}
+          hidden={summary.meta.unlikely_hidden}
+          show={showUnlikely}
+          setShow={toggleUnlikely}
         />
 
         <HeadlineStrip summary={summary} sliced={sliced} />

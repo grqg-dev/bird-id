@@ -1,5 +1,6 @@
 import type { Coverage } from './health'
 import type { Band, CubeRow, Slice, Summary } from './types'
+import { encounterDay } from './types'
 
 /**
  * Classify an hour of a given day into a solar band using that day's
@@ -63,7 +64,7 @@ export interface Sliced {
   punchcard: number[][]
   busiestDay: { di: number; count: number } | null
   busiestHour: { hour: number; count: number; rate: number } | null
-  /** species indexes first heard inside the window (uses absolute first-heard) */
+  /** species that became new encounters inside the window (0.7+ hit or second day) */
   discoveredInWindow: number[]
 }
 
@@ -175,7 +176,8 @@ export function computeSlice(summary: Summary, slice: Slice, cov: Coverage | nul
 
   const discoveredInWindow: number[] = []
   for (let si = 0; si < nSpecies; si++) {
-    const firstDay = summary.species[si].first.slice(0, 10)
+    const firstDay = encounterDay(summary.species[si])
+    if (firstDay === null) continue
     const fi = summary.days.indexOf(firstDay)
     if (fi >= win.lo && fi <= win.hi && perSpecies[si] > 0) discoveredInWindow.push(si)
   }

@@ -140,6 +140,13 @@ If recording comes back silent, check macOS mic permission:
   "db": "birdid.db", "recordings_dir": "recordings" }
 ```
 
+Optional: `"location_filter_threshold"` (default unset = BirdNET's 0.03) tightens the
+location/season species list; it is separate from `min_conf`.
+
+`docs/yard_list.json` marks each species `expected`, `possible` or `unlikely` for the yard. The
+dashboard hides `unlikely` ones (seabirds, shorebirds, …) by default with a "N unlikely species
+hidden" toggle; nothing is deleted.
+
 Setting location is the single biggest accuracy win — it stops the model from
 suggesting birds that don't belong in your area or season.
 

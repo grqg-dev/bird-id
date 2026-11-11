@@ -73,7 +73,14 @@ export function Leaderboard({
                 onMouseLeave={tip.hide}
               >
                 <span className="num board-rank">{rank + 1}</span>
-                <span className="board-name">{sp.name}</span>
+                <span className="board-name">
+                  {sp.name}
+                  {sp.status === 'unlikely' && (
+                    <span className="badge unlikely-badge" title="Unlikely at this yard (see docs/yard_list.json)">
+                      unlikely
+                    </span>
+                  )}
+                </span>
                 <span className="board-bar">
                   <span
                     className="board-fill"

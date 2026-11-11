@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { Summary } from '../lib/types'
+import { encounterDay } from '../lib/types'
 import { fmtDay } from '../lib/format'
 import { useTip } from './Tip'
 
@@ -17,7 +18,8 @@ export function Discoveries({
   const { byDay, cumulative } = useMemo(() => {
     const byDay = new Map<number, number[]>()
     summary.species.forEach((sp, si) => {
-      const di = days.indexOf(sp.first.slice(0, 10))
+      const day = encounterDay(sp)
+      const di = day === null ? -1 : days.indexOf(day)
       if (di < 0) return
       const list = byDay.get(di) ?? []
       list.push(si)
@@ -38,7 +40,7 @@ export function Discoveries({
   const padR = 6
   const total = cumulative[cumulative.length - 1]
   const x = (di: number) => padL + (di / (days.length - 1)) * (W - padL - padR)
-  const y = (c: number) => 8 + (1 - c / total) * (H - 30)
+  const y = (c: number) => 8 + (1 - c / Math.max(1, total)) * (H - 30)
 
   const stepPath = cumulative
     .map((c, di) => `${di === 0 ? 'M' : 'L'}${x(di).toFixed(1)},${y(c).toFixed(1)}`)

@@ -194,7 +194,7 @@ class SpeciesSummary:
 **Functions:**
 
 ```python
-identify(wav_path, *, min_conf=0.3, lat=None, lon=None, when=None) → list[Detection]
+identify(wav_path, *, min_conf=0.3, lat=None, lon=None, when=None, filter_threshold=None) → list[Detection]
 ```
 Runs BirdNET on `wav_path`. When `lat`/`lon` are provided, also passes
 `when` (default `date.today()`) so BirdNET applies location/season filtering.
@@ -487,6 +487,7 @@ fallback.
 | `lat` | `null` | Latitude; enables BirdNET location/season filter |
 | `lon` | `null` | Longitude |
 | `min_conf` | `0.3` | Minimum confidence threshold (0–1) |
+| `location_filter_threshold` | `null` | BirdNET location/season species-list cutoff (birdnetlib `Recording(filter_threshold=…)`, library default 0.03); only with `lat`/`lon`. `null` = library default. Higher = shorter list. Independent of `min_conf` |
 | `db` | `"birdid.db"` | SQLite path (relative to CWD) |
 | `recordings_dir` | `"recordings"` | Where segment wavs are written |
 | `retention_days` | `30` | Days to keep segment wavs (0 = forever) |
@@ -567,6 +568,12 @@ Run with `birdid.py dashboard` or `python -m dashboard`.
   (previously ~130 queries for a full page load).
 - `_slug_map()` / `_slug_to_name()` — cached `common_name ↔ slug` from `docs/birds.json`.
 - `_bird_info()` — cached field notes from `docs/bird_info.json` (keyed by slug).
+- `_yard_list()` / `_yard_status(common_name)` — cached plausibility from `docs/yard_list.json`
+  (`expected` / `possible` / `unlikely`; unlisted = `possible`). `/api/dash/summary`,
+  `/api/dash/sure` and `/api/digest` drop `unlikely` species unless `?unlikely=1`, and report
+  `meta.unlikely_total` / `unlikely_hidden`. Stored detections are never touched; legacy
+  template pages (`/dex`, …) are not filtered. Summary species also carry `days`, `status` and
+  `encounter` (first 0.7+ detection or second separate day — the "New encounters" rule).
 - `_sprite_slug(common_name, slugs)` — checks `realistic-sprites/{slug}.png` exists.
 - `_common_to_slug(name)` — `name.lower().replace("'","")` → `re.sub(r"[^a-z0-9]+","_")`.
 - Spectrograms and callviz JSON are disk-cached under `recordings/cache/` and
@@ -697,6 +704,7 @@ birdid.db            SQLite database (gitignored)
 
 docs/birds.json          Canonical species list (common_name + slug)
 docs/bird_info.json      Field notes per species (keyed by slug)
+docs/yard_list.json      Plausibility per species: expected / possible / unlikely (keyed by common name)
 realistic-sprites/       Per-species illustration PNGs (field-guide style)
 sprites/                 Older pixel-art sprite PNGs (legacy)
 static/three.min.js      Vendored Three.js r134 UMD (never replace with CDN)

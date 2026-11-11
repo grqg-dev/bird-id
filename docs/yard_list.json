@@ -1,0 +1,669 @@
+{
+  "_meta": {
+    "about": "Plausibility of each species for a Santa Barbara foothills backyard. Used by the dashboard to hide 'unlikely' species by default; detections are never deleted or altered. Species not listed are treated as 'possible'.",
+    "statuses": {
+      "expected": "0.9+ confidence detections on 5 or more separate days",
+      "possible": "everything else",
+      "unlikely": "pelagic, seabird, gull/tern, shorebird and wetland families that are not plausible at a foothill yard"
+    },
+    "seeded": "2026-11-11 from a read-only query of prod birdid.db (154 species heard 2026-05-31 .. 2026-11-11)",
+    "review": "Edit statuses by hand; restart the dashboard to pick up changes."
+  },
+  "species": {
+    "Acorn Woodpecker": {
+      "scientific_name": "Melanerpes formicivorus",
+      "status": "expected"
+    },
+    "Allen's Hummingbird": {
+      "scientific_name": "Selasphorus sasin",
+      "status": "possible"
+    },
+    "American Coot": {
+      "scientific_name": "Fulica americana",
+      "status": "unlikely",
+      "note": "wetland bird"
+    },
+    "American Crow": {
+      "scientific_name": "Corvus brachyrhynchos",
+      "status": "expected"
+    },
+    "American Goldfinch": {
+      "scientific_name": "Spinus tristis",
+      "status": "possible"
+    },
+    "American Pipit": {
+      "scientific_name": "Anthus rubescens",
+      "status": "possible"
+    },
+    "Anna's Hummingbird": {
+      "scientific_name": "Calypte anna",
+      "status": "expected"
+    },
+    "Ash-throated Flycatcher": {
+      "scientific_name": "Myiarchus cinerascens",
+      "status": "possible"
+    },
+    "Baird's Sandpiper": {
+      "scientific_name": "Calidris bairdii",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Band-tailed Pigeon": {
+      "scientific_name": "Patagioenas fasciata",
+      "status": "possible"
+    },
+    "Bank Swallow": {
+      "scientific_name": "Riparia riparia",
+      "status": "possible"
+    },
+    "Barn Owl": {
+      "scientific_name": "Tyto alba",
+      "status": "expected"
+    },
+    "Barn Swallow": {
+      "scientific_name": "Hirundo rustica",
+      "status": "possible"
+    },
+    "Bell's Sparrow": {
+      "scientific_name": "Artemisiospiza belli",
+      "status": "possible"
+    },
+    "Belted Kingfisher": {
+      "scientific_name": "Megaceryle alcyon",
+      "status": "possible"
+    },
+    "Bewick's Wren": {
+      "scientific_name": "Thryomanes bewickii",
+      "status": "expected"
+    },
+    "Black Phoebe": {
+      "scientific_name": "Sayornis nigricans",
+      "status": "expected"
+    },
+    "Black-bellied Plover": {
+      "scientific_name": "Pluvialis squatarola",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Black-chinned Hummingbird": {
+      "scientific_name": "Archilochus alexandri",
+      "status": "possible"
+    },
+    "Black-crowned Night-Heron": {
+      "scientific_name": "Nycticorax nycticorax",
+      "status": "expected"
+    },
+    "Black-headed Grosbeak": {
+      "scientific_name": "Pheucticus melanocephalus",
+      "status": "possible"
+    },
+    "Black-necked Stilt": {
+      "scientific_name": "Himantopus mexicanus",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Black-throated Gray Warbler": {
+      "scientific_name": "Setophaga nigrescens",
+      "status": "possible"
+    },
+    "Black-throated Sparrow": {
+      "scientific_name": "Amphispiza bilineata",
+      "status": "possible"
+    },
+    "Blue Grosbeak": {
+      "scientific_name": "Passerina caerulea",
+      "status": "possible"
+    },
+    "Blue-gray Gnatcatcher": {
+      "scientific_name": "Polioptila caerulea",
+      "status": "possible"
+    },
+    "Brant": {
+      "scientific_name": "Branta bernicla",
+      "status": "unlikely",
+      "note": "marine / wetland waterfowl"
+    },
+    "Brown Creeper": {
+      "scientific_name": "Certhia americana",
+      "status": "possible"
+    },
+    "Brown Pelican": {
+      "scientific_name": "Pelecanus occidentalis",
+      "status": "unlikely",
+      "note": "pelagic / seabird"
+    },
+    "Bullock's Oriole": {
+      "scientific_name": "Icterus bullockii",
+      "status": "possible"
+    },
+    "Bushtit": {
+      "scientific_name": "Psaltriparus minimus",
+      "status": "expected"
+    },
+    "California Gull": {
+      "scientific_name": "Larus californicus",
+      "status": "unlikely",
+      "note": "gull / tern"
+    },
+    "California Quail": {
+      "scientific_name": "Callipepla californica",
+      "status": "possible"
+    },
+    "California Scrub-Jay": {
+      "scientific_name": "Aphelocoma californica",
+      "status": "expected"
+    },
+    "California Thrasher": {
+      "scientific_name": "Toxostoma redivivum",
+      "status": "possible"
+    },
+    "California Towhee": {
+      "scientific_name": "Melozone crissalis",
+      "status": "expected"
+    },
+    "Canada Goose": {
+      "scientific_name": "Branta canadensis",
+      "status": "possible"
+    },
+    "Caspian Tern": {
+      "scientific_name": "Hydroprogne caspia",
+      "status": "unlikely",
+      "note": "gull / tern"
+    },
+    "Cassin's Kingbird": {
+      "scientific_name": "Tyrannus vociferans",
+      "status": "possible"
+    },
+    "Cassin's Vireo": {
+      "scientific_name": "Vireo cassinii",
+      "status": "possible"
+    },
+    "Cedar Waxwing": {
+      "scientific_name": "Bombycilla cedrorum",
+      "status": "expected"
+    },
+    "Chestnut-backed Chickadee": {
+      "scientific_name": "Poecile rufescens",
+      "status": "possible"
+    },
+    "Chipping Sparrow": {
+      "scientific_name": "Spizella passerina",
+      "status": "possible"
+    },
+    "Cliff Swallow": {
+      "scientific_name": "Petrochelidon pyrrhonota",
+      "status": "possible"
+    },
+    "Common Gallinule": {
+      "scientific_name": "Gallinula galeata",
+      "status": "unlikely",
+      "note": "wetland bird"
+    },
+    "Common Loon": {
+      "scientific_name": "Gavia immer",
+      "status": "unlikely",
+      "note": "pelagic / seabird"
+    },
+    "Common Merganser": {
+      "scientific_name": "Mergus merganser",
+      "status": "unlikely",
+      "note": "marine / wetland waterfowl"
+    },
+    "Common Murre": {
+      "scientific_name": "Uria aalge",
+      "status": "unlikely",
+      "note": "pelagic / seabird"
+    },
+    "Common Raven": {
+      "scientific_name": "Corvus corax",
+      "status": "possible"
+    },
+    "Common Tern": {
+      "scientific_name": "Sterna hirundo",
+      "status": "unlikely",
+      "note": "gull / tern"
+    },
+    "Common Yellowthroat": {
+      "scientific_name": "Geothlypis trichas",
+      "status": "possible"
+    },
+    "Cooper's Hawk": {
+      "scientific_name": "Accipiter cooperii",
+      "status": "expected"
+    },
+    "Costa's Hummingbird": {
+      "scientific_name": "Calypte costae",
+      "status": "possible"
+    },
+    "Dark-eyed Junco": {
+      "scientific_name": "Junco hyemalis",
+      "status": "expected"
+    },
+    "Downy Woodpecker": {
+      "scientific_name": "Dryobates pubescens",
+      "status": "possible"
+    },
+    "Dunlin": {
+      "scientific_name": "Calidris alpina",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Eurasian Collared-Dove": {
+      "scientific_name": "Streptopelia decaocto",
+      "status": "possible"
+    },
+    "Forster's Tern": {
+      "scientific_name": "Sterna forsteri",
+      "status": "unlikely",
+      "note": "gull / tern"
+    },
+    "Gadwall": {
+      "scientific_name": "Mareca strepera",
+      "status": "unlikely",
+      "note": "marine / wetland waterfowl"
+    },
+    "Golden-crowned Sparrow": {
+      "scientific_name": "Zonotrichia atricapilla",
+      "status": "possible"
+    },
+    "Great Blue Heron": {
+      "scientific_name": "Ardea herodias",
+      "status": "possible"
+    },
+    "Great Egret": {
+      "scientific_name": "Ardea alba",
+      "status": "possible"
+    },
+    "Great Horned Owl": {
+      "scientific_name": "Bubo virginianus",
+      "status": "expected"
+    },
+    "Great-tailed Grackle": {
+      "scientific_name": "Quiscalus mexicanus",
+      "status": "possible"
+    },
+    "Greater Roadrunner": {
+      "scientific_name": "Geococcyx californianus",
+      "status": "possible"
+    },
+    "Greater Yellowlegs": {
+      "scientific_name": "Tringa melanoleuca",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Green Heron": {
+      "scientific_name": "Butorides virescens",
+      "status": "possible"
+    },
+    "Green-winged Teal": {
+      "scientific_name": "Anas crecca",
+      "status": "unlikely",
+      "note": "marine / wetland waterfowl"
+    },
+    "Hairy Woodpecker": {
+      "scientific_name": "Dryobates villosus",
+      "status": "possible"
+    },
+    "Heermann's Gull": {
+      "scientific_name": "Larus heermanni",
+      "status": "unlikely",
+      "note": "gull / tern"
+    },
+    "Hermit Thrush": {
+      "scientific_name": "Catharus guttatus",
+      "status": "possible"
+    },
+    "Hermit Warbler": {
+      "scientific_name": "Setophaga occidentalis",
+      "status": "possible"
+    },
+    "Hooded Oriole": {
+      "scientific_name": "Icterus cucullatus",
+      "status": "expected"
+    },
+    "Horned Lark": {
+      "scientific_name": "Eremophila alpestris",
+      "status": "possible"
+    },
+    "House Finch": {
+      "scientific_name": "Haemorhous mexicanus",
+      "status": "expected"
+    },
+    "House Sparrow": {
+      "scientific_name": "Passer domesticus",
+      "status": "possible"
+    },
+    "House Wren": {
+      "scientific_name": "Troglodytes aedon",
+      "status": "possible"
+    },
+    "Hutton's Vireo": {
+      "scientific_name": "Vireo huttoni",
+      "status": "expected"
+    },
+    "Killdeer": {
+      "scientific_name": "Charadrius vociferus",
+      "status": "possible"
+    },
+    "Lark Sparrow": {
+      "scientific_name": "Chondestes grammacus",
+      "status": "possible"
+    },
+    "Laysan Albatross": {
+      "scientific_name": "Phoebastria immutabilis",
+      "status": "unlikely",
+      "note": "pelagic / seabird"
+    },
+    "Lazuli Bunting": {
+      "scientific_name": "Passerina amoena",
+      "status": "possible"
+    },
+    "Least Sandpiper": {
+      "scientific_name": "Calidris minutilla",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Least Tern": {
+      "scientific_name": "Sternula antillarum",
+      "status": "unlikely",
+      "note": "gull / tern"
+    },
+    "Lesser Goldfinch": {
+      "scientific_name": "Spinus psaltria",
+      "status": "expected"
+    },
+    "Lesser Yellowlegs": {
+      "scientific_name": "Tringa flavipes",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Loggerhead Shrike": {
+      "scientific_name": "Lanius ludovicianus",
+      "status": "possible"
+    },
+    "MacGillivray's Warbler": {
+      "scientific_name": "Geothlypis tolmiei",
+      "status": "possible"
+    },
+    "Mallard": {
+      "scientific_name": "Anas platyrhynchos",
+      "status": "possible"
+    },
+    "Marsh Wren": {
+      "scientific_name": "Cistothorus palustris",
+      "status": "unlikely",
+      "note": "wetland bird"
+    },
+    "Mountain Chickadee": {
+      "scientific_name": "Poecile gambeli",
+      "status": "possible"
+    },
+    "Mountain Quail": {
+      "scientific_name": "Oreortyx pictus",
+      "status": "possible"
+    },
+    "Mourning Dove": {
+      "scientific_name": "Zenaida macroura",
+      "status": "possible"
+    },
+    "Northern Cardinal": {
+      "scientific_name": "Cardinalis cardinalis",
+      "status": "possible"
+    },
+    "Northern Fulmar": {
+      "scientific_name": "Fulmarus glacialis",
+      "status": "unlikely",
+      "note": "pelagic / seabird"
+    },
+    "Northern Pintail": {
+      "scientific_name": "Anas acuta",
+      "status": "unlikely",
+      "note": "marine / wetland waterfowl"
+    },
+    "Northern Rough-winged Swallow": {
+      "scientific_name": "Stelgidopteryx serripennis",
+      "status": "expected"
+    },
+    "Northern Shoveler": {
+      "scientific_name": "Spatula clypeata",
+      "status": "unlikely",
+      "note": "marine / wetland waterfowl"
+    },
+    "Nuttall's Woodpecker": {
+      "scientific_name": "Dryobates nuttallii",
+      "status": "expected"
+    },
+    "Oak Titmouse": {
+      "scientific_name": "Baeolophus inornatus",
+      "status": "expected"
+    },
+    "Olive-sided Flycatcher": {
+      "scientific_name": "Contopus cooperi",
+      "status": "possible"
+    },
+    "Orange-crowned Warbler": {
+      "scientific_name": "Leiothlypis celata",
+      "status": "expected"
+    },
+    "Pacific-slope Flycatcher": {
+      "scientific_name": "Empidonax difficilis",
+      "status": "expected"
+    },
+    "Peregrine Falcon": {
+      "scientific_name": "Falco peregrinus",
+      "status": "possible"
+    },
+    "Phainopepla": {
+      "scientific_name": "Phainopepla nitens",
+      "status": "possible"
+    },
+    "Pine Siskin": {
+      "scientific_name": "Spinus pinus",
+      "status": "possible"
+    },
+    "Purple Finch": {
+      "scientific_name": "Haemorhous purpureus",
+      "status": "possible"
+    },
+    "Pygmy Nuthatch": {
+      "scientific_name": "Sitta pygmaea",
+      "status": "possible"
+    },
+    "Red-breasted Nuthatch": {
+      "scientific_name": "Sitta canadensis",
+      "status": "possible"
+    },
+    "Red-shouldered Hawk": {
+      "scientific_name": "Buteo lineatus",
+      "status": "expected"
+    },
+    "Red-tailed Hawk": {
+      "scientific_name": "Buteo jamaicensis",
+      "status": "possible"
+    },
+    "Red-throated Loon": {
+      "scientific_name": "Gavia stellata",
+      "status": "unlikely",
+      "note": "pelagic / seabird"
+    },
+    "Red-winged Blackbird": {
+      "scientific_name": "Agelaius phoeniceus",
+      "status": "possible"
+    },
+    "Ring-billed Gull": {
+      "scientific_name": "Larus delawarensis",
+      "status": "unlikely",
+      "note": "gull / tern"
+    },
+    "Rock Pigeon": {
+      "scientific_name": "Columba livia",
+      "status": "possible"
+    },
+    "Rock Wren": {
+      "scientific_name": "Salpinctes obsoletus",
+      "status": "possible"
+    },
+    "Ruby-crowned Kinglet": {
+      "scientific_name": "Corthylio calendula",
+      "status": "possible"
+    },
+    "Ruddy Turnstone": {
+      "scientific_name": "Arenaria interpres",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Rufous Hummingbird": {
+      "scientific_name": "Selasphorus rufus",
+      "status": "possible"
+    },
+    "Sanderling": {
+      "scientific_name": "Calidris alba",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Savannah Sparrow": {
+      "scientific_name": "Passerculus sandwichensis",
+      "status": "possible"
+    },
+    "Say's Phoebe": {
+      "scientific_name": "Sayornis saya",
+      "status": "possible"
+    },
+    "Semipalmated Plover": {
+      "scientific_name": "Charadrius semipalmatus",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Song Sparrow": {
+      "scientific_name": "Melospiza melodia",
+      "status": "possible"
+    },
+    "Sooty Shearwater": {
+      "scientific_name": "Ardenna grisea",
+      "status": "unlikely",
+      "note": "pelagic / seabird"
+    },
+    "Spotted Sandpiper": {
+      "scientific_name": "Actitis macularius",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Spotted Towhee": {
+      "scientific_name": "Pipilo maculatus",
+      "status": "expected"
+    },
+    "Steller's Jay": {
+      "scientific_name": "Cyanocitta stelleri",
+      "status": "possible"
+    },
+    "Townsend's Warbler": {
+      "scientific_name": "Setophaga townsendi",
+      "status": "possible"
+    },
+    "Tree Swallow": {
+      "scientific_name": "Tachycineta bicolor",
+      "status": "possible"
+    },
+    "Turkey Vulture": {
+      "scientific_name": "Cathartes aura",
+      "status": "possible"
+    },
+    "Verdin": {
+      "scientific_name": "Auriparus flaviceps",
+      "status": "possible"
+    },
+    "Vermilion Flycatcher": {
+      "scientific_name": "Pyrocephalus rubinus",
+      "status": "possible"
+    },
+    "Violet-green Swallow": {
+      "scientific_name": "Tachycineta thalassina",
+      "status": "possible"
+    },
+    "Virginia Rail": {
+      "scientific_name": "Rallus limicola",
+      "status": "unlikely",
+      "note": "wetland bird"
+    },
+    "Warbling Vireo": {
+      "scientific_name": "Vireo gilvus",
+      "status": "possible"
+    },
+    "Western Bluebird": {
+      "scientific_name": "Sialia mexicana",
+      "status": "possible"
+    },
+    "Western Grebe": {
+      "scientific_name": "Aechmophorus occidentalis",
+      "status": "unlikely",
+      "note": "pelagic / seabird"
+    },
+    "Western Sandpiper": {
+      "scientific_name": "Calidris mauri",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Western Tanager": {
+      "scientific_name": "Piranga ludoviciana",
+      "status": "possible"
+    },
+    "Western Wood-Pewee": {
+      "scientific_name": "Contopus sordidulus",
+      "status": "possible"
+    },
+    "Whimbrel": {
+      "scientific_name": "Numenius phaeopus",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "White-breasted Nuthatch": {
+      "scientific_name": "Sitta carolinensis",
+      "status": "expected"
+    },
+    "White-crowned Sparrow": {
+      "scientific_name": "Zonotrichia leucophrys",
+      "status": "possible"
+    },
+    "White-throated Swift": {
+      "scientific_name": "Aeronautes saxatalis",
+      "status": "expected"
+    },
+    "Wild Turkey": {
+      "scientific_name": "Meleagris gallopavo",
+      "status": "possible"
+    },
+    "Willet": {
+      "scientific_name": "Tringa semipalmata",
+      "status": "unlikely",
+      "note": "shorebird"
+    },
+    "Willow Flycatcher": {
+      "scientific_name": "Empidonax traillii",
+      "status": "possible"
+    },
+    "Wilson's Warbler": {
+      "scientific_name": "Cardellina pusilla",
+      "status": "possible"
+    },
+    "Wrentit": {
+      "scientific_name": "Chamaea fasciata",
+      "status": "expected"
+    },
+    "Yellow Warbler": {
+      "scientific_name": "Setophaga petechia",
+      "status": "possible"
+    },
+    "Yellow-billed Magpie": {
+      "scientific_name": "Pica nuttalli",
+      "status": "possible"
+    },
+    "Yellow-headed Blackbird": {
+      "scientific_name": "Xanthocephalus xanthocephalus",
+      "status": "possible"
+    },
+    "Yellow-rumped Warbler": {
+      "scientific_name": "Setophaga coronata",
+      "status": "possible"
+    }
+  }
+}

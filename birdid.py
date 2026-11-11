@@ -287,7 +287,10 @@ def _import_to_wav(src: Path, dest_dir: Path, started_at: datetime) -> Path:
 def cmd_identify(args) -> int:
     min_conf, lat, lon, loc = _resolve_id_params(args)
     print(f"Analyzing {args.wav} (min_conf={min_conf}{loc}) ...")
-    detections = identifier.identify(args.wav, min_conf=min_conf, lat=lat, lon=lon)
+    detections = identifier.identify(
+        args.wav, min_conf=min_conf, lat=lat, lon=lon,
+        filter_threshold=args.cfg.get("location_filter_threshold"),
+    )
     _print_detections(detections, summary=args.summary)
 
     if args.save:
@@ -338,7 +341,10 @@ def cmd_listen(args) -> int:
     print(f"Recording {args.seconds}s from device {args.device} -> {args.out} ...")
     result = recorder.record(args.seconds, args.out, device=args.device)
     print(f"Saved {result.path} (peak {result.max_volume_dbfs:.1f} dBFS). Identifying{loc} ...")
-    detections = identifier.identify(result.path, min_conf=min_conf, lat=lat, lon=lon)
+    detections = identifier.identify(
+        result.path, min_conf=min_conf, lat=lat, lon=lon,
+        filter_threshold=args.cfg.get("location_filter_threshold"),
+    )
     _print_detections(detections)
     return 0
 
@@ -499,7 +505,10 @@ def cmd_monitor(args) -> int:
             stamp = started_at.strftime("%H:%M:%S")
             late = _processing_lag_note(started_at)
 
-            detections = identifier.identify(wav_path, min_conf=min_conf, lat=lat, lon=lon)
+            detections = identifier.identify(
+                wav_path, min_conf=min_conf, lat=lat, lon=lon,
+                filter_threshold=cfg.get("location_filter_threshold"),
+            )
             ended_at = started_at + timedelta(seconds=duration)
 
             clip_paths = _clip_paths_for_detections(

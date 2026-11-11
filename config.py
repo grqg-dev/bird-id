@@ -20,6 +20,10 @@ DEFAULTS: dict[str, Any] = {
     "lat": None,        # e.g. 37.77  -> enables BirdNET's location/season filter
     "lon": None,        # e.g. -122.42
     "min_conf": 0.3,
+    # BirdNET location/season species-list cutoff (birdnetlib `filter_threshold`, its default is
+    # 0.03). Only used with lat/lon. Raising it (e.g. 0.1) shrinks the list to species more
+    # likely at this place/week; None keeps birdnetlib's default. Separate from min_conf.
+    "location_filter_threshold": None,
     "segment_minutes": 1.0,       # retired — ignored by streaming monitor
     # Streaming monitor (cmd_monitor)
     "hop_ms": 100,                # PCM read size: 100 ms per hop

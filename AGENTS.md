@@ -265,6 +265,12 @@ After code that touches DB schema or clips:
    by slug from `docs/birds.json`. Dashboard caches this at import; **restart
    dashboard** after editing on prod. No DB migration needed.
 
+4. **`docs/yard_list.json`** — plausibility (`expected` / `possible` / `unlikely`) per
+   species, keyed by common name. `/dash` hides `unlikely` by default with a toggle; detections
+   are never deleted. Cached at import: **restart dashboard** after editing. Seeded from prod
+   (0.9+ detections on 5+ days → `expected`; pelagic, seabird, gull/tern, shorebird and
+   wetland families → `unlikely`; the rest `possible`). Species not listed count as `possible`.
+
 New segments from the monitor get clips automatically; backfill is only for
 history.
 
@@ -341,7 +347,7 @@ the parent segment's full `wav_path` for fallback playback/spectrograms.
 - User-facing usage lives in `README.md`; architecture, testing, environments, and
   gotchas live here. Keep both in sync when commands or defaults change.
 - **Static dex content:** `docs/birds.json` (top-50 slug list), `docs/bird_info.json`
-  (field notes), `realistic-sprites/*.png` (illustrations). Prod may detect species
+  (field notes), `docs/yard_list.json` (plausibility), `realistic-sprites/*.png` (illustrations). Prod may detect species
   outside `birds.json`; those still get dex cards but need slugs + sprites + info
   added in dev, then deployed.
 

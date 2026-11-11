@@ -22,6 +22,7 @@ _BIRDS_JSON = _ROOT / "docs" / "birds.json"
 
 
 _BIRD_INFO_JSON = _ROOT / "docs" / "bird_info.json"
+_YARD_LIST_JSON = _ROOT / "docs" / "yard_list.json"
 
 
 _DEV_RELOAD_SCRIPT = """<script>
@@ -75,6 +76,30 @@ def _bird_info() -> dict[str, dict]:
         except (FileNotFoundError, json.JSONDecodeError):
             _BIRD_INFO_CACHE = {}
     return _BIRD_INFO_CACHE
+
+
+YARD_STATUSES = ("expected", "possible", "unlikely")
+_YARD_LIST_CACHE: dict[str, dict] | None = None
+
+
+def _yard_list() -> dict[str, dict]:
+    """Per-species plausibility keyed by common name (cached). See docs/yard_list.json.
+    Species not listed are 'possible'."""
+    global _YARD_LIST_CACHE
+    if _YARD_LIST_CACHE is None:
+        try:
+            with _YARD_LIST_JSON.open() as f:
+                data = json.load(f).get("species", {})
+            _YARD_LIST_CACHE = {
+                k: v for k, v in data.items() if isinstance(v, dict) and v.get("status") in YARD_STATUSES
+            }
+        except (FileNotFoundError, json.JSONDecodeError, AttributeError):
+            _YARD_LIST_CACHE = {}
+    return _YARD_LIST_CACHE
+
+
+def _yard_status(common_name: str) -> str:
+    return _yard_list().get(common_name, {}).get("status", "possible")
 
 
 def _slug_to_name() -> dict[str, str]:
@@ -153,7 +178,7 @@ def main(host: str = "127.0.0.1", port: int = 8080, *, dev: bool = False):
     if dev:
         print(f"bird-id dashboard (dev) at {url}  (db: {_CFG['db']})")
         print("  auto-reload on code changes — leave a tab open to refresh automatically")
-        extra_files = [str(_BIRD_INFO_JSON), str(_BIRDS_JSON)]
+        extra_files = [str(_BIRD_INFO_JSON), str(_BIRDS_JSON), str(_YARD_LIST_JSON)]
         app.run(host=host, port=port, debug=True, use_reloader=True, extra_files=extra_files)
         return
     print(f"bird-id dashboard at {url}  (db: {_CFG['db']})")

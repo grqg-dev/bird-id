@@ -18,6 +18,7 @@ from .app import (
     _bird_info,
     _common_to_slug,
     _slug_map,
+    _yard_status,
     app,
 )
 from .legacy import (
@@ -245,7 +246,7 @@ def _dash_conf_bucket_sql() -> str:
     )
 
 
-def _build_dash_summary(conn) -> dict:
+def _build_dash_summary(conn, include_unlikely: bool = False) -> dict:
     excluded = sorted(EXCLUDED_DAYS)
     not_excluded = "date(heard_at) NOT IN (%s)" % ",".join("?" * len(excluded)) if excluded else "1=1"
 
@@ -259,12 +260,38 @@ def _build_dash_summary(conn) -> dict:
         excluded,
     ).fetchall()
 
+    # "New encounters": a species counts once it has one detection at 0.7+ or
+    # detections on two separate days — one stray low-confidence hit is not an arrival.
+    encounter_conf = _DASH_CONF_EDGES[1]
+    day_rows = conn.execute(
+        f"""
+        SELECT common_name AS name, MIN(heard_at) AS t,
+               MIN(CASE WHEN confidence >= ? THEN heard_at END) AS hi
+        FROM detections WHERE {not_excluded}
+        GROUP BY common_name, date(heard_at) ORDER BY common_name, date(heard_at)
+        """,
+        (encounter_conf, *excluded),
+    ).fetchall()
+    per_day: dict[str, list] = {}
+    for r in day_rows:
+        per_day.setdefault(r["name"], []).append(r)
+
+    def _encounter(name: str) -> str | None:
+        rows = per_day.get(name, [])
+        cands = [r["hi"] for r in rows if r["hi"]]
+        if len(rows) >= 2:
+            cands.append(rows[1]["t"])
+        return min(cands) if cands else None
+
+    unlikely_total = sum(1 for r in sp_rows if _yard_status(r["name"]) == "unlikely")
+    visible = [r for r in sp_rows if include_unlikely or _yard_status(r["name"]) != "unlikely"]
+
     slugs = _slug_map()
     info = _bird_info()
     clips = _dash_best_clips(conn)
     species = []
     index_of: dict[str, int] = {}
-    for i, r in enumerate(sp_rows):
+    for i, r in enumerate(visible):
         slug = slugs.get(r["name"]) or _common_to_slug(r["name"])
         entry = {
             "name": r["name"],
@@ -276,6 +303,9 @@ def _build_dash_summary(conn) -> dict:
             "peak": round(r["peak"], 3),
             "first": r["first"],
             "last": r["last"],
+            "days": len(per_day.get(r["name"], [])),
+            "encounter": _encounter(r["name"]),
+            "status": _yard_status(r["name"]),
         }
         clip = clips.get(r["name"])
         if clip:
@@ -331,6 +361,9 @@ def _build_dash_summary(conn) -> dict:
             "min_conf": _CFG.get("min_conf", 0.3),
             "conf_edges": list(_DASH_CONF_EDGES),
             "excluded_days": excluded,
+            "include_unlikely": include_unlikely,
+            "unlikely_total": unlikely_total,
+            "unlikely_hidden": 0 if include_unlikely else unlikely_total,
         },
         "days": days,
         "sun": sun,
@@ -339,7 +372,7 @@ def _build_dash_summary(conn) -> dict:
     }
 
 
-def _build_dash_sure(conn) -> dict:
+def _build_dash_sure(conn, include_unlikely: bool = False) -> dict:
     """All-time species leaderboard for detections at 0.9+ confidence."""
     min_conf = _DASH_CONF_EDGES[-1]
     excluded = tuple(sorted(EXCLUDED_DAYS))
@@ -369,7 +402,10 @@ def _build_dash_sure(conn) -> dict:
         excluded_days=excluded,
     )
     species = []
+    unlikely_total = sum(1 for r in rows if _yard_status(r["name"]) == "unlikely")
     for row in rows:
+        if not include_unlikely and _yard_status(row["name"]) == "unlikely":
+            continue
         slug = slugs.get(row["name"]) or _common_to_slug(row["name"])
         entry = {
             "name": row["name"],
@@ -377,6 +413,7 @@ def _build_dash_sure(conn) -> dict:
             "slug": slug,
             "art": (_SPRITES_DIR / f"{slug}.png").is_file(),
             "pixel": (_PIXEL_SPRITES_DIR / f"{slug}.png").is_file(),
+            "status": _yard_status(row["name"]),
             "count": row["count"],
             "peak": round(row["peak"], 3),
             "clips": clips.get(row["name"], []),
@@ -392,16 +429,28 @@ def _build_dash_sure(conn) -> dict:
             "location": "Santa Barbara, CA",
             "min_conf": min_conf,
             "excluded_days": list(excluded),
+            "include_unlikely": include_unlikely,
+            "unlikely_total": unlikely_total,
+            "unlikely_hidden": 0 if include_unlikely else unlikely_total,
         },
         "species": species,
     }
+
+
+def _wants_unlikely() -> bool:
+    """`?unlikely=1` includes species marked 'unlikely' in docs/yard_list.json."""
+    return request.args.get("unlikely", "").lower() in ("1", "true", "yes", "on")
 
 
 @app.route("/api/dash/summary")
 def api_dash_summary():
     conn = _db()
     try:
-        body, etag = _cached("dash_summary", conn, _build_dash_summary)
+        include = _wants_unlikely()
+        body, etag = _cached(
+            "dash_summary", conn, lambda c: _build_dash_summary(c, include),
+            extra_key=(include,),
+        )
     finally:
         conn.close()
     if request.headers.get("If-None-Match") == etag:
@@ -416,7 +465,11 @@ def api_dash_summary():
 def api_dash_sure():
     conn = _db()
     try:
-        body, etag = _cached("dash_sure", conn, _build_dash_sure)
+        include = _wants_unlikely()
+        body, etag = _cached(
+            "dash_sure", conn, lambda c: _build_dash_sure(c, include),
+            extra_key=(include,),
+        )
     finally:
         conn.close()
     if request.headers.get("If-None-Match") == etag:
@@ -442,7 +495,9 @@ def _digest_clip(row) -> dict | None:
     }
 
 
-def build_digest(conn, day: str, *, gap: int = 14, limit: int = 10) -> dict:
+def build_digest(
+    conn, day: str, *, gap: int = 14, limit: int = 10, include_unlikely: bool = False
+) -> dict:
     """Daily digest: totals, life-list firsts, species back after a gap, and
     the day's top detections. Shared by GET /api/digest and
     `birdid.py digest --json` so both read the same shape."""
@@ -452,8 +507,11 @@ def build_digest(conn, day: str, *, gap: int = 14, limit: int = 10) -> dict:
         return slugs.get(name) or _common_to_slug(name)
 
     totals_row = storage.digest_totals(conn, day)
-    dex_rows = storage.species_dex_day(conn, day)
-    new_names = set(storage.new_species_on(conn, day))
+    all_dex_rows = storage.species_dex_day(conn, day)
+    hide = lambda name: not include_unlikely and _yard_status(name) == "unlikely"  # noqa: E731
+    dex_rows = [r for r in all_dex_rows if not hide(r["common_name"])]
+    hidden_unlikely = len(all_dex_rows) - len(dex_rows)
+    new_names = {n for n in storage.new_species_on(conn, day) if not hide(n)}
 
     new_species = [
         {
@@ -470,6 +528,8 @@ def build_digest(conn, day: str, *, gap: int = 14, limit: int = 10) -> dict:
 
     returning_species = []
     for r in storage.digest_returning_species(conn, day, gap=gap):
+        if hide(r["common_name"]):
+            continue
         last_before = r["last_seen_before"]
         days_absent = (
             date.fromisoformat(day) - date.fromisoformat(last_before[:10])
@@ -515,13 +575,14 @@ def build_digest(conn, day: str, *, gap: int = 14, limit: int = 10) -> dict:
         "day": day,
         "totals": {
             "detections": totals_row["detections"],
-            "species": totals_row["species"],
+            "species": totals_row["species"] - hidden_unlikely,
             "audio_min": round((totals_row["audio_sec"] or 0) / 60, 1),
         },
         "new_species": new_species,
         "returning_species": returning_species,
         "top_detections": top_detections,
         "species": species,
+        "unlikely_hidden": hidden_unlikely,
     }
 
 
@@ -530,11 +591,13 @@ def api_digest():
     day = request.args.get("day") or _today()
     gap = request.args.get("gap", default=14, type=int)
     limit = request.args.get("limit", default=10, type=int)
+    include = _wants_unlikely()
     conn = _db()
     try:
         body, etag = _cached(
-            "digest", conn, lambda c: build_digest(c, day, gap=gap, limit=limit),
-            extra_key=(day, gap, limit),
+            "digest", conn,
+            lambda c: build_digest(c, day, gap=gap, limit=limit, include_unlikely=include),
+            extra_key=(day, gap, limit, include),
         )
     finally:
         conn.close()

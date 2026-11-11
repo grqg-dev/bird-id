@@ -773,3 +773,18 @@
   ) !important;
   box-shadow: inset 0 0 0 2px var(--down);
 }
+
+/* Species plausibility toggle (WP4) */
+.unlikely-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.unlikely-badge {
+  margin-left: 6px;
+  font-size: 9px;
+  vertical-align: middle;
+  opacity: 0.8;
+}
